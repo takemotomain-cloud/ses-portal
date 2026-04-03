@@ -1,0 +1,75 @@
+/**
+ * グローバルスタイル
+ *
+ * Tailwindのベースレイヤー + デザインルール準拠の共通スタイル。
+ * letter-spacing: 0.03emを全テキストに適用（引き継ぎドキュメント準拠）。
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* デザインルール: letter-spacing 0.03em 固定 */
+  * {
+    letter-spacing: 0.03em;
+  }
+
+  body {
+    @apply bg-page text-primary antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans',
+      'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+    line-height: 1.7;
+  }
+
+  /* デザインルール: テーブル全セル折り返し禁止 */
+  table td,
+  table th {
+    white-space: nowrap;
+  }
+}
+
+@layer components {
+  /* 共通カードスタイル */
+  .card {
+    @apply bg-card border border-border rounded-lg;
+  }
+
+  /* ステータスバッジ */
+  .badge {
+    @apply text-xs px-2 py-0.5 rounded inline-block whitespace-nowrap;
+  }
+
+  .badge-ok {
+    @apply bg-status-green-bg text-status-green-text;
+  }
+
+  .badge-warn {
+    @apply bg-status-amber-bg text-status-amber-text;
+  }
+
+  .badge-danger {
+    @apply bg-status-red-bg text-status-red-text;
+  }
+
+  .badge-info {
+    @apply bg-status-blue-bg text-status-blue-text;
+  }
+
+  .badge-wait {
+    background: #F1EFE8;
+    color: #6B6B6B;
+  }
+
+  /* プライマリボタン */
+  .btn-primary {
+    @apply bg-primary text-white border-none px-5 py-2 rounded-md text-base cursor-pointer
+           transition-opacity hover:opacity-85 whitespace-nowrap;
+  }
+
+  /* アウトラインボタン */
+  .btn-outline {
+    @apply bg-transparent border border-border px-4 py-2 rounded-md text-base cursor-pointer
+           text-primary transition-colors hover:bg-page whitespace-nowrap;
+  }
+}
