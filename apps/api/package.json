@@ -11,6 +11,9 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -35,11 +38,15 @@
   "devDependencies": {
     "@nestjs/cli": "^10.4.0",
     "@nestjs/schematics": "^10.2.0",
+    "@nestjs/testing": "^11.1.18",
     "@types/bcrypt": "^5.0.2",
     "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.0.0",
     "@types/passport-jwt": "^4.0.1",
+    "jest": "^30.3.0",
     "prisma": "^6.2.0",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.0"
   }

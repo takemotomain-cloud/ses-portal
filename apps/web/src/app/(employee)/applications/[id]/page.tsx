@@ -28,32 +28,7 @@ const statusConfig: Record<string, { label: string; badgeClass: string }> = {
 };
 
 /* ---------- プレースホルダーデータ ---------- */
-const detailMap: Record<string, ApplicationDetail> = {
-  '1': {
-    id: '1',
-    type: '有給休暇',
-    content: '2026年4月14日〜2026年4月15日',
-    status: 'approved',
-    timeline: '2026年3月28日申請 → 2026年3月31日承認',
-    approver: '佐藤 一郎（管理部）',
-  },
-  '2': {
-    id: '2',
-    type: '交通費精算',
-    content: '2026年2月分 — 18,420円',
-    status: 'approved',
-    timeline: '2026年3月5日申請 → 2026年3月8日承認',
-    approver: '佐藤 一郎（管理部）',
-  },
-  '3': {
-    id: '3',
-    type: '住所変更届',
-    content: '2026年1月20日申請',
-    status: 'pending',
-    timeline: '管理部にて確認中です',
-    approver: null,
-  },
-};
+const detailMap: Record<string, ApplicationDetail> = {};
 
 export default function ApplicationDetailPage() {
   const params = useParams();

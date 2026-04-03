@@ -39,45 +39,19 @@ interface SSForm {
 /* ---------- デモデータ ---------- */
 
 const initialForm: SSForm = {
-  name: '山田 太郎',
-  age: '28歳',
-  edu: '大阪大学 工学部',
-  exp: '5年',
-  station: 'JR大阪駅',
+  name: '',
+  age: '',
+  edu: '',
+  exp: '',
+  station: '',
   pr: '',
 };
 
-const initialSkills: SkillRow[] = [
-  { cat: '言語', items: 'Java, TypeScript, Python' },
-  { cat: 'FW', items: 'Spring Boot, React, Next.js' },
-  { cat: 'DB', items: 'PostgreSQL, MySQL, Redis' },
-  { cat: 'インフラ', items: 'AWS, Docker, Kubernetes' },
-];
+const initialSkills: SkillRow[] = [];
 
-const initialProjects: ProjectRow[] = [
-  {
-    period: '2024/04 - 現在',
-    name: '勘定系マイグレーション',
-    client: 'メガバンクシステムズ',
-    role: 'SE',
-    env: 'Java, Spring Boot, Oracle',
-    detail: '基幹システムのクラウド移行対応。要件定義から結合テストまで担当。',
-  },
-  {
-    period: '2022/10 - 2024/03',
-    name: 'EC サイトリニューアル',
-    client: 'リテールテック',
-    role: 'PG',
-    env: 'TypeScript, React, Node.js, PostgreSQL',
-    detail: 'フロントエンド開発およびAPI設計・実装を担当。',
-  },
-];
+const initialProjects: ProjectRow[] = [];
 
-const demoCerts = [
-  '基本情報技術者試験',
-  'AWS Solutions Architect Associate',
-  'Oracle Certified Java Programmer Silver',
-];
+const demoCerts: string[] = [];
 
 /* ---------- 共通スタイル ---------- */
 

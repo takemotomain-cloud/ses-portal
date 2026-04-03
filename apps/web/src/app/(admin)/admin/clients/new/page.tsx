@@ -32,7 +32,7 @@ const initialForm: ClientForm = {
   displayName: '',
   industry: '金融',
   contactPerson: '',
-  salesRep: '山本 浩二',
+  salesRep: '',
   email: '',
   phone: '',
   startDate: '',
@@ -206,7 +206,7 @@ export default function NewClientPage() {
               <FormSelect
                 value={form.salesRep}
                 onChange={set('salesRep')}
-                options={['山本 浩二', '田辺 恵子']}
+                options={[]}
               />
             </div>
           </div>

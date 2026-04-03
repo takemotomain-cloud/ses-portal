@@ -97,9 +97,6 @@ export default function AdminAssignmentsPage() {
         </select>
         <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none">
           <option value="">クライアント: すべて</option>
-          <option>メガバンクシステムズ</option>
-          <option>通信キャリアD社</option>
-          <option>製造業E社</option>
         </select>
         <input type="text" placeholder="氏名で検索" value={search} onChange={e => setSearch(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card min-w-[160px] focus:border-primary" />
         <span className="text-sm text-secondary self-center">{filtered.length}件</span>

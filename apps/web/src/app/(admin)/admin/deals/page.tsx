@@ -169,8 +169,6 @@ export default function AdminDealsPage() {
         </select>
         <select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none min-w-[120px]">
           <option>すべて</option>
-          <option>山本 浩二</option>
-          <option>田辺 恵子</option>
         </select>
         {activeFilterCount > 0 && (
           <span className="text-xs text-secondary">フィルター: {activeFilterCount}件適用中</span>

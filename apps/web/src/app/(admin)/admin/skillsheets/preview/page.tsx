@@ -13,41 +13,15 @@ import { useToast } from '@/components/ui/toast';
 /* ---------- デモデータ ---------- */
 
 const demoData = {
-  name: '山田 太郎',
-  age: '28歳',
-  edu: '大阪大学 工学部',
-  exp: '5年',
-  station: 'JR大阪駅',
-  pr: 'Javaを中心としたバックエンド開発を5年経験。Spring Bootでのマイクロサービス設計・実装が得意領域。直近ではReact/Next.jsを用いたフルスタック開発にも従事。要件定義からテストまで一貫して対応可能。',
-  skills: [
-    { cat: '言語', items: 'Java, TypeScript, Python' },
-    { cat: 'FW', items: 'Spring Boot, React, Next.js' },
-    { cat: 'DB', items: 'PostgreSQL, MySQL, Redis' },
-    { cat: 'インフラ', items: 'AWS, Docker, Kubernetes' },
-  ],
-  certs: [
-    '基本情報技術者試験',
-    'AWS Solutions Architect Associate',
-    'Oracle Certified Java Programmer Silver',
-  ],
-  projects: [
-    {
-      period: '2024/04 - 現在',
-      name: '勘定系マイグレーション',
-      client: 'メガバンクシステムズ',
-      role: 'SE',
-      env: 'Java, Spring Boot, Oracle',
-      detail: '基幹システムのクラウド移行対応。要件定義から結合テストまで担当。',
-    },
-    {
-      period: '2022/10 - 2024/03',
-      name: 'EC サイトリニューアル',
-      client: 'リテールテック',
-      role: 'PG',
-      env: 'TypeScript, React, Node.js, PostgreSQL',
-      detail: 'フロントエンド開発およびAPI設計・実装を担当。',
-    },
-  ],
+  name: '',
+  age: '',
+  edu: '',
+  exp: '',
+  station: '',
+  pr: '',
+  skills: [] as { cat: string; items: string }[],
+  certs: [] as string[],
+  projects: [] as { period: string; name: string; client: string; role: string; env: string; detail: string }[],
 };
 
 /* ---------- テーブルセルスタイル ---------- */

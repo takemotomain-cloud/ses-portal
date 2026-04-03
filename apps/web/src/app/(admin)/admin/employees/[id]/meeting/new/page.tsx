@@ -21,7 +21,7 @@ export default function MeetingAddPage() {
   /* ---------- フォーム状態 ---------- */
 
   const [meetingDate, setMeetingDate] = useState('');
-  const [interviewer, setInterviewer] = useState('山本 浩二');
+  const [interviewer, setInterviewer] = useState('');
   const [content, setContent] = useState('');
   const [recordingUrl, setRecordingUrl] = useState('');
 
@@ -100,9 +100,7 @@ export default function MeetingAddPage() {
                 onChange={(e) => setInterviewer(e.target.value)}
                 className="w-full border border-border/30 rounded-md px-3 py-2 text-sm outline-none appearance-none focus:border-primary/40"
               >
-                <option>山本 浩二</option>
-                <option>田辺 恵子</option>
-                <option>吉田 早紀</option>
+                <option value="">面談者を選択</option>
               </select>
             </div>
           </div>

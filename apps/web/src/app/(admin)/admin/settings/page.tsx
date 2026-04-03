@@ -218,20 +218,19 @@ export default function AdminSettingsPage() {
       {/* 操作ログ */}
       {activeTab === 2 && (
         <div className="card p-0">
-          {[
-            { time: '2026年3月31日 9時15分', user: '山本 浩二', action: 'freee同期を実行', badge: 'badge-ok', badgeLabel: '成功' },
-            { time: '2026年3月30日 17時45分', user: '田辺 恵子', action: '稼働情報を更新 → 高橋 翔太' },
-            { time: '2026年3月30日 15時20分', user: '山本 浩二', action: '有給申請を承認 → 鈴木 美咲' },
-            { time: '2026年3月29日 10時00分', user: '田中 太郎', action: '交通費申請を提出' },
-            { time: '2026年3月28日 14時30分', user: '山本 浩二', action: '社員情報を編集 → 中村 拓海' },
-          ].map((log, idx) => (
-            <div key={idx} className={`flex items-center gap-3 px-5 py-3 text-base flex-wrap ${idx < 4 ? 'border-b border-border/20' : ''}`}>
-              <span className="text-sm text-secondary min-w-[160px]">{log.time}</span>
-              <span className="font-medium min-w-[80px]">{log.user}</span>
-              <span className="text-secondary flex-1">{log.action}</span>
-              {log.badge && <span className={`badge ${log.badge}`}>{log.badgeLabel}</span>}
-            </div>
-          ))}
+          {(() => {
+            const logs: { time: string; user: string; action: string; badge?: string; badgeLabel?: string }[] = [];
+            return logs.length > 0 ? logs.map((log, idx) => (
+              <div key={idx} className={`flex items-center gap-3 px-5 py-3 text-base flex-wrap ${idx < logs.length - 1 ? 'border-b border-border/20' : ''}`}>
+                <span className="text-sm text-secondary min-w-[160px]">{log.time}</span>
+                <span className="font-medium min-w-[80px]">{log.user}</span>
+                <span className="text-secondary flex-1">{log.action}</span>
+                {log.badge && <span className={`badge ${log.badge}`}>{log.badgeLabel}</span>}
+              </div>
+            )) : (
+              <div className="px-5 py-8 text-center text-secondary text-sm">ログはありません</div>
+            );
+          })()}
         </div>
       )}
       <ToastUI />

@@ -25,7 +25,7 @@ const JOBS = [
 
 export default function RecruitSettingsPage() {
   const { toast, ToastUI } = useToast();
-  const [interviewers, setInterviewers] = useState<string[]>(['山本 浩二', '田辺 恵子']);
+  const [interviewers, setInterviewers] = useState<string[]>([]);
   const [newInterviewer, setNewInterviewer] = useState('');
 
   function addInterviewer() {

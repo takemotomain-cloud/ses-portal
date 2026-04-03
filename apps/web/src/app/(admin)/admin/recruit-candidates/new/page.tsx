@@ -324,7 +324,7 @@ export default function RecruitCandidateNewPage() {
               <FormSelect
                 value={interviewer}
                 onChange={setInterviewer}
-                options={['--', '山本 浩二', '田辺 恵子']}
+                options={['--']}
               />
             </div>
             <div>
