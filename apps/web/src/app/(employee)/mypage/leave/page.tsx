@@ -39,7 +39,7 @@ export default function LeaveRequestPage() {
     let cancelled = false;
     async function fetchBalance() {
       try {
-        const res = await apiClient('/leave/balance');
+        const res = await apiClient<LeaveBalance>('/leave/balance');
         if (!cancelled) setBalance(res);
       } catch {
         if (!cancelled) setBalance(null);

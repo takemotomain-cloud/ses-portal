@@ -14,10 +14,11 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
+import { apiClient } from '@/lib/api-client';
 
 interface NavSection {
   label: string;
@@ -28,7 +29,7 @@ const navSections: NavSection[] = [
   {
     label: 'アラート',
     items: [
-      { label: '本日', href: '/admin/alerts/today', badge: 5 },
+      { label: '本日', href: '/admin/alerts/today' },
       { label: '今月', href: '/admin/alerts/month' },
     ],
   },
@@ -49,20 +50,10 @@ const navSections: NavSection[] = [
       { label: '社員一覧', href: '/admin/employees' },
       { label: '勤怠管理', href: '/admin/attendance' },
       { label: '給与管理', href: '/admin/payroll' },
-      { label: '承認待ち', href: '/admin/approvals', badge: 7 },
+      { label: '承認待ち', href: '/admin/approvals' },
       { label: '通知書（入社前）', href: '/admin/notices' },
       { label: '通知書（無期転換）', href: '/admin/notices-muki' },
       { label: '入社予定社員', href: '/admin/onboarding' },
-    ],
-  },
-  {
-    label: '経理・管理',
-    items: [
-      { label: '経費精算', href: '/admin/expenses' },
-      { label: '請求管理', href: '/admin/billing' },
-      { label: '契約書', href: '/admin/contracts' },
-      { label: '就業規則', href: '/admin/rules' },
-      { label: 'freee連携', href: '/admin/freee' },
     ],
   },
   {
@@ -79,6 +70,16 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    label: '経理・管理',
+    items: [
+      { label: '経費精算', href: '/admin/expenses' },
+      { label: '請求管理', href: '/admin/billing' },
+      { label: '契約書', href: '/admin/contracts' },
+      { label: '就業規則', href: '/admin/rules' },
+      { label: 'freee連携', href: '/admin/freee' },
+    ],
+  },
+  {
     label: '設定',
     items: [{ label: '設定', href: '/admin/settings' }],
   },
@@ -88,6 +89,27 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [approvalCount, setApprovalCount] = useState(0);
+
+  // 承認待ち件数をAPIから取得
+  useEffect(() => {
+    async function fetchCounts() {
+      try {
+        const [leaves, expenses, changes] = await Promise.all([
+          apiClient<any[]>('/leave/pending').catch(() => []),
+          apiClient<any[]>('/expense/pending').catch(() => []),
+          apiClient<any[]>('/profile/change-requests/pending').catch(() => []),
+        ]);
+        setApprovalCount(leaves.length + expenses.length + changes.length);
+      } catch {
+        setApprovalCount(0);
+      }
+    }
+    fetchCounts();
+    // 30秒ごとに再取得
+    const interval = setInterval(fetchCounts, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <>
@@ -142,6 +164,7 @@ export function AdminSidebar() {
               </div>
               {section.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + '/');
+                const dynamicBadge = item.href === '/admin/approvals' ? approvalCount : 0;
                 return (
                   <Link
                     key={item.href}
@@ -155,9 +178,9 @@ export function AdminSidebar() {
                                }`}
                   >
                     <span>{item.label}</span>
-                    {item.badge && (
+                    {dynamicBadge > 0 && (
                       <span className="bg-status-red-bg text-status-red-text text-2xs px-1.5 py-px rounded-full">
-                        {item.badge}
+                        {dynamicBadge}
                       </span>
                     )}
                   </Link>
@@ -187,7 +210,7 @@ export function AdminSidebar() {
           <div className="text-primary font-medium text-base">
             {user?.name || '管理者'}
           </div>
-          <div>SES事業部</div>
+          <div>{(user as any)?.department || ''}</div>
           <button
             onClick={logout}
             className="mt-2 text-xs text-secondary hover:text-primary transition-colors cursor-pointer"

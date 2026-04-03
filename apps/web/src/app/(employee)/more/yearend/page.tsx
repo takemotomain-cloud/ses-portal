@@ -10,18 +10,21 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { apiClient } from '@/lib/api-client';
 
 const steps = ['基本情報', '扶養控除', '保険料', '住宅ローン', '確認'];
 
 export default function YearendPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     // Step 1: 基本情報
-    name: '田中 太郎',
-    address: '大阪府大阪市中央区本町1-1-1',
+    name: '',
+    address: '',
     hasSpouse: 'no',
     // Step 2: 扶養控除
     hasDependents: 'no',
@@ -35,6 +38,23 @@ export default function YearendPage() {
   });
 
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // ログインユーザーの情報で初期値をセット
+  useEffect(() => {
+    apiClient<any>('/profile')
+      .then((profile) => {
+        setFormData(prev => ({
+          ...prev,
+          name: `${profile.lastName} ${profile.firstName}`,
+          address: profile.address || '',
+        }));
+      })
+      .catch(() => {
+        if (user?.name) {
+          setFormData(prev => ({ ...prev, name: user.name }));
+        }
+      });
+  }, [user]);
 
   function updateField(key: string, value: string) {
     setFormData(prev => ({ ...prev, [key]: value }));

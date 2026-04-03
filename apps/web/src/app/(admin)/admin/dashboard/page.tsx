@@ -2,8 +2,7 @@
  * 管理画面 ダッシュボード
  *
  * UIモックのpage-dashboardを再現する。
- * Phase 1初期: レイアウト骨格 + 静的KPI表示。
- * API連携後にリアルタイムデータに差し替え。
+ * エリア別比較テーブルのみ。KPIカードなし。
  */
 
 'use client';
@@ -34,26 +33,6 @@ export default function AdminDashboard() {
           </span>
           <button onClick={() => changeMonth(1)} className="btn-outline py-1.5 px-3 text-sm">&gt;</button>
         </div>
-      </div>
-
-      {/* KPIカード（Phase 1: 静的データ） */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        {[
-          { label: '月間売上', value: '--', unit: '円' },
-          { label: '粗利', value: '--', unit: '円' },
-          { label: '平均単価', value: '--', unit: '円' },
-          { label: '稼働率', value: '--', unit: '%' },
-        ].map((kpi) => (
-          <div key={kpi.label} className="card p-4">
-            <div className="text-xs text-secondary mb-0.5">{kpi.label}</div>
-            <div className="text-3xl font-medium tabular-nums">
-              {kpi.value}
-              <span className="text-base font-normal text-secondary ml-1">
-                {kpi.unit}
-              </span>
-            </div>
-          </div>
-        ))}
       </div>
 
       {/* エリア別テーブル */}

@@ -108,6 +108,7 @@ model Employee {
   notifications      Notification[]
   certificates       Certificate[]
   yearendAdjustments YearendAdjustment[]
+  meetings           Meeting[]
 
   @@map("employees")
 }
@@ -464,4 +465,55 @@ model AuditLog {
   user User? @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
+}
+
+// ----------------------------------------
+// 面談記録
+// ----------------------------------------
+model Meeting {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  date        DateTime @db.Date
+  interviewer String   @db.VarChar(100)
+  content     String
+  videoUrl    String?  @map("video_url") @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("meetings")
+}
+
+// ----------------------------------------
+// 採用候補者
+// ----------------------------------------
+model Candidate {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lastName            String    @map("last_name") @db.VarChar(50)
+  firstName           String    @map("first_name") @db.VarChar(50)
+  lastNameKana        String?   @map("last_name_kana") @db.VarChar(50)
+  firstNameKana       String?   @map("first_name_kana") @db.VarChar(50)
+  phone               String?   @db.VarChar(20)
+  gender              String?   @db.VarChar(10)
+  residence           String?   @db.VarChar(100)
+  birthDate           DateTime? @map("birth_date") @db.Date
+  education           String?   @db.VarChar(30)
+  applicationDate     DateTime  @map("application_date") @db.Date
+  source              String    @db.VarChar(100)
+  jobPosting          String?   @map("job_posting") @db.VarChar(200)
+  interviewDate       DateTime? @map("interview_date") @db.Date
+  interviewTime       String?   @map("interview_time") @db.VarChar(10)
+  interviewer         String?   @db.VarChar(100)
+  confirmStatus       String?   @map("confirm_status") @db.VarChar(20)
+  desiredLocation     String?   @map("desired_location") @db.VarChar(100)
+  desiredMonth        String?   @map("desired_month") @db.VarChar(20)
+  interviewPreference String?   @map("interview_preference")
+  recommendation      String?
+  notes               String?
+  status              String    @default("new") @db.VarChar(20)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("candidates")
 }

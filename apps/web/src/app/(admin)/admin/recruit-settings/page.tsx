@@ -1,105 +1,170 @@
-/**
- * 採用設定
- *
- * 求人ポジション管理 + 面接テンプレート + メールテンプレート。
- */
-
 'use client';
 
 import { useState } from 'react';
+import { useToast } from '@/components/ui/toast';
+
+const STATUSES = [
+  { id: 1, name: '応募', flag: null, flagClass: '' },
+  { id: 2, name: '書類選考', flag: null, flagClass: '' },
+  { id: 3, name: '書類選考通過', flag: null, flagClass: '' },
+  { id: 4, name: '一次面接設定', flag: '面接ステージ', flagClass: 'badge-info' },
+  { id: 5, name: '一次面接通過', flag: '面接ステージ', flagClass: 'badge-info' },
+  { id: 6, name: '最終面接設定', flag: '面接ステージ', flagClass: 'badge-info' },
+  { id: 7, name: '最終面接通過', flag: '面接ステージ', flagClass: 'badge-info' },
+  { id: 8, name: '内定打診中', flag: '内定出し', flagClass: 'badge-warn' },
+  { id: 9, name: '内定承諾', flag: '内定承諾', flagClass: 'badge-ok' },
+  { id: 10, name: '不採用', flag: '不採用', flagClass: 'badge-danger' },
+  { id: 11, name: '辞退', flag: '辞退', flagClass: 'badge-wait' },
+];
+
+const JOBS = [
+  { id: 1, name: 'SESエンジニア', active: true },
+  { id: 2, name: 'インフラエンジニア', active: true },
+  { id: 3, name: 'PM / PL', active: false },
+];
 
 export default function RecruitSettingsPage() {
-  const [activeTab, setActiveTab] = useState(0);
-  const tabs = ['求人ポジション', '面接テンプレート', 'メールテンプレート'];
+  const { toast, ToastUI } = useToast();
+  const [interviewers, setInterviewers] = useState<string[]>(['山本 浩二', '田辺 恵子']);
+  const [newInterviewer, setNewInterviewer] = useState('');
+
+  function addInterviewer() {
+    const name = newInterviewer.trim();
+    if (!name) return;
+    setInterviewers((prev) => [...prev, name]);
+    setNewInterviewer('');
+    toast(`「${name}」を追加しました`);
+  }
+
+  function removeInterviewer(index: number) {
+    const name = interviewers[index];
+    setInterviewers((prev) => prev.filter((_, i) => i !== index));
+    toast(`「${name}」を削除しました`);
+  }
 
   return (
     <div>
+      <ToastUI />
+
       <h1 className="text-2xl font-medium mb-5">採用設定</h1>
 
-      <div className="flex border-b border-border/40 mb-5">
-        {tabs.map((tab, idx) => (
-          <button key={tab} onClick={() => setActiveTab(idx)} className={`px-5 py-2.5 text-base border-b-2 transition-colors ${activeTab === idx ? 'text-primary font-medium border-primary' : 'text-secondary border-transparent'}`}>
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* 求人ポジション */}
-      {activeTab === 0 && (
-        <div>
-          <div className="flex justify-end mb-3">
-            <button className="btn-primary text-sm py-2">ポジション追加</button>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Left: 面接ステータス一覧 */}
+        <div className="card p-0">
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-md font-medium">面接ステータス一覧</h2>
           </div>
-          <div className="card p-0">
+          <div className="overflow-x-auto">
             <table className="w-full">
-              <thead><tr className="border-b border-border">
-                {['ポジション名', '雇用形態', '募集人数', 'ステータス', ''].map(h => (
-                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
-                ))}
-              </tr></thead>
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>#</th>
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>ステータス名</th>
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>フラグ</th>
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>操作</th>
+                </tr>
+              </thead>
               <tbody>
-                {[
-                  { name: 'SESエンジニア', type: '正社員', count: 5, active: true },
-                  { name: 'インフラエンジニア', type: '正社員', count: 2, active: true },
-                  { name: 'PMO支援', type: '契約社員', count: 1, active: false },
-                ].map(p => (
-                  <tr key={p.name} className="border-b border-border/20">
-                    <td className="px-4 py-2.5 text-base font-medium">{p.name}</td>
-                    <td className="px-4 py-2.5 text-base">{p.type}</td>
-                    <td className="px-4 py-2.5 text-base text-right">{p.count}名</td>
-                    <td className="px-4 py-2.5"><span className={`badge ${p.active ? 'badge-ok' : 'badge-wait'}`}>{p.active ? '募集中' : '停止中'}</span></td>
-                    <td className="px-4 py-2.5"><button className="btn-outline text-xs py-1 px-2">編集</button></td>
+                {STATUSES.map((s) => (
+                  <tr key={s.id} className="border-b border-border/20 hover:bg-[#FAFAF8]">
+                    <td className="px-4 py-2.5 text-right tabular-nums" style={{ whiteSpace: 'nowrap' }}>{s.id}</td>
+                    <td className="px-4 py-2.5" style={{ whiteSpace: 'nowrap' }}>{s.name}</td>
+                    <td className="px-4 py-2.5" style={{ whiteSpace: 'nowrap' }}>
+                      {s.flag && <span className={`badge ${s.flagClass}`}>{s.flag}</span>}
+                    </td>
+                    <td className="px-4 py-2.5" style={{ whiteSpace: 'nowrap' }}>
+                      <button
+                        className="btn-outline text-xs py-1 px-2"
+                        onClick={() => toast(`「${s.name}」の編集画面を開きます`)}
+                      >
+                        編集
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-      )}
 
-      {/* 面接テンプレート */}
-      {activeTab === 1 && (
-        <div className="card p-5">
-          <div className="space-y-4">
-            {[
-              { name: '一次面接（技術）', items: '自己紹介 → 技術経歴 → 技術質問 → 逆質問', duration: '60分' },
-              { name: '二次面接（人物）', items: '志望動機 → キャリアプラン → カルチャーフィット → 条件確認', duration: '45分' },
-              { name: '最終面接', items: '代表面談 → 会社説明 → 条件提示', duration: '30分' },
-            ].map(t => (
-              <div key={t.name} className="p-4 bg-page rounded-lg">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="text-md font-medium">{t.name}</span>
-                  <span className="text-sm text-secondary">{t.duration}</span>
-                </div>
-                <div className="text-sm text-secondary">{t.items}</div>
+        {/* Right column */}
+        <div className="space-y-5">
+          {/* 募集求人一覧 */}
+          <div className="card p-0">
+            <div className="px-4 py-3 border-b border-border">
+              <h2 className="text-md font-medium">募集求人一覧</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>#</th>
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>求人名</th>
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]" style={{ whiteSpace: 'nowrap' }}>状態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {JOBS.map((j) => (
+                    <tr key={j.id} className="border-b border-border/20 hover:bg-[#FAFAF8]">
+                      <td className="px-4 py-2.5 text-right tabular-nums" style={{ whiteSpace: 'nowrap' }}>{j.id}</td>
+                      <td className="px-4 py-2.5" style={{ whiteSpace: 'nowrap' }}>{j.name}</td>
+                      <td className="px-4 py-2.5" style={{ whiteSpace: 'nowrap' }}>
+                        <span className={`badge ${j.active ? 'badge-ok' : 'badge-wait'}`}>{j.active ? '募集中' : '停止中'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-4 py-3">
+              <button
+                className="btn-outline text-sm py-1.5 px-4"
+                onClick={() => toast('求人追加画面を開きます')}
+              >
+                求人を追加
+              </button>
+            </div>
+          </div>
+
+          {/* 面接官一覧 */}
+          <div className="card p-0">
+            <div className="px-4 py-3 border-b border-border">
+              <h2 className="text-md font-medium">面接官一覧</h2>
+            </div>
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newInterviewer}
+                  onChange={(e) => setNewInterviewer(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addInterviewer(); }}
+                  placeholder="面接官名を入力"
+                  className="border border-border rounded-md px-3 py-1.5 text-sm flex-1"
+                />
+                <button
+                  className="btn-outline text-sm py-1.5 px-4"
+                  onClick={addInterviewer}
+                >
+                  追加
+                </button>
               </div>
-            ))}
+              <ul className="space-y-1.5">
+                {interviewers.map((name, idx) => (
+                  <li key={`${name}-${idx}`} className="flex items-center justify-between px-3 py-2 bg-page rounded-md">
+                    <span className="text-sm">{name}</span>
+                    <button
+                      className="text-secondary hover:text-status-red-text text-lg leading-none px-1"
+                      onClick={() => removeInterviewer(idx)}
+                    >
+                      &times;
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
-      )}
-
-      {/* メールテンプレート */}
-      {activeTab === 2 && (
-        <div className="card p-5">
-          <div className="space-y-3">
-            {[
-              { name: '応募受付完了', subject: '【応募受付】ご応募ありがとうございます' },
-              { name: '書類選考結果（通過）', subject: '【書類選考結果】次回面接のご案内' },
-              { name: '書類選考結果（不通過）', subject: '【選考結果のご連絡】' },
-              { name: '面接日程案内', subject: '【面接日程】面接日時のご確認' },
-              { name: '内定通知', subject: '【内定のご連絡】' },
-            ].map(t => (
-              <div key={t.name} className="flex items-center justify-between p-3 bg-page rounded-lg">
-                <div>
-                  <div className="text-md font-medium">{t.name}</div>
-                  <div className="text-sm text-secondary">{t.subject}</div>
-                </div>
-                <button className="btn-outline text-xs py-1 px-2">編集</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -28,10 +28,12 @@ const menuSections: MenuSection[] = [
       { label: '給与明細', href: '/mypage/salary', desc: '月次の給与明細を確認' },
       { label: '稼働情報', href: '/more/assignment', desc: '現在の稼働先・単価・還元率' },
       { label: '源泉徴収票', href: '/more/withholding', desc: '年度別の源泉徴収票' },
+      { label: '賞与明細', href: '/mypage/bonus', desc: '賞与の支給・控除明細' },
+      { label: '就業規則', href: '/more/rules', desc: '就業規則の閲覧' },
     ],
   },
   {
-    title: '届出・手続き',
+    title: '届出・証明書',
     items: [
       { label: '証明書発行', href: '/more/documents', desc: '在籍証明書・収入証明書' },
       { label: '休職届', href: '/more/leave-of-absence', desc: '休職届の提出' },
@@ -44,15 +46,9 @@ const menuSections: MenuSection[] = [
     ],
   },
   {
-    title: '規則・情報',
-    items: [
-      { label: '就業規則', href: '/more/rules', desc: '就業規則の閲覧' },
-      { label: '個人情報', href: '/more/profile', desc: '基本情報・連絡先・口座の確認・変更' },
-    ],
-  },
-  {
     title: 'アカウント',
     items: [
+      { label: '個人情報', href: '/more/profile', desc: '基本情報・連絡先・口座の確認・変更' },
       { label: 'パスワード変更', href: '/more/password' },
     ],
   },

@@ -45,7 +45,7 @@ export default function SalaryPage() {
         const match = currentMonth.match(/(\d+)年(\d+)月/);
         const y = match ? parseInt(match[1]) : new Date().getFullYear();
         const m = match ? parseInt(match[2]) : new Date().getMonth() + 1;
-        const res = await apiClient(`/salary/${y}/${m}`);
+        const res = await apiClient<SalaryData>(`/salary/${y}/${m}`);
         if (!cancelled) setData(res);
       } catch {
         if (!cancelled) setData(null);
@@ -66,6 +66,7 @@ export default function SalaryPage() {
   function fmt(n: number) { return n.toLocaleString(); }
 
   const handleDownloadPDF = useCallback(() => {
+    if (!data) return;
     const match = currentMonth.match(/(\d+)年(\d+)月/);
     const y = match ? parseInt(match[1]) : 2026;
     const m = match ? parseInt(match[2]) : 3;
@@ -74,8 +75,8 @@ export default function SalaryPage() {
     const prevMonth = m === 1 ? 12 : m - 1;
     const prevYear = m === 1 ? y - 1 : y;
     const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
-    const employeeName = user?.name || '山本 浩二';
-    const employeeCode = 'EMP-001';
+    const employeeName = user?.name || '';
+    const employeeCode = (user as any)?.employeeCode || '';
     const companyName = '株式会社Lervia';
     const pad = (n: number) => String(n).padStart(2, '0');
 

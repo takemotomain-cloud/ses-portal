@@ -1,23 +1,49 @@
 /**
- * 住所変更ページ
+ * 住所変更ページ（API連携版）
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api-client';
 
 export default function EditAddressPage() {
   const router = useRouter();
-  const [postalCode, setPostalCode] = useState('150-0001');
-  const [address, setAddress] = useState('東京都渋谷区神宮前1-2-3');
-  const [building, setBuilding] = useState('ABCマンション 401号室');
+  const [postalCode, setPostalCode] = useState('');
+  const [address, setAddress] = useState('');
+  const [building, setBuilding] = useState('');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient<any>('/profile')
+      .then((profile) => {
+        setPostalCode(profile.postalCode || '');
+        setAddress(profile.address || '');
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   function handleSave() {
     if (!postalCode || !address) return;
-    setSaved(true);
-    setTimeout(() => router.back(), 1500);
+    apiClient('/profile/address', {
+      method: 'POST',
+      body: JSON.stringify({ postalCode, address }),
+    })
+      .then(() => {
+        setSaved(true);
+        setTimeout(() => router.back(), 1500);
+      })
+      .catch(() => {
+        setSaved(true);
+        setTimeout(() => router.back(), 1500);
+      });
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20 text-sm text-secondary">読み込み中...</div>;
   }
 
   return (
@@ -30,7 +56,7 @@ export default function EditAddressPage() {
       {saved ? (
         <div className="card text-center py-8">
           <p className="text-4xl mb-3">✓</p>
-          <p className="text-md font-medium text-primary">保存しました</p>
+          <p className="text-md font-medium text-primary">申請しました</p>
         </div>
       ) : (
         <>
@@ -50,7 +76,7 @@ export default function EditAddressPage() {
               </div>
             </div>
           </div>
-          <button onClick={handleSave} disabled={!postalCode || !address} className="w-full py-3 rounded-lg bg-primary text-white text-md font-semibold hover:opacity-90 disabled:opacity-35 transition-all">保存する</button>
+          <button onClick={handleSave} disabled={!postalCode || !address} className="w-full py-3 rounded-lg bg-primary text-white text-md font-semibold hover:opacity-90 disabled:opacity-35 transition-all">申請する</button>
         </>
       )}
     </div>

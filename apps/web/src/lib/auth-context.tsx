@@ -62,16 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // トークンが有効かAPIで確認（GET /employees/me）
     apiClient<any>('/employees/me')
       .then((employee) => {
-        // JWTペイロードからは最小限の情報しか取れないので
-        // APIから改めて取得してuserを構築
         setUser({
-          id: '', // user.idはJWT内にあるが、ここでは不要
+          id: '',
           employeeId: employee.id,
           employeeCode: employee.employeeCode,
           name: `${employee.lastName} ${employee.firstName}`,
           email: employee.email,
-          role: '' as any, // ロールはJWTから取得するのが正確
-        });
+          role: '' as any,
+          department: employee.department?.name || '',
+        } as any);
       })
       .catch(() => {
         // トークン無効 → クリア

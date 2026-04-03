@@ -2,22 +2,64 @@
  * Assignments Controller
  *
  * エンドポイント:
- *   GET /api/assignments/current  — 現在の稼働先
- *   GET /api/assignments/history  — 稼働ヒストリー
+ *   POST /api/assignments          — 新規アサイン登録（admin/sales）
+ *   GET  /api/assignments          — アサイン一覧（admin/sales）
+ *   GET  /api/assignments/current  — 現在の稼働先
+ *   GET  /api/assignments/history  — 稼働ヒストリー
  */
 
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AssignmentsService } from './assignments.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('稼働情報')
 @ApiBearerAuth()
 @Controller('assignments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class AssignmentsController {
   constructor(private readonly assignmentsService: AssignmentsService) {}
+
+  /**
+   * 新規アサイン登録（admin/salesのみ）
+   */
+  @Post()
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '新規アサイン登録' })
+  async create(
+    @Body()
+    body: {
+      employeeId: string;
+      clientId: string;
+      projectName: string;
+      contractPrice: number;
+      settlementLower: number;
+      settlementUpper: number;
+      workLocation?: string;
+      area?: string;
+      startDate: string;
+      endDate?: string;
+    },
+  ) {
+    return this.assignmentsService.create(body);
+  }
+
+  /**
+   * アサイン一覧（admin/salesのみ）
+   */
+  @Get()
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'アサイン一覧' })
+  async findAll(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('status') status?: string,
+  ) {
+    return this.assignmentsService.findAll({ page, limit, status });
+  }
 
   @Get('current')
   @ApiOperation({ summary: '現在の稼働先を取得' })

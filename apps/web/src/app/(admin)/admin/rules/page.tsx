@@ -22,8 +22,8 @@ export default function AdminRulesPage() {
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">就業規則</h1>
         <div className="flex gap-2">
-          <button onClick={() => toast('この機能は現在準備中です')} className="btn-outline text-sm py-2">PDFエクスポート</button>
-          <button onClick={() => toast('この機能は現在準備中です')} className="btn-primary text-sm py-2">編集する</button>
+          <button onClick={() => window.print()} className="btn-outline text-sm py-2">PDFエクスポート</button>
+          <button onClick={() => toast('就業規則の編集は今後追加予定です')} className="btn-primary text-sm py-2">編集する</button>
         </div>
       </div>
 

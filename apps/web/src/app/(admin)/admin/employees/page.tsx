@@ -1,21 +1,28 @@
 /**
- * 管理側 社員一覧
+ * 管理側 社員一覧（API連携版）
  *
- * UIモックのpage-employeesを再現。
- * KPI3枚 + フィルタ + テーブル + 行クリックで詳細パネル。
- *
- * Phase 1: デモデータ。API連携後にGET /api/employeesを呼ぶ。
+ * 行クリックで社員詳細ページ（/admin/employees/:id）に遷移。
  */
 
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
-type Employee = { id: string; code: string; name: string; dept: string; type: string; contract: string; status: string; hire: string };
-
-const demoEmployees: Employee[] = [];
+interface Employee {
+  id: string;
+  employeeCode: string;
+  lastName: string;
+  firstName: string;
+  status: string;
+  employmentType: string;
+  contractType: string;
+  hireDate: string;
+  departmentName: string | null;
+  positionName: string | null;
+}
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
   active: { label: '在籍', cls: 'badge-ok' },
@@ -23,42 +30,62 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
   resigned: { label: '退職', cls: 'badge-danger' },
 };
 
+const empTypeLabel: Record<string, string> = {
+  regular: '正社員',
+  contract: '契約社員',
+  parttime: 'パート',
+};
+
+const contractLabel: Record<string, string> = {
+  indefinite: '無期',
+  fixed: '有期',
+};
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
 export default function AdminEmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>(demoEmployees);
+  const router = useRouter();
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { toast, ToastUI } = useToast();
 
   useEffect(() => {
-    apiClient('/employees')
-      .then((data) => setEmployees(data as Employee[]))
-      .catch(() => setEmployees([]))
+    apiClient<{ data: Employee[] }>('/employees')
+      .then((res) => setEmployees(res.data || []))
+      .catch((err) => {
+        console.error('Failed to fetch employees:', err);
+        setError(err?.message || 'データの取得に失敗しました');
+        setEmployees([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const filtered = useMemo(() => {
     return employees.filter(e => {
-      if (search && !e.name.includes(search) && !e.code.includes(search)) return false;
+      const name = `${e.lastName} ${e.firstName}`;
+      if (search && !name.includes(search) && !e.employeeCode.includes(search)) return false;
       if (statusFilter && e.status !== statusFilter) return false;
       return true;
     });
-  }, [search, statusFilter]);
-
-  const selected = selectedId ? employees.find(e => e.id === selectedId) : null;
+  }, [employees, search, statusFilter]);
 
   const kpis = useMemo(() => ({
     total: employees.length,
     active: employees.filter(e => e.status === 'active').length,
     leave: employees.filter(e => e.status === 'leave').length,
   }), [employees]);
-  const { toast, ToastUI } = useToast();
 
   return (
     <div>
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">社員一覧</h1>
-        <button onClick={() => toast('この機能は現在準備中です')} className="btn-primary text-sm py-2">新規社員登録</button>
+        <button onClick={() => router.push('/admin/employees/new')} className="btn-primary text-sm py-2">新規社員登録</button>
       </div>
 
       {/* KPI */}
@@ -112,27 +139,28 @@ export default function AdminEmployeesPage() {
           <tbody>
             {loading ? (
               <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+            ) : error ? (
+              <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-red-500">{error}</div></td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
             ) : filtered.map((emp) => {
-              const st = statusBadge[emp.status];
+              const st = statusBadge[emp.status] || { label: emp.status, cls: 'badge-wait' };
+              const ct = contractLabel[emp.contractType] || emp.contractType;
               return (
                 <tr
                   key={emp.id}
-                  onClick={() => setSelectedId(emp.id)}
+                  onClick={() => router.push(`/admin/employees/${emp.id}`)}
                   className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors"
                 >
-                  <td className="px-4 py-2.5 text-base text-secondary">{emp.code}</td>
-                  <td className="px-4 py-2.5 text-base font-medium">{emp.name}</td>
-                  <td className="px-4 py-2.5 text-base">{emp.dept}</td>
-                  <td className="px-4 py-2.5 text-base">{emp.type}</td>
+                  <td className="px-4 py-2.5 text-base text-secondary">{emp.employeeCode}</td>
+                  <td className="px-4 py-2.5 text-base font-medium">{emp.lastName} {emp.firstName}</td>
+                  <td className="px-4 py-2.5 text-base">{emp.departmentName || '—'}</td>
+                  <td className="px-4 py-2.5 text-base">{empTypeLabel[emp.employmentType] || emp.employmentType}</td>
                   <td className="px-4 py-2.5 text-base">
-                    <span className={`badge ${emp.contract === '無期' ? 'badge-ok' : 'badge-info'}`}>
-                      {emp.contract}
-                    </span>
+                    <span className={`badge ${ct === '無期' ? 'badge-ok' : 'badge-info'}`}>{ct}</span>
                   </td>
                   <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
-                  <td className="px-4 py-2.5 text-base text-secondary">{emp.hire}</td>
+                  <td className="px-4 py-2.5 text-base text-secondary">{fmtDate(emp.hireDate)}</td>
                 </tr>
               );
             })}
@@ -140,41 +168,6 @@ export default function AdminEmployeesPage() {
         </table>
       </div>
 
-      {/* 詳細パネル */}
-      {selected && (
-        <>
-          <div className="fixed inset-0 bg-black/8 z-[99]" onClick={() => setSelectedId(null)} />
-          <div className="fixed top-0 right-0 bottom-0 w-full max-w-[480px] bg-card border-l border-border z-[100] overflow-y-auto">
-            <div className="flex justify-between items-start p-5 border-b border-border/30">
-              <div>
-                <h2 className="text-xl font-medium">{selected.name}</h2>
-                <div className="text-sm text-secondary mt-0.5">{selected.code} · {selected.dept}</div>
-              </div>
-              <button onClick={() => setSelectedId(null)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">✕</button>
-            </div>
-            <div className="p-5 space-y-5">
-              <div>
-                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">基本情報</div>
-                {[
-                  ['雇用形態', selected.type],
-                  ['雇用区分', selected.contract],
-                  ['入社日', selected.hire],
-                  ['ステータス', statusBadge[selected.status].label],
-                ].map(([l, v]) => (
-                  <div key={l} className="flex justify-between py-1.5 border-b border-border/20 text-base">
-                    <span className="text-secondary">{l}</span>
-                    <span>{v}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => toast('この機能は現在準備中です')} className="btn-outline flex-1 text-sm py-2">編集</button>
-                <button onClick={() => toast('この機能は現在準備中です')} className="btn-outline flex-1 text-sm py-2">勤怠履歴</button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
       <ToastUI />
     </div>
   );

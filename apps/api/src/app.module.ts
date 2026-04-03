@@ -25,6 +25,10 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { CertificatesModule } from './modules/certificates/certificates.module';
 import { YearendModule } from './modules/yearend/yearend.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { ClientsModule } from './modules/clients/clients.module';
+import { MeetingsModule } from './modules/meetings/meetings.module';
+import { CandidatesModule } from './modules/candidates/candidates.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -46,6 +50,10 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     CertificatesModule,
     YearendModule,
     DashboardModule,
+    ClientsModule,
+    MeetingsModule,
+    CandidatesModule,
+    SettingsModule,
   ],
   controllers: [HealthController],
 })

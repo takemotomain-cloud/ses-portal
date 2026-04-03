@@ -50,8 +50,8 @@ export default function AssignmentPage() {
           apiClient('/assignments/history'),
         ]);
         if (!cancelled) {
-          setCurrentAssignment(current.status === 'fulfilled' ? current.value : null);
-          setHistory(hist.status === 'fulfilled' ? hist.value : []);
+          setCurrentAssignment(current.status === 'fulfilled' ? current.value as Assignment : null);
+          setHistory(hist.status === 'fulfilled' ? hist.value as AssignmentHistory[] : []);
         }
       } catch {
         // both failed

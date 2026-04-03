@@ -8,17 +8,23 @@
 
 import { useState } from 'react';
 
-const demoSkillsheets: { id: string; name: string; edu: string; exp: string; skills: string; projects: number; updated: string }[] = [];
+const demoSkillsheets: { id: string; name: string; edu: string; exp: string; skills: string; projects: number; updated: string; status: string }[] = [];
 
 export default function AdminSkillsheetsPage() {
   const [search, setSearch] = useState('');
-  const filtered = demoSkillsheets.filter(s => !search || s.name.includes(search));
+  const [status, setStatus] = useState('');
+  const filtered = demoSkillsheets.filter(s => (!search || s.name.includes(search)) && (!status || s.status === status));
 
   return (
     <div>
       <h1 className="text-2xl font-medium mb-5">スキルシート</h1>
       <div className="flex gap-2 mb-4">
         <input type="text" placeholder="氏名で検索" value={search} onChange={e => setSearch(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card min-w-[180px]" />
+        <select value={status} onChange={e => setStatus(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none min-w-[160px]">
+          <option value="">ステータス: すべて</option>
+          <option value="在籍">在籍</option>
+          <option value="待機中">待機中</option>
+        </select>
         <span className="text-sm text-secondary self-center">{filtered.length}名</span>
       </div>
       <div className="card p-0 overflow-x-auto">

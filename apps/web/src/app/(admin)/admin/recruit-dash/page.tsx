@@ -1,64 +1,188 @@
-/**
- * 採用ダッシュボード
- *
- * KPI（応募数・面接数・内定数・入社数）+ パイプラインファネル + 月次推移。
- */
-
 'use client';
 
+import { useToast } from '@/components/ui/toast';
+
 export default function RecruitDashPage() {
-  const kpis = [
-    { label: '今月の応募', value: 0, sub: '--' },
-    { label: '面接予定', value: 0, sub: '--' },
-    { label: '内定出し', value: 0, sub: '--' },
-    { label: '今月入社', value: 0, sub: '--' },
+  const { toast, ToastUI } = useToast();
+
+  const interviews = [
+    {
+      interviewer: '山本 浩二',
+      name: '田村 健一',
+      stage: '一次面接',
+      datetime: '2026年4月1日 10時00分',
+      position: 'SESエンジニア',
+      source: 'エージェント',
+      sourceBadge: 'badge-info',
+      confirmed: '確認済',
+      confirmedBadge: 'badge-ok',
+    },
+    {
+      interviewer: '田辺 恵子',
+      name: '岸田 美優',
+      stage: '最終面接',
+      datetime: '2026年4月1日 13時00分',
+      position: 'インフラエンジニア',
+      source: '媒体',
+      sourceBadge: 'badge-warn',
+      confirmed: '未確認',
+      confirmedBadge: 'badge-wait',
+    },
+    {
+      interviewer: '山本 浩二',
+      name: '中島 大樹',
+      stage: '一次面接',
+      datetime: '2026年4月1日 16時00分',
+      position: 'SESエンジニア',
+      source: 'リファラル',
+      sourceBadge: 'badge-ok',
+      confirmed: '確認済',
+      confirmedBadge: 'badge-ok',
+    },
   ];
 
-  const pipeline = [
-    { stage: '応募', count: 0, color: 'bg-status-blue-bg', textColor: 'text-status-blue-text' },
-    { stage: '書類選考', count: 0, color: 'bg-status-amber-bg', textColor: 'text-status-amber-text' },
-    { stage: '面接', count: 0, color: 'bg-accent', textColor: 'text-accent-text' },
-    { stage: '内定', count: 0, color: 'bg-status-green-bg', textColor: 'text-status-green-text' },
-    { stage: '入社', count: 0, color: 'bg-status-green-bg', textColor: 'text-status-green-text' },
+  const proposals = [
+    {
+      date: '2026年3月28日',
+      status: '書類選考',
+      statusBadge: 'badge-info',
+      name: '松岡 涼太',
+      isNew: true,
+      position: 'SESエンジニア',
+      agent: 'テックエージェント',
+    },
+    {
+      date: '2026年3月29日',
+      status: '書類選考',
+      statusBadge: 'badge-info',
+      name: '柳澤 真帆',
+      isNew: true,
+      position: 'インフラエンジニア',
+      agent: 'ITキャリア',
+    },
+    {
+      date: '2026年3月25日',
+      status: '一次面接待ち',
+      statusBadge: 'badge-warn',
+      name: '吉村 翔',
+      isNew: false,
+      position: 'SESエンジニア',
+      agent: 'テックエージェント',
+    },
+    {
+      date: '2026年3月20日',
+      status: '最終面接待ち',
+      statusBadge: 'badge-warn',
+      name: '河合 陽子',
+      isNew: false,
+      position: 'SESエンジニア',
+      agent: 'エンジニアパートナーズ',
+    },
+    {
+      date: '2026年3月15日',
+      status: '内定承諾',
+      statusBadge: 'badge-ok',
+      name: '長谷川 翼',
+      isNew: false,
+      position: 'インフラエンジニア',
+      agent: 'テックエージェント',
+    },
   ];
 
   return (
-    <div>
-      <h1 className="text-2xl font-medium mb-5">採用ダッシュボード</h1>
+    <div className="min-h-screen bg-[#F7F7F5]">
+      <ToastUI />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        {kpis.map(k => (
-          <div key={k.label} className="card p-4">
-            <div className="text-xs text-secondary">{k.label}</div>
-            <div className="text-3xl font-medium">{k.value}</div>
-            <div className="text-xs text-secondary mt-0.5">{k.sub}</div>
-          </div>
-        ))}
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-2xl font-medium text-[#1A1A1A]">採用ダッシュボード</h1>
+        <button
+          className="px-4 py-2 bg-[#1A1A1A] text-white text-sm rounded-lg hover:opacity-90 transition"
+          onClick={() => toast('通知を送信しました')}
+        >
+          通知する
+        </button>
       </div>
 
-      <h2 className="text-md font-medium mb-3">採用パイプライン</h2>
-      <div className="card p-5 mb-5">
-        <div className="flex items-end gap-3 justify-center h-[200px]">
-          {pipeline.map(p => (
-            <div key={p.stage} className="flex flex-col items-center gap-2 flex-1">
-              <span className="text-2xl font-medium">{p.count}</span>
-              <div className={`w-full rounded-t-lg ${p.color}`} style={{ height: `${p.count > 0 ? (p.count / 12) * 150 : 0}px`, minHeight: '20px' }} />
-              <span className="text-xs text-secondary">{p.stage}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <h2 className="text-md font-medium mb-3">月次推移</h2>
-      <div className="card p-0 overflow-x-auto">
-        <table className="w-full min-w-[500px]">
-          <thead><tr className="border-b border-border">
-            {['月', '応募', '書類通過', '面接', '内定', '入社', '通過率'].map(h => (
-              <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
-            ))}
-          </tr></thead>
+      {/* Section 1: 明日の面接予定 */}
+      <h2 className="text-md font-medium text-[#1A1A1A] mb-3">明日の面接予定</h2>
+      <div className="card p-0 overflow-x-auto mb-6">
+        <table className="w-full min-w-[800px]">
+          <thead>
+            <tr className="border-b border-border">
+              {['面接官', '氏名', 'ステージ', '日時', '応募求人', '経路', '前日確認'].map((h) => (
+                <th
+                  key={h}
+                  className="text-left text-xs text-[#6B6B6B] font-normal px-4 py-2.5 bg-[#FAFAFA] whitespace-nowrap"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
-            <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
+            {interviews.map((row, i) => (
+              <tr key={i} className="border-b border-border last:border-b-0">
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.interviewer}</td>
+                <td className="px-4 py-3 text-sm whitespace-nowrap">
+                  <span className="text-blue-600 cursor-pointer hover:underline">{row.name}</span>
+                </td>
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.stage}</td>
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.datetime}</td>
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.position}</td>
+                <td className="px-4 py-3 text-sm whitespace-nowrap">
+                  <span className={`badge ${row.sourceBadge}`}>{row.source}</span>
+                </td>
+                <td className="px-4 py-3 text-sm whitespace-nowrap">
+                  <span className={`badge ${row.confirmedBadge}`}>{row.confirmed}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Section 2: 最新エージェント提案（5件） */}
+      <h2 className="text-md font-medium text-[#1A1A1A] mb-3">最新エージェント提案（5件）</h2>
+      <div className="card p-0 overflow-x-auto">
+        <table className="w-full min-w-[800px]">
+          <thead>
+            <tr className="border-b border-border">
+              {['応募日', 'ステータス', '候補者名', '希望職種', 'エージェント', '詳細'].map((h) => (
+                <th
+                  key={h}
+                  className="text-left text-xs text-[#6B6B6B] font-normal px-4 py-2.5 bg-[#FAFAFA] whitespace-nowrap"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {proposals.map((row, i) => (
+              <tr key={i} className="border-b border-border last:border-b-0">
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.date}</td>
+                <td className="px-4 py-3 text-sm whitespace-nowrap">
+                  <span className={`badge ${row.statusBadge}`}>{row.status}</span>
+                </td>
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">
+                  {row.name}
+                  {row.isNew && (
+                    <span className="ml-2 badge badge-danger text-xs">New</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.position}</td>
+                <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.agent}</td>
+                <td className="px-4 py-3 text-sm whitespace-nowrap">
+                  <button
+                    className="px-3 py-1 text-xs border border-border rounded-md hover:bg-gray-50 transition text-[#1A1A1A]"
+                    onClick={() => toast(`${row.name}の詳細を表示します`)}
+                  >
+                    詳細
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

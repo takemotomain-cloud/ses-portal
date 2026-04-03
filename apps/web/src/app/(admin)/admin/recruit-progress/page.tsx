@@ -1,61 +1,78 @@
-/**
- * 採用 月次進捗
- *
- * 月別の採用目標 vs 実績。進捗バー付き。
- */
-
 'use client';
 
+import { useToast } from '@/components/ui/toast';
+
 export default function RecruitProgressPage() {
-  const months: { month: string; target: number; actual: number; apps: number; interviews: number; offers: number }[] = [];
+  const { toast, ToastUI } = useToast();
+
+  const cards = [
+    {
+      label: '応募数',
+      value: '18名',
+      diff: '+3 先月比',
+      detail: '紹介: 8名 / 媒体: 5名 / リファラル: 3名 / 自社: 2名',
+    },
+    {
+      label: '有効応募数',
+      value: '14名',
+      diff: '+2 先月比',
+      detail: '紹介: 7名 / 媒体: 3名 / リファラル: 3名 / 自社: 1名',
+    },
+    {
+      label: '内定承諾者',
+      value: '2名',
+      diff: null,
+      detail: '長谷川 翼（エージェント）、佐野 美香（リファラル）',
+    },
+    {
+      label: '内定打診中',
+      value: '1名',
+      diff: null,
+      detail: '河合 陽子（エージェント）',
+    },
+    {
+      label: '一次面接予定',
+      value: '5名',
+      diff: null,
+      detail: '紹介: 3名 / 媒体: 1名 / リファラル: 1名',
+    },
+    {
+      label: '最終面接予定',
+      value: '3名',
+      diff: null,
+      detail: '紹介: 2名 / リファラル: 1名',
+    },
+  ];
 
   return (
-    <div>
-      <h1 className="text-2xl font-medium mb-5">月次進捗</h1>
+    <div className="min-h-screen bg-[#F7F7F5]">
+      <ToastUI />
 
-      <div className="space-y-3">
-        {months.length === 0 && (
-          <div className="card px-4 py-8 text-center text-sm text-secondary">データはありません</div>
-        )}
-        {months.map(m => {
-          const pct = m.target > 0 ? Math.round(m.actual / m.target * 100) : 0;
-          const isAchieved = m.actual >= m.target;
-          return (
-            <div key={m.month} className="card p-5">
-              <div className="flex justify-between items-start mb-3">
-                <div className="text-lg font-medium">{m.month}</div>
-                <span className={`badge ${isAchieved ? 'badge-ok' : 'badge-warn'}`}>
-                  {isAchieved ? '目標達成' : `残 ${m.target - m.actual}名`}
-                </span>
-              </div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-2xl font-medium text-[#1A1A1A]">2026年3月の進捗</h1>
+        <button
+          className="px-4 py-2 bg-[#1A1A1A] text-white text-sm rounded-lg hover:opacity-90 transition"
+          onClick={() => toast('通知を送信しました')}
+        >
+          通知する
+        </button>
+      </div>
 
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex-1 h-2.5 bg-border/30 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${isAchieved ? 'bg-status-green-text' : 'bg-status-amber-text'}`}
-                    style={{ width: `${Math.min(pct, 100)}%` }}
-                  />
-                </div>
-                <span className="text-base font-medium min-w-[60px] text-right">{m.actual} / {m.target}名</span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="bg-page rounded-lg p-2">
-                  <div className="text-2xs text-secondary">応募</div>
-                  <div className="text-lg font-medium">{m.apps}</div>
-                </div>
-                <div className="bg-page rounded-lg p-2">
-                  <div className="text-2xs text-secondary">面接</div>
-                  <div className="text-lg font-medium">{m.interviews}</div>
-                </div>
-                <div className="bg-page rounded-lg p-2">
-                  <div className="text-2xs text-secondary">内定</div>
-                  <div className="text-lg font-medium">{m.offers}</div>
-                </div>
-              </div>
+      {/* 6 cards in 2-col x 3-row grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {cards.map((card) => (
+          <div key={card.label} className="card p-5 bg-[#FFFFFF]">
+            <div className="text-sm text-[#6B6B6B] mb-1">{card.label}</div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-3xl font-medium text-[#1A1A1A]">{card.value}</span>
+              {card.diff && (
+                <span className="text-sm text-green-600 font-medium">{card.diff}</span>
+              )}
             </div>
-          );
-        })}
+            <div className="text-sm text-[#6B6B6B]">{card.detail}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

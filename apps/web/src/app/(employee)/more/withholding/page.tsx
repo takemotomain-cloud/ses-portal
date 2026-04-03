@@ -29,7 +29,7 @@ export default function WithholdingPage() {
     let cancelled = false;
     async function fetchData() {
       try {
-        const res = await apiClient('/withholding');
+        const res = await apiClient<WithholdingItem[]>('/withholding');
         if (!cancelled) setWithholdingData(res);
       } catch {
         if (!cancelled) setWithholdingData([]);

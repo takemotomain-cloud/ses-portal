@@ -9,13 +9,18 @@
  *   GET    /api/employees       — 社員一覧（admin/sales: 全員, employee: 自分のみ）
  *   GET    /api/employees/:id   — 社員詳細
  *   GET    /api/employees/me    — ログインユーザー自身の情報
+ *   POST   /api/employees       — 社員新規登録（admin）
+ *   PATCH  /api/employees/:id   — 社員情報更新（admin）
  */
 
 import {
   Controller,
   Get,
+  Post,
+  Patch,
   Param,
   Query,
+  Body,
   UseGuards,
   ParseUUIDPipe,
   ForbiddenException,
@@ -66,6 +71,77 @@ export class EmployeesController {
     @Query('status') status?: string,
   ) {
     return this.employeesService.findAll({ page, limit, search, status });
+  }
+
+  /**
+   * 社員を新規登録
+   *
+   * admin限定。Employee + Userレコードを同時作成する。
+   */
+  @Post()
+  @Roles('admin')
+  @ApiOperation({ summary: '社員新規登録' })
+  async create(@Body() body: {
+    lastName: string;
+    firstName: string;
+    lastNameKana?: string;
+    firstNameKana?: string;
+    employeeCode: string;
+    hireDate: string;
+    departmentId: string;
+    employmentType?: string;
+    contractType?: string;
+    birthDate?: string;
+    education?: string;
+    schoolName?: string;
+    email: string;
+    phone?: string;
+    address?: string;
+    baseSalary?: number;
+    rewardRate?: number;
+    bankName?: string;
+    bankBranch?: string;
+    bankAccountType?: string;
+    bankAccountNumber?: string;
+  }) {
+    return this.employeesService.create(body);
+  }
+
+  /**
+   * 社員情報を更新
+   *
+   * admin限定。部分更新を許可。
+   */
+  @Patch(':id')
+  @Roles('admin')
+  @ApiOperation({ summary: '社員情報更新' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: {
+      lastName?: string;
+      firstName?: string;
+      lastNameKana?: string;
+      firstNameKana?: string;
+      departmentId?: string;
+      employmentType?: string;
+      contractType?: string;
+      status?: string;
+      education?: string;
+      schoolName?: string;
+      email?: string;
+      phone?: string;
+      address?: string;
+      birthDate?: string;
+      gender?: string;
+      baseSalary?: number;
+      rewardRate?: number;
+      bankName?: string;
+      bankBranch?: string;
+      bankAccountType?: string;
+      bankAccountNumber?: string;
+    },
+  ) {
+    return this.employeesService.update(id, body);
   }
 
   /**

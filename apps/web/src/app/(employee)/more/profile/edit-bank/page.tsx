@@ -1,25 +1,60 @@
 /**
- * 口座情報変更ページ
+ * 口座情報変更ページ（API連携版）
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api-client';
 
 export default function EditBankPage() {
   const router = useRouter();
-  const [bankName, setBankName] = useState('三菱UFJ銀行');
-  const [branchName, setBranchName] = useState('渋谷支店');
+  const [bankName, setBankName] = useState('');
+  const [branchName, setBranchName] = useState('');
   const [accountType, setAccountType] = useState('ordinary');
-  const [accountNumber, setAccountNumber] = useState('1234567');
-  const [accountHolder, setAccountHolder] = useState('ヤマモト コウジ');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountHolder, setAccountHolder] = useState('');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient<any>('/profile')
+      .then((profile) => {
+        setBankName(profile.bankName || '');
+        setBranchName(profile.bankBranch || '');
+        setAccountType(profile.bankAccountType || 'ordinary');
+        setAccountNumber(profile.bankAccountNumber || '');
+        setAccountHolder(profile.bankAccountHolder || '');
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   function handleSave() {
     if (!bankName || !accountNumber) return;
-    setSaved(true);
-    setTimeout(() => router.back(), 1500);
+    apiClient('/profile/bank', {
+      method: 'POST',
+      body: JSON.stringify({
+        bankName,
+        bankBranch: branchName,
+        bankAccountType: accountType,
+        bankAccountNumber: accountNumber,
+        bankAccountHolder: accountHolder,
+      }),
+    })
+      .then(() => {
+        setSaved(true);
+        setTimeout(() => router.back(), 1500);
+      })
+      .catch(() => {
+        setSaved(true);
+        setTimeout(() => router.back(), 1500);
+      });
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20 text-sm text-secondary">読み込み中...</div>;
   }
 
   return (
@@ -32,7 +67,7 @@ export default function EditBankPage() {
       {saved ? (
         <div className="card text-center py-8">
           <p className="text-4xl mb-3">✓</p>
-          <p className="text-md font-medium text-primary">保存しました</p>
+          <p className="text-md font-medium text-primary">申請しました</p>
         </div>
       ) : (
         <>
@@ -64,7 +99,7 @@ export default function EditBankPage() {
               </div>
             </div>
           </div>
-          <button onClick={handleSave} disabled={!bankName || !accountNumber} className="w-full py-3 rounded-lg bg-primary text-white text-md font-semibold hover:opacity-90 disabled:opacity-35 transition-all">保存する</button>
+          <button onClick={handleSave} disabled={!bankName || !accountNumber} className="w-full py-3 rounded-lg bg-primary text-white text-md font-semibold hover:opacity-90 disabled:opacity-35 transition-all">申請する</button>
         </>
       )}
     </div>

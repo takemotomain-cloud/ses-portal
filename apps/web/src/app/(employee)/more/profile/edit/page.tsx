@@ -1,68 +1,63 @@
 /**
- * 緊急連絡先・個人情報編集ページ
+ * 個人情報変更ハブページ
+ *
+ * 変更する項目を選択して各編集ページへ遷移する。
+ * HTML プロトタイプ page-profile-edit に準拠。
  */
 
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function EditProfilePage() {
-  const router = useRouter();
-  const [phone, setPhone] = useState('090-1234-5678');
-  const [emergencyName, setEmergencyName] = useState('山本 花子');
-  const [emergencyRelation, setEmergencyRelation] = useState('配偶者');
-  const [emergencyPhone, setEmergencyPhone] = useState('090-8765-4321');
-  const [saved, setSaved] = useState(false);
+const menuItems = [
+  {
+    label: '住所変更',
+    description: '引越し等による住所の変更届',
+    href: '/more/profile/edit-address',
+  },
+  {
+    label: '口座変更',
+    description: '給与振込先の変更届',
+    href: '/more/profile/edit-bank',
+  },
+  {
+    label: '扶養変更',
+    description: '扶養親族の追加・削除',
+    href: '/more/profile/edit-dependents',
+  },
+  {
+    label: '緊急連絡先変更',
+    description: '緊急時の連絡先の変更届',
+    href: '/more/profile/edit-emergency',
+  },
+];
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => router.back(), 1500);
-  }
+export default function ProfileEditHubPage() {
+  const router = useRouter();
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3 mb-1">
-        <button onClick={() => router.back()} className="w-9 h-9 flex items-center justify-center border border-border rounded-lg text-secondary hover:bg-page">‹</button>
-        <h1 className="text-lg font-bold text-primary">個人情報の編集</h1>
-      </div>
-
-      {saved ? (
-        <div className="card text-center py-8">
-          <p className="text-4xl mb-3">✓</p>
-          <p className="text-md font-medium text-primary">保存しました</p>
+      <div>
+        <div className="flex items-center gap-2 mb-3 px-1">
+          <span className="text-sm font-semibold text-secondary">変更する項目を選択</span>
         </div>
-      ) : (
-        <>
-          <div className="card p-5">
-            <h2 className="text-md font-bold text-primary mb-4">連絡先</h2>
-            <div>
-              <label className="block text-sm font-medium text-primary mb-1.5">携帯電話番号</label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2.5 text-md bg-white outline-none focus:border-primary" />
-            </div>
-          </div>
-
-          <div className="card p-5">
-            <h2 className="text-md font-bold text-primary mb-4">緊急連絡先</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-primary mb-1.5">氏名</label>
-                <input type="text" value={emergencyName} onChange={(e) => setEmergencyName(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2.5 text-md bg-white outline-none focus:border-primary" />
+        <div className="card p-0">
+          {menuItems.map((item, idx) => (
+            <button
+              key={item.label}
+              onClick={() => router.push(item.href)}
+              className={`w-full flex items-center justify-between px-4 py-3.5 hover:bg-page transition-colors text-left
+                ${idx < menuItems.length - 1 ? 'border-b border-border-light' : ''}`}
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="text-md font-medium text-primary">{item.label}</span>
+                <span className="text-xs text-secondary">{item.description}</span>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-primary mb-1.5">続柄</label>
-                <input type="text" value={emergencyRelation} onChange={(e) => setEmergencyRelation(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2.5 text-md bg-white outline-none focus:border-primary" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-primary mb-1.5">電話番号</label>
-                <input type="tel" value={emergencyPhone} onChange={(e) => setEmergencyPhone(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2.5 text-md bg-white outline-none focus:border-primary" />
-              </div>
-            </div>
-          </div>
-
-          <button onClick={handleSave} className="w-full py-3 rounded-lg bg-primary text-white text-md font-semibold hover:opacity-90 transition-all">保存する</button>
-        </>
-      )}
+              <span className="text-lg text-secondary ml-3 flex-shrink-0">&rsaquo;</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

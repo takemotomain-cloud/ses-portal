@@ -25,7 +25,7 @@ export default function PasswordPage() {
 
   // パスワード強度チェック（クライアント側の補助表示）
   const strength = useMemo(() => {
-    if (!newPassword) return { score: 0, label: '', color: '' };
+    if (!newPassword) return { score: 0, label: '', color: '', width: '0%' };
 
     let score = 0;
     if (newPassword.length >= 8) score++;

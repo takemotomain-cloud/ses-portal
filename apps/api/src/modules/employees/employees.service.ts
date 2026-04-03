@@ -14,9 +14,12 @@
  * - ページネーション必須（デフォルト20件、最大100件）
  */
 
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { PAGINATION } from '@ses-portal/shared';
+import * as bcrypt from 'bcrypt';
+
+const BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class EmployeesService {
@@ -121,6 +124,14 @@ export class EmployeesService {
       include: {
         department: { select: { id: true, name: true, code: true } },
         position: { select: { id: true, name: true, rank: true } },
+        emergencyContacts: {
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true, name: true, relationship: true, phone: true, sortOrder: true },
+        },
+        dependents: {
+          where: { isActive: true },
+          select: { id: true, name: true, relationship: true, birthDate: true, annualIncome: true },
+        },
       },
     });
 
@@ -132,6 +143,186 @@ export class EmployeesService {
     const { myNumber, ...safeEmployee } = employee;
 
     return safeEmployee;
+  }
+
+  /**
+   * 社員を新規登録
+   *
+   * Employee レコードと、ログイン用の User レコードを同時に作成する。
+   * デフォルトパスワードは "Pass1234!" （初回ログイン時に変更を促す想定）。
+   *
+   * @param data フォームから受け取った社員情報
+   * @throws BadRequestException メール重複・社員番号重複の場合
+   */
+  async create(data: {
+    lastName: string;
+    firstName: string;
+    lastNameKana?: string;
+    firstNameKana?: string;
+    employeeCode: string;
+    hireDate: string;
+    departmentId: string;
+    employmentType?: string;
+    contractType?: string;
+    birthDate?: string;
+    education?: string;
+    schoolName?: string;
+    email: string;
+    phone?: string;
+    address?: string;
+    baseSalary?: number;
+    rewardRate?: number;
+    bankName?: string;
+    bankBranch?: string;
+    bankAccountType?: string;
+    bankAccountNumber?: string;
+  }) {
+    // 重複チェック
+    const existingEmail = await this.db.employee.findFirst({
+      where: { email: data.email, deletedAt: null },
+    });
+    if (existingEmail) {
+      throw new BadRequestException('このメールアドレスは既に使用されています');
+    }
+
+    const existingCode = await this.db.employee.findFirst({
+      where: { employeeCode: data.employeeCode, deletedAt: null },
+    });
+    if (existingCode) {
+      throw new BadRequestException('この社員番号は既に使用されています');
+    }
+
+    // デフォルトパスワードのハッシュ
+    const defaultPassword = 'Pass1234!';
+    const passwordHash = await bcrypt.hash(defaultPassword, BCRYPT_ROUNDS);
+
+    // トランザクションで Employee + User を同時作成
+    const employee = await this.db.$transaction(async (tx) => {
+      const emp = await tx.employee.create({
+        data: {
+          lastName: data.lastName,
+          firstName: data.firstName,
+          lastNameKana: data.lastNameKana || '',
+          firstNameKana: data.firstNameKana || '',
+          employeeCode: data.employeeCode,
+          hireDate: new Date(data.hireDate),
+          departmentId: data.departmentId,
+          employmentType: data.employmentType || 'regular',
+          contractType: data.contractType || 'fixed_term',
+          birthDate: data.birthDate ? new Date(data.birthDate) : new Date('2000-01-01'),
+          gender: 'other',
+          email: data.email,
+          phone: data.phone || null,
+          address: data.address || null,
+          education: data.education || null,
+          schoolName: data.schoolName || null,
+          baseSalary: data.baseSalary || null,
+          rewardRate: data.rewardRate || null,
+          bankName: data.bankName || null,
+          bankBranch: data.bankBranch || null,
+          bankAccountType: data.bankAccountType || null,
+          bankAccountNumber: data.bankAccountNumber || null,
+        },
+      });
+
+      // ログイン用 User レコード作成
+      await tx.user.create({
+        data: {
+          employeeId: emp.id,
+          passwordHash,
+          role: 'employee',
+        },
+      });
+
+      return emp;
+    });
+
+    this.logger.log(`社員を登録しました: ${employee.employeeCode} ${employee.lastName} ${employee.firstName}`);
+
+    return { id: employee.id, employeeCode: employee.employeeCode };
+  }
+
+  /**
+   * 社員情報を更新
+   *
+   * @param id 社員UUID
+   * @param data 更新対象フィールド（部分更新可能）
+   * @throws NotFoundException 社員が見つからない場合
+   * @throws BadRequestException メール重複の場合
+   */
+  async update(id: string, data: {
+    lastName?: string;
+    firstName?: string;
+    lastNameKana?: string;
+    firstNameKana?: string;
+    departmentId?: string;
+    employmentType?: string;
+    contractType?: string;
+    status?: string;
+    education?: string;
+    schoolName?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    birthDate?: string;
+    gender?: string;
+    baseSalary?: number;
+    rewardRate?: number;
+    bankName?: string;
+    bankBranch?: string;
+    bankAccountType?: string;
+    bankAccountNumber?: string;
+  }) {
+    // 存在確認
+    const existing = await this.db.employee.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!existing) {
+      throw new NotFoundException('社員が見つかりません');
+    }
+
+    // メール重複チェック（自分以外）
+    if (data.email && data.email !== existing.email) {
+      const emailExists = await this.db.employee.findFirst({
+        where: { email: data.email, deletedAt: null, id: { not: id } },
+      });
+      if (emailExists) {
+        throw new BadRequestException('このメールアドレスは既に使用されています');
+      }
+    }
+
+    // 更新データを組み立て（undefinedのフィールドは除外）
+    const updateData: any = {};
+    if (data.lastName !== undefined) updateData.lastName = data.lastName;
+    if (data.firstName !== undefined) updateData.firstName = data.firstName;
+    if (data.lastNameKana !== undefined) updateData.lastNameKana = data.lastNameKana;
+    if (data.firstNameKana !== undefined) updateData.firstNameKana = data.firstNameKana;
+    if (data.departmentId !== undefined) updateData.departmentId = data.departmentId;
+    if (data.employmentType !== undefined) updateData.employmentType = data.employmentType;
+    if (data.contractType !== undefined) updateData.contractType = data.contractType;
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.education !== undefined) updateData.education = data.education;
+    if (data.schoolName !== undefined) updateData.schoolName = data.schoolName;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.address !== undefined) updateData.address = data.address;
+    if (data.birthDate !== undefined) updateData.birthDate = new Date(data.birthDate);
+    if (data.gender !== undefined) updateData.gender = data.gender;
+    if (data.baseSalary !== undefined) updateData.baseSalary = data.baseSalary;
+    if (data.rewardRate !== undefined) updateData.rewardRate = data.rewardRate;
+    if (data.bankName !== undefined) updateData.bankName = data.bankName;
+    if (data.bankBranch !== undefined) updateData.bankBranch = data.bankBranch;
+    if (data.bankAccountType !== undefined) updateData.bankAccountType = data.bankAccountType;
+    if (data.bankAccountNumber !== undefined) updateData.bankAccountNumber = data.bankAccountNumber;
+
+    const updated = await this.db.employee.update({
+      where: { id },
+      data: updateData,
+    });
+
+    this.logger.log(`社員を更新しました: ${updated.employeeCode} ${updated.lastName} ${updated.firstName}`);
+
+    return { id: updated.id };
   }
 
   /**

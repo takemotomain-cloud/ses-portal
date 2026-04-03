@@ -1,12 +1,13 @@
 /**
  * 管理側 経費精算
  *
- * 全社員の交通費・経費一覧。月切替 + ステータスフィルタ + 承認操作。
+ * 全社員の交通費・経費一覧。月切替 + KPI + ステータスフィルタ + 承認操作。
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useToast } from '@/components/ui/toast';
 
 const demoExpenses: { name: string; type: string; desc: string; count: number; amount: number; date: string; status: string }[] = [];
 
@@ -19,25 +20,79 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 };
 
 export default function AdminExpensesPage() {
+  const [year, setYear] = useState(2026);
+  const [month, setMonth] = useState(3);
   const [filter, setFilter] = useState('');
+  const { toast, ToastUI } = useToast();
+
+  function changeMonth(delta: number) {
+    let m = month + delta;
+    let y = year;
+    if (m < 1) { m = 12; y--; }
+    if (m > 12) { m = 1; y++; }
+    setMonth(m);
+    setYear(y);
+  }
+
+  const handleCsvExport = useCallback(() => {
+    const headers = ['申請者', '申請日', '種別', '金額', 'ステータス'];
+    const rows = (filter ? demoExpenses.filter(e => e.status === filter) : demoExpenses).map(e => {
+      const st = statusBadge[e.status];
+      return [e.name, e.date, e.type, String(e.amount), st?.label ?? e.status];
+    });
+    const bom = '\uFEFF';
+    const csv = bom + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `経費_${year}年${month}月.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('CSVをダウンロードしました');
+  }, [year, month, filter, toast]);
+
   const filtered = filter ? demoExpenses.filter(e => e.status === filter) : demoExpenses;
   const total = demoExpenses.reduce((s, e) => s + e.amount, 0);
   const pending = demoExpenses.filter(e => e.status === 'pending').length;
+  const approved = demoExpenses.filter(e => e.status === 'ok').length;
+  const rejected = demoExpenses.filter(e => e.status === 'rejected').length;
 
   return (
     <div>
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">経費精算</h1>
-        <button className="btn-outline text-sm py-2">CSVエクスポート</button>
+        <button onClick={handleCsvExport} className="btn-outline text-sm py-1.5">CSVエクスポート</button>
       </div>
 
+      {/* 月切り替え */}
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
+        <span className="text-lg font-medium min-w-[100px] text-center">{year}年{month}月</span>
+        <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
+      </div>
+
+      {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div className="card p-4"><div className="text-xs text-secondary">経費合計</div><div className="text-2xl font-medium tabular-nums">{fmt(total)}<span className="text-sm font-normal text-secondary ml-1">円</span></div></div>
-        <div className="card p-4"><div className="text-xs text-secondary">承認待ち</div><div className="text-3xl font-medium text-status-amber-text">{pending}<span className="text-base font-normal ml-1">件</span></div></div>
-        <div className="card p-4"><div className="text-xs text-secondary">承認済</div><div className="text-3xl font-medium">{demoExpenses.filter(e => e.status === 'ok').length}<span className="text-base font-normal text-secondary ml-1">件</span></div></div>
-        <div className="card p-4"><div className="text-xs text-secondary">却下</div><div className="text-3xl font-medium">0<span className="text-base font-normal text-secondary ml-1">件</span></div></div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">経費合計</div>
+          <div className="text-2xl font-medium tabular-nums">{fmt(total)}<span className="text-sm font-normal text-secondary ml-1">円</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">承認待ち</div>
+          <div className="text-3xl font-medium text-status-amber-text">{pending}<span className="text-base font-normal ml-1">件</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">承認済</div>
+          <div className="text-3xl font-medium">{approved}<span className="text-base font-normal text-secondary ml-1">件</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">却下</div>
+          <div className="text-3xl font-medium">{rejected}<span className="text-base font-normal text-secondary ml-1">件</span></div>
+        </div>
       </div>
 
+      {/* ステータスフィルタ */}
       <div className="flex gap-2 mb-4">
         <select value={filter} onChange={e => setFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none">
           <option value="">ステータス: すべて</option>
@@ -47,6 +102,7 @@ export default function AdminExpensesPage() {
         </select>
       </div>
 
+      {/* テーブル */}
       <div className="card p-0 overflow-x-auto">
         <table className="w-full min-w-[600px]">
           <thead><tr className="border-b border-border">
@@ -74,6 +130,7 @@ export default function AdminExpensesPage() {
           </tbody>
         </table>
       </div>
+      <ToastUI />
     </div>
   );
 }
