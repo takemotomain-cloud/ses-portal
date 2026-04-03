@@ -46,27 +46,8 @@ const menuItems = [
   },
 ];
 
-/* ---------- プレースホルダー申請履歴データ ---------- */
-const applicationHistory: ApplicationHistoryItem[] = [
-  {
-    id: '1',
-    type: '有給休暇',
-    date: '2026年4月14日〜2026年4月15日',
-    status: 'approved',
-  },
-  {
-    id: '2',
-    type: '交通費精算',
-    date: '2026年2月分 — 18,420円',
-    status: 'approved',
-  },
-  {
-    id: '3',
-    type: '住所変更届',
-    date: '2026年1月20日申請',
-    status: 'pending',
-  },
-];
+/* ---------- 申請履歴データ (API接続後に動的取得) ---------- */
+const applicationHistory: ApplicationHistoryItem[] = [];
 
 /* ---------- フィルター選択肢 ---------- */
 const filterOptions = [

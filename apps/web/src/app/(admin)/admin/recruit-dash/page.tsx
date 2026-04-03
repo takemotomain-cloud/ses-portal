@@ -5,89 +5,9 @@ import { useToast } from '@/components/ui/toast';
 export default function RecruitDashPage() {
   const { toast, ToastUI } = useToast();
 
-  const interviews = [
-    {
-      interviewer: '山本 浩二',
-      name: '田村 健一',
-      stage: '一次面接',
-      datetime: '2026年4月1日 10時00分',
-      position: 'SESエンジニア',
-      source: 'エージェント',
-      sourceBadge: 'badge-info',
-      confirmed: '確認済',
-      confirmedBadge: 'badge-ok',
-    },
-    {
-      interviewer: '田辺 恵子',
-      name: '岸田 美優',
-      stage: '最終面接',
-      datetime: '2026年4月1日 13時00分',
-      position: 'インフラエンジニア',
-      source: '媒体',
-      sourceBadge: 'badge-warn',
-      confirmed: '未確認',
-      confirmedBadge: 'badge-wait',
-    },
-    {
-      interviewer: '山本 浩二',
-      name: '中島 大樹',
-      stage: '一次面接',
-      datetime: '2026年4月1日 16時00分',
-      position: 'SESエンジニア',
-      source: 'リファラル',
-      sourceBadge: 'badge-ok',
-      confirmed: '確認済',
-      confirmedBadge: 'badge-ok',
-    },
-  ];
+  const interviews: { interviewer: string; name: string; stage: string; datetime: string; position: string; source: string; sourceBadge: string; confirmed: string; confirmedBadge: string }[] = [];
 
-  const proposals = [
-    {
-      date: '2026年3月28日',
-      status: '書類選考',
-      statusBadge: 'badge-info',
-      name: '松岡 涼太',
-      isNew: true,
-      position: 'SESエンジニア',
-      agent: 'テックエージェント',
-    },
-    {
-      date: '2026年3月29日',
-      status: '書類選考',
-      statusBadge: 'badge-info',
-      name: '柳澤 真帆',
-      isNew: true,
-      position: 'インフラエンジニア',
-      agent: 'ITキャリア',
-    },
-    {
-      date: '2026年3月25日',
-      status: '一次面接待ち',
-      statusBadge: 'badge-warn',
-      name: '吉村 翔',
-      isNew: false,
-      position: 'SESエンジニア',
-      agent: 'テックエージェント',
-    },
-    {
-      date: '2026年3月20日',
-      status: '最終面接待ち',
-      statusBadge: 'badge-warn',
-      name: '河合 陽子',
-      isNew: false,
-      position: 'SESエンジニア',
-      agent: 'エンジニアパートナーズ',
-    },
-    {
-      date: '2026年3月15日',
-      status: '内定承諾',
-      statusBadge: 'badge-ok',
-      name: '長谷川 翼',
-      isNew: false,
-      position: 'インフラエンジニア',
-      agent: 'テックエージェント',
-    },
-  ];
+  const proposals: { date: string; status: string; statusBadge: string; name: string; isNew: boolean; position: string; agent: string }[] = [];
 
   return (
     <div className="min-h-screen bg-[#F7F7F5]">
@@ -121,7 +41,9 @@ export default function RecruitDashPage() {
             </tr>
           </thead>
           <tbody>
-            {interviews.map((row, i) => (
+            {interviews.length === 0 ? (
+              <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
+            ) : interviews.map((row, i) => (
               <tr key={i} className="border-b border-border last:border-b-0">
                 <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.interviewer}</td>
                 <td className="px-4 py-3 text-sm whitespace-nowrap">
@@ -159,7 +81,9 @@ export default function RecruitDashPage() {
             </tr>
           </thead>
           <tbody>
-            {proposals.map((row, i) => (
+            {proposals.length === 0 ? (
+              <tr><td colSpan={6}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
+            ) : proposals.map((row, i) => (
               <tr key={i} className="border-b border-border last:border-b-0">
                 <td className="px-4 py-3 text-sm text-[#1A1A1A] whitespace-nowrap">{row.date}</td>
                 <td className="px-4 py-3 text-sm whitespace-nowrap">

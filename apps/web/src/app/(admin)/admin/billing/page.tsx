@@ -48,39 +48,18 @@ const statusBadge: Record<InvoiceStatus, { label: string; cls: string }> = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  サンプル請求書データ (プレビュー用)                                    */
+/*  請求書プレビュー用データ (API接続後は動的に取得)                         */
 /* ------------------------------------------------------------------ */
 
-const sampleInvoice = {
-  number: 'INV-2026-0042',
-  date: '2026年3月31日',
-  dueDate: '2026年4月30日',
-  client: '株式会社サンプルテクノロジー',
-  issuer: {
-    company: '株式会社SESパートナーズ',
-    zip: '〒100-0001',
-    address: '東京都千代田区千代田1-1-1',
-    tel: 'TEL: 03-1234-5678',
-  },
-  totalWithTax: 2_508_000,
-  lines: [
-    { name: '山田 太郎', description: 'Javaバックエンド開発', hours: 160, range: '140-180h', unitPrice: 650_000, overtime: 0,      subtotal: 650_000 },
-    { name: '佐藤 花子', description: 'React フロントエンド', hours: 172, range: '140-180h', unitPrice: 700_000, overtime: 0,      subtotal: 700_000 },
-    { name: '鈴木 一郎', description: 'インフラ / SRE',       hours: 188, range: '140-180h', unitPrice: 600_000, overtime: 30_000, subtotal: 630_000 },
-  ],
-  baseTotal: 1_950_000,
-  overtimeTotal: 30_000,
-  subtotal: 1_980_000,
-  tax: 198_000,
-  // 振込先
-  bank: {
-    bankName: '三菱UFJ銀行 丸の内支店',
-    accountType: '普通',
-    accountNumber: '1234567',
-    accountHolder: 'カ）SESパートナーズ',
-  },
-  notes: '※お支払期日までにお振込みいただきますようお願い申し上げます。\n※振込手数料はお客様のご負担でお願いいたします。',
-};
+const sampleInvoice: {
+  number: string; date: string; dueDate: string; client: string;
+  issuer: { company: string; zip: string; address: string; tel: string };
+  totalWithTax: number;
+  lines: { name: string; description: string; hours: number; range: string; unitPrice: number; overtime: number; subtotal: number }[];
+  baseTotal: number; overtimeTotal: number; subtotal: number; tax: number;
+  bank: { bankName: string; accountType: string; accountNumber: string; accountHolder: string };
+  notes: string;
+} | null = null;
 
 /* ================================================================== */
 /*  コンポーネント                                                      */
@@ -219,6 +198,11 @@ export default function AdminBillingPage() {
           </div>
 
           {/* 請求書プレビュー */}
+          {!sampleInvoice ? (
+            <div className="card p-10 text-center text-secondary">
+              請求書を選択してください
+            </div>
+          ) : (
           <div className="card p-8 max-w-[820px] mx-auto">
             {/* タイトル */}
             <h2 className="text-2xl font-medium text-center mb-8">請求書</h2>
@@ -318,6 +302,7 @@ export default function AdminBillingPage() {
               <div className="text-sm text-secondary whitespace-pre-line">{sampleInvoice.notes}</div>
             </div>
           </div>
+          )}
         </>
       )}
 

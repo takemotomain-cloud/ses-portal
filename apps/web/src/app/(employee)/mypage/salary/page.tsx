@@ -77,7 +77,7 @@ export default function SalaryPage() {
     const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
     const employeeName = user?.name || '';
     const employeeCode = (user as any)?.employeeCode || '';
-    const companyName = '株式会社Lervia';
+    const companyName = '';
     const pad = (n: number) => String(n).padStart(2, '0');
 
     const html = `<!DOCTYPE html>

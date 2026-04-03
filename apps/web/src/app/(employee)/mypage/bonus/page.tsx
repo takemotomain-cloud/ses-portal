@@ -16,83 +16,15 @@ interface BonusData {
   paymentDate: string;
 }
 
-// プレースホルダーデータ
-const PLACEHOLDER_DATA: Record<string, BonusData> = {
-  '2025年 冬季賞与': {
-    earnings: [['賞与額', 560000]],
-    deductions: [
-      ['健康保険', 32480],
-      ['厚生年金', 51240],
-      ['雇用保険', 3360],
-      ['所得税', 60060],
-    ],
-    paymentDate: '2025年12月10日',
-  },
-  '2025年 夏季賞与': {
-    earnings: [['賞与額', 520000]],
-    deductions: [
-      ['健康保険', 30160],
-      ['厚生年金', 47580],
-      ['雇用保険', 3120],
-      ['所得税', 54320],
-    ],
-    paymentDate: '2025年6月10日',
-  },
-  '2024年 冬季賞与': {
-    earnings: [['賞与額', 500000]],
-    deductions: [
-      ['健康保険', 29000],
-      ['厚生年金', 45750],
-      ['雇用保険', 3000],
-      ['所得税', 51200],
-    ],
-    paymentDate: '2024年12月10日',
-  },
-  '2024年 夏季賞与': {
-    earnings: [['賞与額', 480000]],
-    deductions: [
-      ['健康保険', 27840],
-      ['厚生年金', 43920],
-      ['雇用保険', 2880],
-      ['所得税', 48960],
-    ],
-    paymentDate: '2024年6月10日',
-  },
-  '2023年 冬季賞与': {
-    earnings: [['賞与額', 460000]],
-    deductions: [
-      ['健康保険', 26680],
-      ['厚生年金', 42090],
-      ['雇用保険', 2760],
-      ['所得税', 46920],
-    ],
-    paymentDate: '2023年12月10日',
-  },
-  '2023年 夏季賞与': {
-    earnings: [['賞与額', 440000]],
-    deductions: [
-      ['健康保険', 25520],
-      ['厚生年金', 40260],
-      ['雇用保険', 2640],
-      ['所得税', 44880],
-    ],
-    paymentDate: '2023年6月10日',
-  },
-};
+// データはAPI接続後に動的取得 (現在は空)
+const PLACEHOLDER_DATA: Record<string, BonusData> = {};
 
-const BONUS_PERIODS = [
-  '2023年 夏季賞与',
-  '2023年 冬季賞与',
-  '2024年 夏季賞与',
-  '2024年 冬季賞与',
-  '2025年 夏季賞与',
-  '2025年 冬季賞与',
-];
+const BONUS_PERIODS: string[] = [];
 
 export default function BonusPage() {
-  const [periodIdx, setPeriodIdx] = useState(BONUS_PERIODS.length - 1);
-  const currentPeriod = BONUS_PERIODS[periodIdx];
-  const data = PLACEHOLDER_DATA[currentPeriod] ?? null;
+  const [periodIdx, setPeriodIdx] = useState(Math.max(BONUS_PERIODS.length - 1, 0));
+  const currentPeriod = BONUS_PERIODS[periodIdx] ?? null;
+  const data = currentPeriod ? (PLACEHOLDER_DATA[currentPeriod] ?? null) : null;
 
   const totalEarnings = data ? data.earnings.reduce((s, [, v]) => s + v, 0) : 0;
   const totalDeductions = data ? data.deductions.reduce((s, [, v]) => s + v, 0) : 0;
@@ -107,6 +39,7 @@ export default function BonusPage() {
   return (
     <div className="space-y-5">
       {/* 期切り替え */}
+      {BONUS_PERIODS.length > 0 && (
       <div className="flex items-center justify-center gap-3">
         <button
           onClick={() => setPeriodIdx(Math.max(periodIdx - 1, 0))}
@@ -128,6 +61,7 @@ export default function BonusPage() {
           ›
         </button>
       </div>
+      )}
 
       {!data ? (
         <div className="card p-10 text-center text-secondary">

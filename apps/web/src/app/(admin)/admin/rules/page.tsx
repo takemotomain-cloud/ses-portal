@@ -31,20 +31,20 @@ export default function AdminRulesPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div className="card p-4">
           <div className="text-xs text-secondary">現行バージョン</div>
-          <div className="text-3xl font-medium">v3.0</div>
-          <div className="text-xs text-secondary mt-0.5">2025年4月1日改定</div>
+          <div className="text-3xl font-medium">--</div>
+          <div className="text-xs text-secondary mt-0.5">--</div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">章数</div>
-          <div className="text-3xl font-medium">6</div>
+          <div className="text-3xl font-medium">--</div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">条文数</div>
-          <div className="text-3xl font-medium">18</div>
+          <div className="text-3xl font-medium">--</div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">社員公開</div>
-          <div className="text-3xl font-medium text-status-green-text">公開中</div>
+          <div className="text-3xl font-medium text-secondary">--</div>
         </div>
       </div>
 

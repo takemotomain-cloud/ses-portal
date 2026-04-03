@@ -28,17 +28,13 @@ interface CertificateRecord {
   createdAt: string;
 }
 
-/* ── 発行履歴（フォールバック用デモデータ） ── */
+/* ── 発行履歴（API接続後に動的取得） ── */
 const fallbackHistory: {
   id: string;
   type: string;
   date: string;
   status: 'issued' | 'pending';
-}[] = [
-  { id: '1', type: '在籍証明書', date: '2025年11月15日発行', status: 'issued' },
-  { id: '2', type: '在籍証明書', date: '2024年8月20日発行', status: 'issued' },
-  { id: '3', type: '収入証明書', date: '2025年12月1日申請', status: 'pending' },
-];
+}[] = [];
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -196,6 +192,9 @@ export default function DocumentsPage() {
       {/* 発行履歴 */}
       <div>
         <h2 className="text-md font-bold text-primary mb-3">発行履歴</h2>
+        {history.length === 0 ? (
+          <div className="card p-10 text-center text-secondary">発行履歴はありません</div>
+        ) : (
         <div className="card p-0">
           {history.map((item, idx) => (
             <div
@@ -224,6 +223,7 @@ export default function DocumentsPage() {
             </div>
           ))}
         </div>
+        )}
         <p className="text-2xs text-secondary mt-2 px-1">
           発行済の証明書はタップでPDFを閲覧・ダウンロードできます
         </p>

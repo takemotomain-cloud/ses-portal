@@ -9,15 +9,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { apiClient } from '@/lib/api-client';
 
-interface AttendanceRecord {
+interface AttendanceRecordRaw {
   id: string;
-  date: string;
+  workDate?: string;
+  date?: string;
   clockIn: string | null;
   clockOut: string | null;
   breakMinutes: number;
   workMinutes: number | null;
   overtimeMinutes: number | null;
   status: string;
+}
+
+interface AttendanceRecord extends AttendanceRecordRaw {
+  date: string;
 }
 
 function formatMinutes(min: number | null | undefined): string {
@@ -46,8 +51,8 @@ export default function AttendancePage() {
 
   useEffect(() => {
     setLoading(true);
-    apiClient<AttendanceRecord[]>(`/attendance/${year}/${month}`)
-      .then(setRecords)
+    apiClient<AttendanceRecordRaw[]>(`/attendance/${year}/${month}`)
+      .then(rows => setRecords(rows.map(r => ({ ...r, date: r.workDate || r.date || '' }))))
       .catch(() => setRecords([]))
       .finally(() => setLoading(false));
   }, [year, month]);

@@ -170,6 +170,7 @@ export class EmployeesService {
     email: string;
     phone?: string;
     address?: string;
+    gender?: string;
     baseSalary?: number;
     rewardRate?: number;
     bankName?: string;
@@ -210,7 +211,7 @@ export class EmployeesService {
           employmentType: data.employmentType || 'regular',
           contractType: data.contractType || 'fixed_term',
           birthDate: data.birthDate ? new Date(data.birthDate) : new Date('2000-01-01'),
-          gender: 'other',
+          gender: data.gender || 'other',
           email: data.email,
           phone: data.phone || null,
           address: data.address || null,
@@ -323,6 +324,48 @@ export class EmployeesService {
     this.logger.log(`社員を更新しました: ${updated.employeeCode} ${updated.lastName} ${updated.firstName}`);
 
     return { id: updated.id };
+  }
+
+  /**
+   * 緊急連絡先を登録
+   *
+   * @param employeeId 社員UUID
+   * @param data 緊急連絡先情報
+   */
+  async createEmergencyContact(employeeId: string, data: {
+    name: string;
+    relationship: string;
+    phone: string;
+  }) {
+    // 社員存在確認
+    const emp = await this.db.employee.findFirst({
+      where: { id: employeeId, deletedAt: null },
+    });
+    if (!emp) {
+      throw new NotFoundException('社員が見つかりません');
+    }
+
+    // sortOrder を自動設定（既存の最大値 + 1）
+    const maxSort = await this.db.emergencyContact.findFirst({
+      where: { employeeId },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    const sortOrder = (maxSort?.sortOrder ?? 0) + 1;
+
+    const contact = await this.db.emergencyContact.create({
+      data: {
+        employeeId,
+        name: data.name,
+        relationship: data.relationship,
+        phone: data.phone,
+        sortOrder,
+      },
+    });
+
+    this.logger.log(`緊急連絡先を登録しました: employee=${employeeId}, contact=${contact.id}`);
+
+    return { id: contact.id };
   }
 
   /**

@@ -9,6 +9,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 
 type CheckState = 'done' | 'pending' | 'na';
@@ -53,6 +54,7 @@ const formBadge: Record<string, { label: string; cls: string }> = {
 
 export default function AdminOnboardingPage() {
   const [people, setPeople] = useState(initialPeople);
+  const router = useRouter();
   const { toast, ToastUI } = useToast();
 
   function toggleCheck(pIdx: number, cIdx: number) {
@@ -76,7 +78,7 @@ export default function AdminOnboardingPage() {
           <h1 className="text-2xl font-medium">入社予定社員</h1>
           <span className="text-sm text-secondary">内定承諾者から自動追加</span>
         </div>
-        <button className="btn-primary text-sm py-2" onClick={() => toast('プレビュー表示')}>入社情報フォーム（プレビュー）</button>
+        <button className="btn-primary text-sm py-2" onClick={() => router.push('/admin/onboarding/form')}>入社情報フォーム（プレビュー）</button>
       </div>
 
       <div className="card p-0 overflow-x-auto">

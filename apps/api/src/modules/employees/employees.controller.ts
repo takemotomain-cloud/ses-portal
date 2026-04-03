@@ -92,6 +92,7 @@ export class EmployeesController {
     employmentType?: string;
     contractType?: string;
     birthDate?: string;
+    gender?: string;
     education?: string;
     schoolName?: string;
     email: string;
@@ -142,6 +143,21 @@ export class EmployeesController {
     },
   ) {
     return this.employeesService.update(id, body);
+  }
+
+  /**
+   * 緊急連絡先を登録
+   *
+   * admin限定。社員の緊急連絡先を追加する。
+   */
+  @Post(':id/emergency-contact')
+  @Roles('admin')
+  @ApiOperation({ summary: '緊急連絡先登録' })
+  async createEmergencyContact(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name: string; relationship: string; phone: string },
+  ) {
+    return this.employeesService.createEmergencyContact(id, body);
   }
 
   /**
