@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('通知')
 @ApiBearerAuth()
@@ -10,6 +12,40 @@ import { CurrentUser, RequestUser } from '../../common/decorators/current-user.d
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
+
+  /* --- 管理者用 一括送信（固定パスを先に配置） --- */
+
+  @Post('send')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'お知らせ一括送信（管理者）' })
+  async send(@Body() body: {
+    title: string;
+    body: string;
+    targetType: 'all' | 'department' | 'area' | 'individual';
+    targetIds?: string[];
+    targetArea?: string;
+  }) {
+    return this.notificationsService.sendBulk(body);
+  }
+
+  @Get('sent')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '送信済みお知らせ一覧（管理者）' })
+  async getSentNotifications() {
+    return this.notificationsService.getSentNotifications();
+  }
+
+  @Get('targets')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '送信先の選択肢を取得（管理者）' })
+  async getTargets() {
+    return this.notificationsService.getTargetOptions();
+  }
+
+  /* --- 社員用 --- */
 
   @Get()
   @ApiOperation({ summary: '自分の通知一覧' })
