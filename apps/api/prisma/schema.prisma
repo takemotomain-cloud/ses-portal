@@ -108,7 +108,9 @@ model Employee {
   notifications      Notification[]
   certificates       Certificate[]
   yearendAdjustments YearendAdjustment[]
-  meetings           Meeting[]
+  meetings                Meeting[]
+  attendanceCorrections   AttendanceCorrection[]
+  approvedCorrections     AttendanceCorrection[] @relation("CorrectionApprover")
 
   @@map("employees")
 }
@@ -240,10 +242,39 @@ model Attendance {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee    Employee               @relation(fields: [employeeId], references: [id])
+  corrections AttendanceCorrection[]
 
   @@unique([employeeId, workDate])
   @@map("attendances")
+}
+
+// ----------------------------------------
+// 勤怠修正申請
+// ----------------------------------------
+model AttendanceCorrection {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attendanceId         String    @map("attendance_id") @db.Uuid
+  employeeId           String    @map("employee_id") @db.Uuid
+  originalClockIn      DateTime? @map("original_clock_in") @db.Timestamptz
+  originalClockOut     DateTime? @map("original_clock_out") @db.Timestamptz
+  originalBreakMinutes Int?      @map("original_break_minutes")
+  newClockIn           DateTime? @map("new_clock_in") @db.Timestamptz
+  newClockOut          DateTime? @map("new_clock_out") @db.Timestamptz
+  newBreakMinutes      Int?      @map("new_break_minutes")
+  reason               String
+  status               String    @default("pending") @db.VarChar(20)
+  approverId           String?   @map("approver_id") @db.Uuid
+  approvedAt           DateTime? @map("approved_at") @db.Timestamptz
+  rejectReason         String?   @map("reject_reason")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id])
+  employee   Employee   @relation(fields: [employeeId], references: [id])
+  approver   Employee?  @relation("CorrectionApprover", fields: [approverId], references: [id])
+
+  @@map("attendance_corrections")
 }
 
 // ----------------------------------------

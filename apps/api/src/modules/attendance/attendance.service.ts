@@ -196,4 +196,193 @@ export class AttendanceService {
       },
     });
   }
+
+  /* ==============================================
+   * 勤怠修正申請
+   * ============================================== */
+
+  /**
+   * 修正申請を作成
+   *
+   * 社員が出勤/退勤/休憩時間の修正を申請する。
+   * 同じ勤怠レコードに対して未処理の申請がある場合はエラー。
+   */
+  async createCorrection(
+    attendanceId: string,
+    employeeId: string,
+    data: {
+      newClockIn?: string;
+      newClockOut?: string;
+      newBreakMinutes?: number;
+      reason: string;
+    },
+  ) {
+    // 勤怠レコードの存在＆所有権チェック
+    const record = await this.db.attendance.findFirst({
+      where: { id: attendanceId, employeeId },
+    });
+
+    if (!record) {
+      throw new NotFoundException('勤怠レコードが見つかりません');
+    }
+
+    // 同じ勤怠レコードに対して未処理の申請がないか
+    const pending = await this.db.attendanceCorrection.findFirst({
+      where: { attendanceId, status: 'pending' },
+    });
+
+    if (pending) {
+      throw new BadRequestException('この日付には既に未処理の修正申請があります');
+    }
+
+    // 修正内容のバリデーション
+    if (!data.newClockIn && !data.newClockOut && data.newBreakMinutes === undefined) {
+      throw new BadRequestException('修正する項目を1つ以上指定してください');
+    }
+
+    if (data.newBreakMinutes !== undefined && (data.newBreakMinutes < 0 || data.newBreakMinutes > 480)) {
+      throw new BadRequestException('休憩時間は0〜480分で指定してください');
+    }
+
+    const correction = await this.db.attendanceCorrection.create({
+      data: {
+        attendanceId,
+        employeeId,
+        originalClockIn: record.clockIn,
+        originalClockOut: record.clockOut,
+        originalBreakMinutes: record.breakMinutes,
+        newClockIn: data.newClockIn ? new Date(data.newClockIn) : null,
+        newClockOut: data.newClockOut ? new Date(data.newClockOut) : null,
+        newBreakMinutes: data.newBreakMinutes ?? null,
+        reason: data.reason,
+      },
+    });
+
+    this.logger.log(`勤怠修正申請を作成: employee=${employeeId}, attendance=${attendanceId}, correction=${correction.id}`);
+
+    return { id: correction.id };
+  }
+
+  /**
+   * 自分の修正申請一覧を取得
+   */
+  async getMyCorrections(employeeId: string) {
+    return this.db.attendanceCorrection.findMany({
+      where: { employeeId },
+      include: {
+        attendance: {
+          select: { workDate: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 未処理の修正申請一覧（管理者用）
+   */
+  async getPendingCorrections() {
+    return this.db.attendanceCorrection.findMany({
+      where: { status: 'pending' },
+      include: {
+        employee: {
+          select: { lastName: true, firstName: true, employeeCode: true },
+        },
+        attendance: {
+          select: { workDate: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * 修正申請を承認
+   *
+   * トランザクション内で:
+   * 1. 申請ステータスを approved に更新
+   * 2. 勤怠レコードに修正値を反映
+   * 3. 稼働時間・残業時間を再計算
+   */
+  async approveCorrection(correctionId: string, approverId: string) {
+    const correction = await this.db.attendanceCorrection.findFirst({
+      where: { id: correctionId, status: 'pending' },
+      include: { attendance: true },
+    });
+
+    if (!correction) {
+      throw new NotFoundException('未処理の修正申請が見つかりません');
+    }
+
+    return this.db.$transaction(async (tx) => {
+      // 1. 申請ステータス更新
+      await tx.attendanceCorrection.update({
+        where: { id: correctionId },
+        data: {
+          status: 'approved',
+          approverId,
+          approvedAt: new Date(),
+        },
+      });
+
+      // 2. 勤怠レコードに修正値を反映
+      const clockIn = correction.newClockIn ?? correction.attendance.clockIn;
+      const clockOut = correction.newClockOut ?? correction.attendance.clockOut;
+      const breakMinutes = correction.newBreakMinutes ?? correction.attendance.breakMinutes;
+
+      // 3. 稼働時間・残業時間を再計算
+      let workMinutes = correction.attendance.workMinutes;
+      let overtimeMinutes = correction.attendance.overtimeMinutes;
+
+      if (clockIn && clockOut) {
+        const totalMinutes = Math.floor(
+          (new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 60000,
+        );
+        workMinutes = totalMinutes - breakMinutes;
+        overtimeMinutes = Math.max(0, workMinutes - STANDARD_WORK_MINUTES);
+      }
+
+      await tx.attendance.update({
+        where: { id: correction.attendanceId },
+        data: {
+          clockIn,
+          clockOut,
+          breakMinutes,
+          workMinutes,
+          overtimeMinutes,
+        },
+      });
+
+      this.logger.log(`勤怠修正を承認: correction=${correctionId}, approver=${approverId}`);
+
+      return { id: correctionId };
+    });
+  }
+
+  /**
+   * 修正申請を却下
+   */
+  async rejectCorrection(correctionId: string, approverId: string, reason?: string) {
+    const correction = await this.db.attendanceCorrection.findFirst({
+      where: { id: correctionId, status: 'pending' },
+    });
+
+    if (!correction) {
+      throw new NotFoundException('未処理の修正申請が見つかりません');
+    }
+
+    await this.db.attendanceCorrection.update({
+      where: { id: correctionId },
+      data: {
+        status: 'rejected',
+        approverId,
+        approvedAt: new Date(),
+        rejectReason: reason || null,
+      },
+    });
+
+    this.logger.log(`勤怠修正を却下: correction=${correctionId}, approver=${approverId}`);
+
+    return { id: correctionId };
+  }
 }

@@ -44,9 +44,25 @@ interface ChangeItem {
   employee: { lastName: string; firstName: string; employeeCode: string };
 }
 
+interface AttendanceCorrectionItem {
+  id: string;
+  attendanceId: string;
+  originalClockIn: string | null;
+  originalClockOut: string | null;
+  originalBreakMinutes: number | null;
+  newClockIn: string | null;
+  newClockOut: string | null;
+  newBreakMinutes: number | null;
+  reason: string;
+  status: string;
+  createdAt: string;
+  employee: { lastName: string; firstName: string; employeeCode: string };
+  attendance: { workDate: string };
+}
+
 interface DoneItem {
   id: string;
-  type: 'leave' | 'expense' | 'change';
+  type: 'leave' | 'expense' | 'change' | 'attendance';
   name: string;
   detail: string;
   approved: boolean;
@@ -73,6 +89,12 @@ function fmtDate(iso: string) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
+function fmtTime(iso: string | null) {
+  if (!iso) return '--:--';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function fmtMonth(m: string) {
   const [y, mo] = m.split('-');
   return `${y}年${parseInt(mo)}月分`;
@@ -88,6 +110,7 @@ export default function AdminApprovalsPage() {
   const [leaveItems, setLeaveItems] = useState<LeaveItem[]>([]);
   const [expenseItems, setExpenseItems] = useState<ExpenseItem[]>([]);
   const [changeItems, setChangeItems] = useState<ChangeItem[]>([]);
+  const [correctionItems, setCorrectionItems] = useState<AttendanceCorrectionItem[]>([]);
   const [done, setDone] = useState<DoneItem[]>([]);
   const [activeTab, setActiveTab] = useState<0 | 1>(0);
   const [loading, setLoading] = useState(true);
@@ -96,14 +119,16 @@ export default function AdminApprovalsPage() {
   /* データ取得 */
   const fetchData = useCallback(async () => {
     try {
-      const [leaves, expenses, changes] = await Promise.all([
+      const [leaves, expenses, changes, corrections] = await Promise.all([
         apiClient<LeaveItem[]>('/leave/pending'),
         apiClient<ExpenseItem[]>('/expense/pending'),
         apiClient<ChangeItem[]>('/profile/change-requests/pending'),
+        apiClient<AttendanceCorrectionItem[]>('/attendance/corrections/pending'),
       ]);
       setLeaveItems(leaves);
       setExpenseItems(expenses);
       setChangeItems(changes);
+      setCorrectionItems(corrections);
     } catch (e: any) {
       console.error('Failed to fetch approvals:', e);
     } finally {
@@ -170,6 +195,40 @@ export default function AdminApprovalsPage() {
     }
   }
 
+  /* 勤怠修正 承認/却下 */
+  async function handleCorrection(item: AttendanceCorrectionItem, approved: boolean) {
+    setProcessing(item.id);
+    try {
+      if (approved) {
+        await apiClient(`/attendance/corrections/${item.id}/approve`, { method: 'POST' });
+      } else {
+        await apiClient(`/attendance/corrections/${item.id}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ reason: '管理者判断により却下' }),
+        });
+      }
+      setCorrectionItems(prev => prev.filter(i => i.id !== item.id));
+      const wd = new Date(item.attendance.workDate);
+      const changes: string[] = [];
+      if (item.newClockIn) changes.push(`出勤: ${fmtTime(item.originalClockIn)}→${fmtTime(item.newClockIn)}`);
+      if (item.newClockOut) changes.push(`退勤: ${fmtTime(item.originalClockOut)}→${fmtTime(item.newClockOut)}`);
+      if (item.newBreakMinutes !== null) changes.push(`休憩: ${item.originalBreakMinutes}分→${item.newBreakMinutes}分`);
+      setDone(prev => [{
+        id: item.id,
+        type: 'attendance',
+        name: `${item.employee.lastName} ${item.employee.firstName}`,
+        detail: `${fmtDate(item.attendance.workDate)} ${changes.join(' / ')}`,
+        approved,
+        processedDate: fmtDate(new Date().toISOString()),
+      }, ...prev]);
+      toast(approved ? '承認しました' : '却下しました');
+    } catch (e: any) {
+      toast(e.message || 'エラーが発生しました');
+    } finally {
+      setProcessing(null);
+    }
+  }
+
   /* 情報変更 承認/却下 */
   async function handleChange(item: ChangeItem, approved: boolean) {
     setProcessing(item.id);
@@ -217,7 +276,7 @@ export default function AdminApprovalsPage() {
       <h1 className="text-2xl font-medium mb-5">承認待ち</h1>
 
       {/* KPI */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div className="card p-4">
           <div className="text-xs text-secondary">有給申請</div>
           <div className="text-3xl font-medium">{leaveItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
@@ -229,6 +288,10 @@ export default function AdminApprovalsPage() {
         <div className="card p-4">
           <div className="text-xs text-secondary">情報変更</div>
           <div className="text-3xl font-medium">{changeItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">勤怠修正</div>
+          <div className="text-3xl font-medium">{correctionItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
         </div>
       </div>
 
@@ -308,6 +371,42 @@ export default function AdminApprovalsPage() {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+
+          {/* 勤怠修正 */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-md font-medium">勤怠修正</h3>
+              <span className="text-sm text-secondary">{correctionItems.length}件</span>
+            </div>
+            <div className="card p-0">
+              {correctionItems.length === 0 ? (
+                <div className="px-5 py-4 text-base text-secondary">未処理の申請はありません</div>
+              ) : (
+                correctionItems.map((item, idx) => {
+                  const changes: string[] = [];
+                  if (item.newClockIn) changes.push(`出勤: ${fmtTime(item.originalClockIn)} → ${fmtTime(item.newClockIn)}`);
+                  if (item.newClockOut) changes.push(`退勤: ${fmtTime(item.originalClockOut)} → ${fmtTime(item.newClockOut)}`);
+                  if (item.newBreakMinutes !== null) changes.push(`休憩: ${item.originalBreakMinutes}分 → ${item.newBreakMinutes}分`);
+                  return (
+                    <div key={item.id} className={`flex items-center gap-3 px-5 py-3.5 flex-wrap ${idx < correctionItems.length - 1 ? 'border-b border-border/20' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-base font-medium">{item.employee.lastName} {item.employee.firstName}</div>
+                        <div className="text-sm text-secondary">
+                          {fmtDate(item.attendance.workDate)}の勤怠 — {changes.join(' / ')}
+                        </div>
+                        {item.reason && <div className="text-xs text-secondary mt-0.5">理由: {item.reason}</div>}
+                      </div>
+                      <div className="text-sm text-secondary flex-shrink-0 mr-2">{fmtDate(item.createdAt)}</div>
+                      <div className="flex gap-1.5 flex-shrink-0">
+                        <button onClick={() => handleCorrection(item, true)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-green-bg text-status-green-text hover:bg-[#C8EDDA] transition-colors disabled:opacity-50">承認</button>
+                        <button onClick={() => handleCorrection(item, false)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-red-bg text-status-red-text hover:bg-[#FAD4D4] transition-colors disabled:opacity-50">却下</button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
