@@ -96,7 +96,7 @@ export default function AdminDealsPage() {
           dept: c.department || '',
           title: c.title || '',
           status: c.status || '商談中',
-          lastDeal: c.updatedAt ? new Date(c.updatedAt).toLocaleDateString('ja-JP') : '--',
+          lastDeal: c.updatedAt ? (() => { const d = new Date(c.updatedAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })() : '--',
           owner: c.owner || '--',
           email: c.email || '',
           phone: c.phone || '',
@@ -435,7 +435,7 @@ export default function AdminDealsPage() {
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-base text-secondary">
-                  {c.logs.length > 0 ? new Date(c.logs[c.logs.length - 1].date).toLocaleDateString('ja-JP') : '--'}
+                  {c.logs.length > 0 ? (() => { const d = new Date(c.logs[c.logs.length - 1].date); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })() : '--'}
                 </td>
               </tr>
             ))}
@@ -641,7 +641,7 @@ export default function AdminDealsPage() {
                                   {idx + 1}回目
                                 </span>
                                 <span className="text-sm text-secondary">
-                                  {new Date(log.date).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })}
+                                  {(() => { const d = new Date(log.date); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()}
                                 </span>
                               </div>
                               <button

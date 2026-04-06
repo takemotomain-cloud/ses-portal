@@ -47,7 +47,7 @@ function mapStatus(s: string): string {
 
 function formatJapaneseDate(iso: string): string {
   const d = new Date(iso);
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 function mapExpense(e: ExpenseResponse): MappedExpense {

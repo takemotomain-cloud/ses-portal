@@ -234,6 +234,7 @@ model Client {
   assignments             Assignment[]
   clientAttendanceUploads ClientAttendanceUpload[]
   reconciliationSettings  ReconciliationSettings?
+  proposalEmails          ProposalEmail[]
 
   @@map("clients")
 }
@@ -767,4 +768,23 @@ model DelayCertificate {
   confirmer Employee? @relation("DelayCertConfirmer", fields: [confirmedBy], references: [id])
 
   @@map("delay_certificates")
+}
+
+// ----------------------------------------
+// 提案メール
+// ----------------------------------------
+model ProposalEmail {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId    String    @map("client_id") @db.Uuid
+  toEmail     String    @map("to_email") @db.VarChar(255)
+  subject     String    @db.VarChar(500)
+  bodyText    String    @map("body_text")
+  employeeIds Json      @map("employee_ids") @default("[]")
+  status      String    @default("sent") @db.VarChar(20)
+  sentAt      DateTime  @default(now()) @map("sent_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  client      Client    @relation(fields: [clientId], references: [id])
+
+  @@map("proposal_emails")
 }

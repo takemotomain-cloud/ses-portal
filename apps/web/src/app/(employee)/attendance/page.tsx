@@ -618,7 +618,7 @@ export default function AttendancePage() {
                           {u.client?.name && <span className="ml-2">({u.client.name})</span>}
                         </div>
                         <div className="text-2xs text-secondary/70 mt-0.5">
-                          {new Date(u.createdAt).toLocaleString('ja-JP')}
+                          {(() => { const d = new Date(u.createdAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}時${String(d.getMinutes()).padStart(2, '0')}分`; })()}
                         </div>
                       </li>
                     );

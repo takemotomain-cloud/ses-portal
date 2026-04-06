@@ -1,0 +1,57 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ProposalsService } from './proposals.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+
+@ApiTags('提案メール')
+@ApiBearerAuth()
+@Controller('proposals')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class ProposalsController {
+  constructor(private readonly service: ProposalsService) {}
+
+  @Post('send')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '提案メール送信' })
+  async send(
+    @Body() body: {
+      clientId: string;
+      employeeIds: string[];
+      toEmail: string;
+      contactPerson?: string;
+      customMessage?: string;
+    },
+  ) {
+    return this.service.send(body);
+  }
+
+  @Post('preview')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '提案メールプレビュー' })
+  async preview(
+    @Body() body: {
+      clientId: string;
+      employeeIds: string[];
+      contactPerson?: string;
+      customMessage?: string;
+    },
+  ) {
+    return this.service.preview(body);
+  }
+
+  @Get('history')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'クライアント別送信履歴' })
+  async history(@Query('clientId') clientId: string) {
+    return this.service.findByClient(clientId);
+  }
+}

@@ -58,6 +58,16 @@ interface EmployeeData {
 interface ClientData {
   id: string;
   name: string;
+  contactPerson?: string | null;
+  contactEmail?: string | null;
+}
+
+interface SkillsheetEmp {
+  id: string;
+  name: string;
+  nameKana: string;
+  employeeCode: string;
+  hasSkillsheet: boolean;
 }
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
@@ -123,18 +133,35 @@ export default function AdminSalesPage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [addSearch, setAddSearch] = useState('');
-  // 提案追加モーダル
+  // 提案追加モーダル（ステップ制御付き）
   const [proposalTarget, setProposalTarget] = useState<string | null>(null); // engineerId
   const [proposalClientId, setProposalClientId] = useState('');
   const [proposalProject, setProposalProject] = useState('');
+  // メール送信フロー
+  const [proposalStep, setProposalStep] = useState(1); // 1:クライアント選択 2:メール設定 3:確認
+  const [proposalToEmail, setProposalToEmail] = useState('');
+  const [proposalContactPerson, setProposalContactPerson] = useState('');
+  const [proposalExtraEmpIds, setProposalExtraEmpIds] = useState<string[]>([]);
+  const [proposalCustomMessage, setProposalCustomMessage] = useState('');
+  const [proposalSending, setProposalSending] = useState(false);
+  const [proposalEmpSearch, setProposalEmpSearch] = useState('');
+  const [allSkillsheetEmps, setAllSkillsheetEmps] = useState<SkillsheetEmp[]>([]);
+  const [proposalPreviewBody, setProposalPreviewBody] = useState('');
+  const [proposalPreviewSubject, setProposalPreviewSubject] = useState('');
+  const [proposalPreviewLoading, setProposalPreviewLoading] = useState(false);
+  const [showEmpSearchDropdown, setShowEmpSearchDropdown] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const [assignRes, empRes, clientRes] = await Promise.all([
+      const [assignRes, empRes, clientRes, skillsheetEmps] = await Promise.all([
         apiClient<{ data: AssignmentData[] }>('/assignments?limit=200'),
         apiClient<{ data: EmployeeData[] }>('/employees?limit=200'),
         apiClient<{ data: ClientData[] }>('/clients?limit=200').catch(() => ({ data: [] as ClientData[] })),
+        apiClient<any[]>('/skillsheets').catch(() => [] as any[]),
       ]);
+      setAllSkillsheetEmps(skillsheetEmps.filter((e: any) => e.hasSkillsheet).map((e: any) => ({
+        id: e.id, name: e.name, nameKana: e.nameKana, employeeCode: e.employeeCode, hasSkillsheet: e.hasSkillsheet,
+      })));
 
       const assignments = assignRes.data;
       const employees = empRes.data;
@@ -293,6 +320,94 @@ export default function AdminSalesPage() {
     setProposalTarget(engineerId);
     setProposalClientId('');
     setProposalProject('');
+    setProposalStep(1);
+    setProposalToEmail('');
+    setProposalContactPerson('');
+    setProposalExtraEmpIds([]);
+    setProposalCustomMessage('');
+    setProposalEmpSearch('');
+    setProposalPreviewBody('');
+    setProposalPreviewSubject('');
+    setShowEmpSearchDropdown(false);
+  };
+
+  // クライアント選択時にメール・担当者名を自動入力
+  const proposalSelectedClient = useMemo(() => allClients.find(c => c.id === proposalClientId), [allClients, proposalClientId]);
+
+  useEffect(() => {
+    if (proposalSelectedClient) {
+      setProposalToEmail(proposalSelectedClient.contactEmail || '');
+      setProposalContactPerson(proposalSelectedClient.contactPerson || '');
+    }
+  }, [proposalSelectedClient]);
+
+  // 提案対象社員（メイン＋追加）
+  const proposalAllEmpIds = useMemo(() => {
+    const ids = proposalTarget ? [proposalTarget, ...proposalExtraEmpIds] : [...proposalExtraEmpIds];
+    return Array.from(new Set(ids));
+  }, [proposalTarget, proposalExtraEmpIds]);
+
+  // 追加可能社員フィルタ
+  const proposalAddableEmps = useMemo(() => {
+    return allSkillsheetEmps
+      .filter(e => e.id !== proposalTarget && !proposalExtraEmpIds.includes(e.id))
+      .filter(e => {
+        if (!proposalEmpSearch) return false;
+        const q = proposalEmpSearch;
+        // 一文字でもマッチすればOK
+        return e.name.split('').some(c => q.includes(c)) || q.split('').some(c => e.name.includes(c)) || e.employeeCode.includes(q) || e.nameKana.includes(q);
+      });
+  }, [allSkillsheetEmps, proposalTarget, proposalExtraEmpIds, proposalEmpSearch]);
+
+  // メールプレビュー取得
+  const fetchPreview = async () => {
+    if (!proposalClientId || proposalAllEmpIds.length === 0) return;
+    setProposalPreviewLoading(true);
+    try {
+      const res = await apiClient<{ subject: string; bodyText: string }>('/proposals/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: proposalClientId,
+          employeeIds: proposalAllEmpIds,
+          contactPerson: proposalContactPerson,
+          customMessage: proposalCustomMessage,
+        }),
+      });
+      setProposalPreviewSubject(res.subject);
+      setProposalPreviewBody(res.bodyText);
+    } catch {
+      setProposalPreviewBody('プレビューの取得に失敗しました');
+    } finally {
+      setProposalPreviewLoading(false);
+    }
+  };
+
+  // メール送信
+  const handleSendProposal = async () => {
+    if (!proposalClientId || proposalAllEmpIds.length === 0 || !proposalToEmail) return;
+    setProposalSending(true);
+    try {
+      const res = await apiClient<any>('/proposals/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: proposalClientId,
+          employeeIds: proposalAllEmpIds,
+          toEmail: proposalToEmail,
+          contactPerson: proposalContactPerson,
+          customMessage: proposalCustomMessage,
+        }),
+      });
+      if (res.status === 'sent') {
+        toast('提案メールを送信しました');
+      } else {
+        toast('送信に失敗しましたが、履歴は保存されました');
+      }
+      // 提案も追加
+      handleAddProposal();
+    } catch (err: any) {
+      toast(err?.message || '送信に失敗しました');
+      setProposalSending(false);
+    }
   };
 
   const handleAddProposal = () => {
@@ -466,7 +581,7 @@ export default function AdminSalesPage() {
                               {/* 結果待ち時：面談日の表示 */}
                               {prop.status === 'waiting' && prop.interviewDate && (
                                 <div className="mt-1.5 text-xs text-secondary">
-                                  面談実施日: {new Date(prop.interviewDate).toLocaleString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  面談実施日: {(() => { const d = new Date(prop.interviewDate!); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}時${String(d.getMinutes()).padStart(2, '0')}分`; })()}
                                 </div>
                               )}
                             </div>
@@ -529,47 +644,192 @@ export default function AdminSalesPage() {
         </>
       )}
 
-      {/* 提案追加モーダル */}
-      {proposalTarget && (
-        <>
-          <div className="fixed inset-0 bg-black/20 z-[99]" onClick={() => setProposalTarget(null)} />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] bg-card border border-border rounded-xl z-[100] shadow-xl">
-            <div className="flex justify-between items-center p-5 border-b border-border/30">
-              <h2 className="text-lg font-medium">提案を追加</h2>
-              <button onClick={() => setProposalTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+      {/* 提案追加モーダル（ステップ制御） */}
+      {proposalTarget && (() => {
+        const targetEng = engineers.find(e => e.id === proposalTarget);
+        const targetName = targetEng?.name || '';
+        const labelCls = 'block text-xs text-secondary mb-1';
+        const inputCls = 'w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card focus:border-primary';
+
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/20 z-[99]" onClick={() => setProposalTarget(null)} />
+            <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[520px] bg-card border border-border rounded-xl z-[100] shadow-xl max-h-[85vh] overflow-y-auto">
+              <div className="flex justify-between items-center p-5 border-b border-border/30">
+                <h2 className="text-lg font-medium">提案を追加 — {targetName}</h2>
+                <button onClick={() => setProposalTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* ステップ1: クライアント選択 */}
+                <div>
+                  <label className={labelCls}>提案先クライアント <span className="text-status-red-text">*</span></label>
+                  <select value={proposalClientId} onChange={e => setProposalClientId(e.target.value)} className={`${inputCls} appearance-none`}>
+                    <option value="">選択してください</option>
+                    {allClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={labelCls}>案件名（任意）</label>
+                  <input type="text" value={proposalProject} onChange={e => setProposalProject(e.target.value)} placeholder="案件名を入力" className={inputCls} />
+                </div>
+
+                {/* クライアント選択後に送信先情報を表示 */}
+                {proposalClientId && (
+                  <>
+                    <hr className="border-border/30" />
+                    <div className="text-sm font-medium text-[#2c3e6b]">提案メール送信</div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className={labelCls}>送信先メールアドレス</label>
+                        <input type="email" value={proposalToEmail} onChange={e => setProposalToEmail(e.target.value)} placeholder="client@example.com" className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>担当者名</label>
+                        <input type="text" value={proposalContactPerson} onChange={e => setProposalContactPerson(e.target.value)} placeholder="山田太郎" className={inputCls} />
+                      </div>
+                    </div>
+
+                    {/* 一緒に提案する社員 */}
+                    <div>
+                      <label className={labelCls}>一緒に提案する社員（複数選択可）</label>
+                      {proposalExtraEmpIds.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {proposalExtraEmpIds.map(id => {
+                            const emp = allSkillsheetEmps.find(e => e.id === id) || engineers.find(e => e.id === id);
+                            const empName = emp ? ('name' in emp ? emp.name : '') : id;
+                            return (
+                              <span key={id} className="bg-primary/10 text-primary rounded px-2 py-0.5 text-xs flex items-center gap-1">
+                                {empName}
+                                <button onClick={() => setProposalExtraEmpIds(prev => prev.filter(v => v !== id))} className="text-primary/60 hover:text-primary">&times;</button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 営業一覧からプルダウン選択 */}
+                      <select
+                        className={`${inputCls} appearance-none mb-2`}
+                        value=""
+                        onChange={e => {
+                          if (e.target.value) {
+                            setProposalExtraEmpIds(prev => [...prev, e.target.value]);
+                          }
+                        }}
+                      >
+                        <option value="">営業一覧から選択...</option>
+                        {engineers
+                          .filter(e => e.id !== proposalTarget && !proposalExtraEmpIds.includes(e.id))
+                          .map(e => <option key={e.id} value={e.id}>{e.name}{e.code ? ` (${e.code})` : ''}</option>)
+                        }
+                      </select>
+
+                      {/* それ以外の社員を検索して追加 */}
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="その他の社員を検索して追加..."
+                          value={proposalEmpSearch}
+                          onChange={e => { setProposalEmpSearch(e.target.value); setShowEmpSearchDropdown(true); }}
+                          onFocus={() => setShowEmpSearchDropdown(true)}
+                          className={inputCls}
+                        />
+                        {showEmpSearchDropdown && proposalEmpSearch && (
+                          <div className="absolute left-0 right-0 border border-border/20 rounded-md mt-1 max-h-[150px] overflow-y-auto bg-card z-10 shadow-lg">
+                            {proposalAddableEmps.slice(0, 10).map(emp => (
+                              <div
+                                key={emp.id}
+                                className="flex items-center justify-between px-3 py-2 hover:bg-[#F7F7F5] cursor-pointer text-sm"
+                                onClick={() => {
+                                  setProposalExtraEmpIds(prev => [...prev, emp.id]);
+                                  setProposalEmpSearch('');
+                                  setShowEmpSearchDropdown(false);
+                                }}
+                              >
+                                <span>{emp.name} <span className="text-xs text-secondary">({emp.employeeCode})</span></span>
+                                <span className="text-xs text-primary">追加</span>
+                              </div>
+                            ))}
+                            {proposalAddableEmps.length === 0 && (
+                              <div className="text-xs text-secondary text-center py-3">該当なし</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 追加メッセージ */}
+                    <div>
+                      <label className={labelCls}>追加メッセージ（任意）</label>
+                      <textarea
+                        className={`${inputCls} resize-y font-[inherit]`}
+                        style={{ height: 50 }}
+                        placeholder="挨拶文と署名の間に追記"
+                        value={proposalCustomMessage}
+                        onChange={e => setProposalCustomMessage(e.target.value)}
+                      />
+                    </div>
+
+                    {/* 送信内容プレビュー */}
+                    {proposalToEmail && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-secondary">メールプレビュー</span>
+                          <button
+                            onClick={fetchPreview}
+                            disabled={proposalPreviewLoading}
+                            className="text-xs text-primary hover:underline disabled:opacity-50"
+                          >
+                            {proposalPreviewLoading ? '読み込み中...' : proposalPreviewBody ? '再読み込み' : 'プレビューを表示'}
+                          </button>
+                        </div>
+                        <div className="bg-[#F7F7F5] rounded-md p-3 text-xs text-secondary space-y-1">
+                          <div className="flex gap-2"><span className="text-secondary/60">To:</span> {proposalToEmail}</div>
+                          <div className="flex gap-2"><span className="text-secondary/60">From:</span> sales@lervia.co.jp</div>
+                          <div className="flex gap-2"><span className="text-secondary/60">件名:</span> {proposalPreviewSubject || `【人材ご提案】エンジニア${proposalAllEmpIds.length}名のご紹介`}</div>
+                          {proposalPreviewBody && (
+                            <>
+                              <hr className="border-border/30 my-2" />
+                              <pre className="whitespace-pre-wrap font-[inherit] text-xs text-primary/80 leading-relaxed max-h-[300px] overflow-y-auto">
+                                {proposalPreviewBody}
+                              </pre>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ボタン */}
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => setProposalTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
+                  {proposalClientId && proposalToEmail ? (
+                    <button
+                      onClick={handleSendProposal}
+                      disabled={proposalSending}
+                      className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
+                    >
+                      {proposalSending ? '送信中...' : '提案を追加＆メール送信'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleAddProposal}
+                      className="btn-primary flex-1 text-sm py-2"
+                      disabled={!proposalClientId}
+                    >
+                      提案を追加（メールなし）
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs text-secondary mb-1">提案先クライアント <span className="text-status-red-text">*</span></label>
-                <select
-                  value={proposalClientId}
-                  onChange={e => setProposalClientId(e.target.value)}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card appearance-none focus:border-primary"
-                >
-                  <option value="">選択してください</option>
-                  {allClients.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-secondary mb-1">案件名（任意）</label>
-                <input
-                  type="text"
-                  value={proposalProject}
-                  onChange={e => setProposalProject(e.target.value)}
-                  placeholder="案件名を入力"
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card focus:border-primary"
-                />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button onClick={() => setProposalTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
-                <button onClick={handleAddProposal} className="btn-primary flex-1 text-sm py-2" disabled={!proposalClientId}>追加</button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       <ToastUI />
     </div>

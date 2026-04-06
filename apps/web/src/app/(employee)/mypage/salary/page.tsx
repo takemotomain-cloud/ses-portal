@@ -170,7 +170,7 @@ export default function SalaryPage() {
   </div>
 
   <div class="ftr">
-    <span>${companyName} ｜ 電子交付 ｜ ${new Date().toLocaleDateString('ja-JP')} 発行</span>
+    <span>${companyName} ｜ 電子交付 ｜ ${(() => { const d = new Date(); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()} 発行</span>
   </div>
 
 </div>

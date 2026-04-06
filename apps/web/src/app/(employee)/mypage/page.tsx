@@ -73,12 +73,7 @@ export default function MyPage() {
       <div className="card p-0">
         <div className="text-center py-7 px-5">
           <p className="text-sm text-secondary mb-1">
-            {now.toLocaleDateString('ja-JP', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              weekday: 'short',
-            })}
+            {`${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日(${['日','月','火','水','木','金','土'][now.getDay()]})`}
           </p>
           <p className="text-clock font-extralight tracking-wider text-primary tabular-nums mb-5">
             {now.toLocaleTimeString('ja-JP', {

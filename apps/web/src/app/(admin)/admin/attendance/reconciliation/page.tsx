@@ -255,7 +255,7 @@ export default function ReconciliationPage() {
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     const days = ['日', '月', '火', '水', '木', '金', '土'];
-    return `${d.getMonth() + 1}/${d.getDate()}(${days[d.getDay()]})`;
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${days[d.getDay()]})`;
   };
 
   const uploadStatusLabel = (status: string) => {

@@ -427,7 +427,7 @@ export default function AdminSkillsheetsPage() {
                   <td className="px-4 py-2.5 text-base">{e.skillsheet?.experience || '--'}</td>
                   <td className="px-4 py-2.5 text-base text-secondary">{projectCount > 0 ? `${projectCount}件` : '--'}</td>
                   <td className="px-4 py-2.5 text-base text-secondary">
-                    {e.skillsheet?.updatedAt ? new Date(e.skillsheet.updatedAt).toLocaleDateString('ja-JP') : '--'}
+                    {e.skillsheet?.updatedAt ? (() => { const d = new Date(e.skillsheet!.updatedAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })() : '--'}
                   </td>
                   <td className="px-4 py-2.5">
                     {e.hasSkillsheet ? (

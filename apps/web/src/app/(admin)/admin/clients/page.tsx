@@ -99,14 +99,14 @@ export default function AdminClientsPage() {
             memberCount,
             avgUnitPrice: 0,
             startDate: c.tradeStartDate
-              ? new Date(c.tradeStartDate).toLocaleDateString('ja-JP')
+              ? (() => { const d = new Date(c.tradeStartDate); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()
               : '--',
             contact: c.contactPerson || '--',
             activeMembers: clientAssignments.map((a) => ({
               name: `${a.employee.lastName} ${a.employee.firstName}`,
               role: a.projectName || '--',
               since: a.startDate
-                ? new Date(a.startDate).toLocaleDateString('ja-JP')
+                ? (() => { const d = new Date(a.startDate); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()
                 : '--',
             })),
             history: [],

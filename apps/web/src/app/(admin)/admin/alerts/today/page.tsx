@@ -87,7 +87,7 @@ export default function AlertsTodayPage() {
             name: `${l.employee.lastName} ${l.employee.firstName}`,
             client: '',
             reason: l.reason || l.leaveType,
-            filedDate: l.createdAt ? new Date(l.createdAt).toLocaleDateString('ja-JP') : '',
+            filedDate: l.createdAt ? (() => { const d = new Date(l.createdAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })() : '',
           }));
         setAbsences(mappedAbsences);
 
@@ -96,7 +96,7 @@ export default function AlertsTodayPage() {
           .map((l) => ({
             name: `${l.employee.lastName} ${l.employee.firstName}`,
             client: '',
-            applicationDate: l.createdAt ? new Date(l.createdAt).toLocaleDateString('ja-JP') : '',
+            applicationDate: l.createdAt ? (() => { const d = new Date(l.createdAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })() : '',
             approver: '',
           }));
         setPaidLeaves(mappedPaidLeaves);
