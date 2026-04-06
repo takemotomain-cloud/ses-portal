@@ -138,7 +138,7 @@ export default function BonusPage() {
 
           {/* PDFダウンロード */}
           <button
-            onClick={() => toast('PDF機能は今後追加予定です')}
+            onClick={() => window.print()}
             className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg border border-border text-md font-medium text-primary hover:bg-page transition-colors"
           >
             <svg

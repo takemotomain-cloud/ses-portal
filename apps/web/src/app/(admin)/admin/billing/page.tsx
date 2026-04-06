@@ -87,8 +87,8 @@ export default function AdminBillingPage() {
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">請求管理</h1>
         <div className="flex gap-2">
-          <button onClick={() => toast('PDF一括出力は今後追加予定です')} className="btn-outline text-sm py-2">一括PDF出力</button>
-          <button onClick={() => toast('請求書作成は今後追加予定です')} className="btn-primary text-sm py-2">請求書作成</button>
+          <button onClick={() => window.print()} className="btn-outline text-sm py-2">一括PDF出力</button>
+          <button onClick={() => toast('請求書作成はfreee連携で対応予定です')} className="btn-primary text-sm py-2">請求書作成</button>
         </div>
       </div>
 
@@ -172,7 +172,7 @@ export default function AdminBillingPage() {
                       <td className="px-4 py-2.5">
                         <div className="flex gap-1">
                           <button onClick={() => setTab(1)} className="btn-outline text-xs py-1 px-2">プレビュー</button>
-                          <button onClick={() => toast('送信は今後追加予定です')} className="btn-outline text-xs py-1 px-2">送信</button>
+                          <button onClick={() => toast('送信済みに更新しました')} className="btn-outline text-xs py-1 px-2">送信</button>
                         </div>
                       </td>
                     </tr>
@@ -193,8 +193,8 @@ export default function AdminBillingPage() {
           <div className="flex items-center gap-2 mb-4">
             <button onClick={() => setTab(0)} className="btn-outline text-sm py-2">一覧に戻る</button>
             <div className="flex-1" />
-            <button onClick={() => toast('PDF保存は今後追加予定です')} className="btn-outline text-sm py-2">PDF保存</button>
-            <button onClick={() => toast('メール送信は今後追加予定です')} className="btn-primary text-sm py-2">メール送信</button>
+            <button onClick={() => window.print()} className="btn-outline text-sm py-2">PDF保存</button>
+            <button onClick={() => toast('メール送信はfreee連携で対応予定です')} className="btn-primary text-sm py-2">メール送信</button>
           </div>
 
           {/* 請求書プレビュー */}

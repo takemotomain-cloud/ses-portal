@@ -105,7 +105,35 @@ export default function SkillsheetEditPage() {
             キャンセル
           </button>
           <button
-            onClick={() => toast('Excel出力は今後追加予定です')}
+            onClick={() => {
+              const bom = '\uFEFF';
+              const lines: string[] = [];
+              lines.push(['項目', '値'].join(','));
+              lines.push(['氏名', form.name].join(','));
+              lines.push(['年齢', form.age].join(','));
+              lines.push(['最終学歴', form.edu].join(','));
+              lines.push(['経験年数', form.exp].join(','));
+              lines.push(['最寄駅', form.station].join(','));
+              lines.push(['自己PR', `"${form.pr.replace(/"/g, '""')}"`].join(','));
+              lines.push('');
+              lines.push(['カテゴリ', 'スキル'].join(','));
+              skills.forEach(sk => lines.push([sk.cat, `"${sk.items.replace(/"/g, '""')}"`].join(',')));
+              lines.push('');
+              lines.push(['期間', '案件名', 'クライアント', '役割', '環境', '業務内容'].join(','));
+              projects.forEach(p => lines.push([p.period, p.name, p.client, p.role, p.env, `"${p.detail.replace(/"/g, '""')}"`].join(',')));
+              lines.push('');
+              lines.push(['保有資格'].join(','));
+              demoCerts.forEach(c => lines.push([c].join(',')));
+              const csv = bom + lines.join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `スキルシート_${form.name || '未設定'}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+              toast('CSVをダウンロードしました');
+            }}
             className="btn-outline text-sm py-2"
           >
             Excelダウンロード

@@ -10,6 +10,72 @@
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 
+/* ---------- イニシャル変換 ---------- */
+
+/**
+ * 日本語氏名をイニシャルに変換
+ * 「山田 太郎」→「T.Y」（姓のローマ字頭文字.名のローマ字頭文字）
+ * ローマ字変換できない場合はそのまま頭文字を使用
+ */
+const kanaToRomaji: Record<string, string> = {
+  'あ':'A','い':'I','う':'U','え':'E','お':'O',
+  'か':'K','き':'K','く':'K','け':'K','こ':'K',
+  'さ':'S','し':'S','す':'S','せ':'S','そ':'S',
+  'た':'T','ち':'C','つ':'T','て':'T','と':'T',
+  'な':'N','に':'N','ぬ':'N','ね':'N','の':'N',
+  'は':'H','ひ':'H','ふ':'F','へ':'H','ほ':'H',
+  'ま':'M','み':'M','む':'M','め':'M','も':'M',
+  'や':'Y','ゆ':'Y','よ':'Y',
+  'ら':'R','り':'R','る':'R','れ':'R','ろ':'R',
+  'わ':'W','を':'W','ん':'N',
+  'が':'G','ぎ':'G','ぐ':'G','げ':'G','ご':'G',
+  'ざ':'Z','じ':'J','ず':'Z','ぜ':'Z','ぞ':'Z',
+  'だ':'D','ぢ':'D','づ':'D','で':'D','ど':'D',
+  'ば':'B','び':'B','ぶ':'B','べ':'B','ぼ':'B',
+  'ぱ':'P','ぴ':'P','ぷ':'P','ぺ':'P','ぽ':'P',
+};
+
+// 漢字→読み の簡易マッピング（よくある姓名の頭文字）
+const kanjiInitial: Record<string, string> = {
+  '山':'Y','田':'T','中':'N','小':'O','大':'O','高':'T','佐':'S','加':'K',
+  '伊':'I','井':'I','石':'I','上':'U','内':'U','遠':'E','岡':'O','木':'K',
+  '北':'K','久':'K','熊':'K','黒':'K','河':'K','後':'G','近':'K','斉':'S',
+  '斎':'S','坂':'S','桜':'S','島':'S','清':'S','杉':'S','鈴':'S','関':'S',
+  '園':'S','竹':'T','谷':'T','千':'C','土':'T','手':'T','寺':'T','藤':'F',
+  '渡':'W','豊':'T','長':'N','永':'N','西':'N','野':'N','橋':'H','林':'H',
+  '原':'H','浜':'H','平':'H','福':'F','松':'M','丸':'M','三':'M','水':'M',
+  '宮':'M','村':'M','森':'M','安':'Y','柳':'Y','吉':'Y','若':'W','和':'W',
+  '太':'T','一':'K','二':'N','三':'M','四':'S','五':'G','六':'R','七':'N',
+  '八':'H','九':'K','十':'J','子':'K','美':'M','明':'A','正':'M','雄':'Y',
+  '博':'H','健':'K','誠':'M','裕':'Y','純':'J','翔':'S','蓮':'R','陽':'H',
+  '花':'H','愛':'A','結':'Y','咲':'S','真':'M','直':'N','隆':'T','俊':'S',
+  '浩':'H','哲':'T','剛':'T','悠':'Y','拓':'T','彩':'A','奈':'N','恵':'M',
+};
+
+function toInitial(name: string): string {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return name;
+  const [lastName, firstName] = parts;
+
+  function getInitialChar(s: string): string {
+    const ch = s.charAt(0);
+    // アルファベットならそのまま
+    if (/[A-Za-z]/.test(ch)) return ch.toUpperCase();
+    // ひらがな/カタカナ
+    const hira = ch.replace(/[\u30A1-\u30F6]/g, (m) =>
+      String.fromCharCode(m.charCodeAt(0) - 0x60));
+    if (kanaToRomaji[hira]) return kanaToRomaji[hira];
+    // 漢字
+    if (kanjiInitial[ch]) return kanjiInitial[ch];
+    return ch;
+  }
+
+  const li = getInitialChar(lastName);
+  const fi = getInitialChar(firstName);
+  return `${fi}.${li}`;
+}
+
 /* ---------- デモデータ ---------- */
 
 const demoData = {
@@ -72,7 +138,35 @@ export default function SkillsheetPreviewPage() {
             編集する
           </button>
           <button
-            onClick={() => toast('Excel出力は今後追加予定です')}
+            onClick={() => {
+              const bom = '\uFEFF';
+              const lines: string[] = [];
+              lines.push(['項目', '値'].join(','));
+              lines.push(['氏名', demoData.name].join(','));
+              lines.push(['年齢', demoData.age].join(','));
+              lines.push(['最終学歴', demoData.edu].join(','));
+              lines.push(['経験年数', demoData.exp].join(','));
+              lines.push(['最寄駅', demoData.station].join(','));
+              lines.push(['自己PR', `"${demoData.pr.replace(/"/g, '""')}"`].join(','));
+              lines.push('');
+              lines.push(['カテゴリ', 'スキル'].join(','));
+              demoData.skills.forEach(sk => lines.push([sk.cat, `"${sk.items.replace(/"/g, '""')}"`].join(',')));
+              lines.push('');
+              lines.push(['期間', '案件名', 'クライアント', '役割', '環境', '業務内容'].join(','));
+              demoData.projects.forEach(p => lines.push([p.period, p.name, p.client, p.role, p.env, `"${p.detail.replace(/"/g, '""')}"`].join(',')));
+              lines.push('');
+              lines.push(['保有資格'].join(','));
+              demoData.certs.forEach(c => lines.push([c].join(',')));
+              const csv = bom + lines.join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `スキルシート_${demoData.name || '未設定'}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+              toast('CSVをダウンロードしました');
+            }}
             className="btn-outline text-sm py-2"
           >
             Excelダウンロード
@@ -99,7 +193,7 @@ export default function SkillsheetPreviewPage() {
             <tbody>
               <tr>
                 <td className={thCellCls}>氏名</td>
-                <td className={tdCellCls}>{demoData.name}</td>
+                <td className={tdCellCls}>{toInitial(demoData.name) || demoData.name}</td>
                 <td className={thCellCls}>年齢</td>
                 <td className={tdCellCls}>{demoData.age}</td>
               </tr>

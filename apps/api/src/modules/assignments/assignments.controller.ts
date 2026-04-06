@@ -8,7 +8,7 @@
  *   GET  /api/assignments/history  — 稼働ヒストリー
  */
 
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AssignmentsService } from './assignments.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -59,6 +59,16 @@ export class AssignmentsController {
     @Query('status') status?: string,
   ) {
     return this.assignmentsService.findAll({ page, limit, status });
+  }
+
+  /**
+   * 稼働終了（admin/salesのみ）
+   */
+  @Post(':id/end')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '稼働終了' })
+  async endAssignment(@Param('id') id: string) {
+    return this.assignmentsService.endAssignment(id);
   }
 
   @Get('current')

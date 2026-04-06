@@ -40,6 +40,11 @@ const menuItems = [
     href: '/mypage/expense',
   },
   {
+    label: '遅延証明書',
+    desc: '遅延証明書の提出',
+    href: '/applications/delay-certificate',
+  },
+  {
     label: '各種届出',
     desc: '住所変更・口座変更など',
     href: '/more/documents',

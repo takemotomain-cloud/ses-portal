@@ -109,6 +109,20 @@ export class AssignmentsService {
   }
 
   /**
+   * 稼働終了
+   */
+  async endAssignment(id: string) {
+    return this.db.assignment.update({
+      where: { id },
+      data: {
+        status: 'ended',
+        endDate: new Date(),
+        endReason: 'term_end',
+      },
+    });
+  }
+
+  /**
    * 現在の稼働先を取得
    *
    * status=active のアサインを返す。

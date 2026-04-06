@@ -26,6 +26,7 @@ interface CertificateRecord {
   status: string;
   issuedAt?: string;
   createdAt: string;
+  filePath?: string;
 }
 
 /* ── 発行履歴（API接続後に動的取得） ── */
@@ -34,6 +35,7 @@ const fallbackHistory: {
   type: string;
   date: string;
   status: 'issued' | 'pending';
+  filePath?: string;
 }[] = [];
 
 function formatDate(dateStr: string): string {
@@ -43,7 +45,7 @@ function formatDate(dateStr: string): string {
 
 export default function DocumentsPage() {
   const { toast, ToastUI } = useToast();
-  const [previewCert, setPreviewCert] = useState<{ type: string; date: string } | null>(null);
+  const [previewCert, setPreviewCert] = useState<{ type: string; date: string; filePath?: string } | null>(null);
   const [history, setHistory] = useState(fallbackHistory);
   const [requesting, setRequesting] = useState<string | null>(null);
 
@@ -60,6 +62,7 @@ export default function DocumentsPage() {
               ? `${formatDate(c.issuedAt || c.createdAt)}発行`
               : `${formatDate(c.createdAt)}申請`,
             status: c.status === 'issued' ? 'issued' as const : 'pending' as const,
+            filePath: c.filePath,
           })),
         );
       }
@@ -91,8 +94,8 @@ export default function DocumentsPage() {
   }
 
   /** PDF プレビュー画面を開く */
-  function handlePreview(type: string, date: string) {
-    setPreviewCert({ type, date });
+  function handlePreview(type: string, date: string, filePath?: string) {
+    setPreviewCert({ type, date, filePath });
   }
 
   /* ── PDF プレビュー画面 ── */
@@ -124,13 +127,28 @@ export default function DocumentsPage() {
           <div className="text-sm text-secondary mb-6">{previewCert.date}</div>
           <div className="flex gap-3 justify-center">
             <button
-              onClick={() => toast('PDF機能は今後追加予定です')}
+              onClick={() => {
+                if (previewCert.filePath) {
+                  window.open(previewCert.filePath, '_blank');
+                } else {
+                  toast('この証明書にはPDFが添付されていません');
+                }
+              }}
               className="px-6 py-2.5 rounded-lg bg-accent text-accent-text text-sm font-medium hover:opacity-90 transition-opacity"
             >
               閲覧する
             </button>
             <button
-              onClick={() => toast('PDF機能は今後追加予定です')}
+              onClick={() => {
+                if (previewCert.filePath) {
+                  const a = document.createElement('a');
+                  a.href = previewCert.filePath;
+                  a.download = `${previewCert.type}.pdf`;
+                  a.click();
+                } else {
+                  toast('この証明書にはPDFが添付されていません');
+                }
+              }}
               className="px-6 py-2.5 rounded-lg border border-border text-sm font-medium text-primary hover:bg-page transition-colors"
             >
               ダウンロード
@@ -201,7 +219,7 @@ export default function DocumentsPage() {
               key={item.id}
               onClick={() =>
                 item.status === 'issued'
-                  ? handlePreview(item.type, item.date)
+                  ? handlePreview(item.type, item.date, item.filePath)
                   : undefined
               }
               className={`flex items-center justify-between px-4 py-3.5 transition-colors

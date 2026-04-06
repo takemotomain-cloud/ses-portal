@@ -114,6 +114,8 @@ model Employee {
   attendanceConfirmed     AttendanceConfirmed[]
   confirmedAttendances    AttendanceConfirmed[]  @relation("ConfirmedBy")
   clientAttendanceUploads ClientAttendanceUpload[]
+  delayCertificates       DelayCertificate[]
+  confirmedDelayCerts     DelayCertificate[] @relation("DelayCertConfirmer")
 
   @@map("employees")
 }
@@ -670,4 +672,27 @@ model ReconciliationSettings {
   client Client @relation(fields: [clientId], references: [id])
 
   @@map("reconciliation_settings")
+}
+
+// ----------------------------------------
+// 遅延証明書
+// ----------------------------------------
+model DelayCertificate {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String    @map("employee_id") @db.Uuid
+  targetDate  DateTime  @map("target_date") @db.Date
+  route       String?   @db.VarChar(200)
+  reason      String?
+  filePath    String?   @map("file_path") @db.VarChar(500)
+  fileName    String?   @map("file_name") @db.VarChar(300)
+  status      String    @default("submitted") @db.VarChar(20)
+  confirmedBy String?   @map("confirmed_by") @db.Uuid
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  confirmer Employee? @relation("DelayCertConfirmer", fields: [confirmedBy], references: [id])
+
+  @@map("delay_certificates")
 }

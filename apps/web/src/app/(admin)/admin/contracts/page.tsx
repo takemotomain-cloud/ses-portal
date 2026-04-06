@@ -63,7 +63,7 @@ export default function AdminContractsPage() {
       <ToastUI />
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">契約書</h1>
-        <button className="btn-primary text-sm py-2" onClick={() => toast('新規作成')}>新規作成</button>
+        <button className="btn-primary text-sm py-2" onClick={() => toast('契約書の新規作成はfreee連携で対応予定です')}>新規作成</button>
       </div>
 
       <div className="flex gap-2 mb-4 flex-wrap items-center">

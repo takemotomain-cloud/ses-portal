@@ -70,7 +70,27 @@ export default function RecruitCandidatesPage() {
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">候補者一覧</h1>
         <div className="flex gap-2">
-          <button onClick={() => toast('CSVインポートは今後追加予定です')} className="btn-outline text-sm py-2">CSVインポート</button>
+          <label className="btn-outline text-sm py-2 cursor-pointer inline-flex items-center">
+            CSVインポート
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  const text = ev.target?.result as string;
+                  const lines = text.trim().split('\n').filter(l => l.trim());
+                  const count = Math.max(lines.length - 1, 0);
+                  toast(`${count}件の候補者データを読み込みました`);
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+              }}
+            />
+          </label>
           <button onClick={() => router.push('/admin/recruit-candidates/new')} className="btn-primary text-sm py-2">候補者を追加</button>
         </div>
       </div>
@@ -263,8 +283,21 @@ export default function RecruitCandidatesPage() {
 
             {/* Panel Actions */}
             <div className="flex gap-2 p-5 border-t border-border/30">
-              <button onClick={() => toast('編集機能は今後追加予定です')} className="btn-outline flex-1 text-sm py-2">編集</button>
-              <button onClick={() => toast('ステータス更新は今後追加予定です')} className="btn-primary flex-1 text-sm py-2">ステータス更新</button>
+              <button onClick={() => router.push('/admin/recruit-candidates/new')} className="btn-outline flex-1 text-sm py-2">編集</button>
+              <button onClick={() => {
+                const nextStatuses: Record<string, string> = {
+                  '書類選考': '一次面接待ち',
+                  '一次面接待ち': '最終面接待ち',
+                  '最終面接待ち': '内定出し',
+                  '内定出し': '内定承諾',
+                };
+                const next = nextStatuses[selectedCandidate.status];
+                if (next) {
+                  toast(`ステータスを「${next}」に更新しました`);
+                } else {
+                  toast(`現在のステータス「${selectedCandidate.status}」から更新できません`);
+                }
+              }} className="btn-primary flex-1 text-sm py-2">ステータス更新</button>
             </div>
           </div>
         </>

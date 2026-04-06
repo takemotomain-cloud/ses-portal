@@ -75,7 +75,7 @@ export default function RecruitSettingsPage() {
                     <td className="px-4 py-2.5" style={{ whiteSpace: 'nowrap' }}>
                       <button
                         className="btn-outline text-xs py-1 px-2"
-                        onClick={() => toast(`「${s.name}」の編集画面を開きます`)}
+                        onClick={() => toast('面接官の編集は社員管理から行ってください')}
                       >
                         編集
                       </button>
@@ -119,7 +119,7 @@ export default function RecruitSettingsPage() {
             <div className="px-4 py-3">
               <button
                 className="btn-outline text-sm py-1.5 px-4"
-                onClick={() => toast('求人追加画面を開きます')}
+                onClick={() => toast('求人追加は今後追加予定です')}
               >
                 求人を追加
               </button>

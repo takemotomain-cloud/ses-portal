@@ -1,8 +1,10 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 
 export default function RecruitDashPage() {
+  const router = useRouter();
   const { toast, ToastUI } = useToast();
 
   const interviews: { interviewer: string; name: string; stage: string; datetime: string; position: string; source: string; sourceBadge: string; confirmed: string; confirmedBadge: string }[] = [];
@@ -100,7 +102,7 @@ export default function RecruitDashPage() {
                 <td className="px-4 py-3 text-sm whitespace-nowrap">
                   <button
                     className="px-3 py-1 text-xs border border-border rounded-md hover:bg-gray-50 transition text-[#1A1A1A]"
-                    onClick={() => toast(`${row.name}の詳細を表示します`)}
+                    onClick={() => router.push('/admin/recruit-candidates')}
                   >
                     詳細
                   </button>

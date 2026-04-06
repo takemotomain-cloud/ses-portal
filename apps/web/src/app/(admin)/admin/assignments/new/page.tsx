@@ -27,6 +27,7 @@ interface AssignForm {
   contractEndDate: string;
   workStartTime: string;
   workLocation: string;
+  area: string;
   supplyChain: string;
   remarks: string;
 }
@@ -43,6 +44,7 @@ const initialForm: AssignForm = {
   contractEndDate: '',
   workStartTime: '9:00',
   workLocation: '',
+  area: '',
   supplyChain: 'エンド → 自社',
   remarks: '',
 };
@@ -108,6 +110,7 @@ export default function NewAssignmentPage() {
           settlementLower: parseInt(form.settlementLower, 10) || 140,
           settlementUpper: parseInt(form.settlementUpper, 10) || 180,
           workLocation: form.workLocation || undefined,
+          area: form.area || undefined,
           startDate: form.contractStartDate,
           endDate: form.contractEndDate || undefined,
         }),
@@ -294,6 +297,21 @@ export default function NewAssignmentPage() {
                 onChange={(e) => update('workLocation', e.target.value)}
               />
             </div>
+            <div>
+              <label className={labelCls}>エリア</label>
+              <select
+                className={selectCls}
+                value={form.area}
+                onChange={(e) => update('area', e.target.value)}
+              >
+                <option value="">選択してください</option>
+                <option value="tokyo">東京</option>
+                <option value="osaka">大阪</option>
+                <option value="nagoya">名古屋</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
             <div>
               <label className={labelCls}>商流</label>
               <select

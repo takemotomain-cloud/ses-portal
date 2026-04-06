@@ -56,7 +56,7 @@ export default function AdminPayrollPage() {
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">給与管理</h1>
         <div className="flex gap-2">
-          <button onClick={() => toast('PDF一括出力は今後追加予定です')} className="btn-outline text-sm py-1.5">明細一括PDF</button>
+          <button onClick={() => window.print()} className="btn-outline text-sm py-1.5">明細一括PDF</button>
           <button onClick={handleCalc} className="btn-primary text-sm py-1.5">給与計算実行</button>
         </div>
       </div>
@@ -171,8 +171,8 @@ export default function AdminPayrollPage() {
                 <div className="text-2xl font-medium tabular-nums">{fmt(selected.net)}円</div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => toast('PDF出力は今後追加予定です')} className="btn-outline flex-1 text-sm py-2">PDF出力</button>
-                <button onClick={() => toast('給与修正は今後追加予定です')} className="btn-outline flex-1 text-sm py-2">修正</button>
+                <button onClick={() => window.print()} className="btn-outline flex-1 text-sm py-2">PDF出力</button>
+                <button onClick={() => toast('給与修正はCSVインポートで対応してください')} className="btn-outline flex-1 text-sm py-2">修正</button>
               </div>
             </div>
           </div>

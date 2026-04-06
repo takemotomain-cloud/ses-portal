@@ -203,6 +203,8 @@ export default function EmployeeEditPage() {
     driveUrl: '',
   });
 
+  const [qualifications, setQualifications] = useState<string[]>([]);
+  const [newQualification, setNewQualification] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -698,15 +700,57 @@ export default function EmployeeEditPage() {
         <div className="card p-5 mb-3">
           <div className="flex justify-between items-center mb-3">
             <div className="text-sm font-medium">保有資格</div>
+          </div>
+
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              type="text"
+              className={inputCls}
+              placeholder="資格名を入力"
+              value={newQualification}
+              onChange={(e) => setNewQualification(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newQualification.trim()) {
+                  setQualifications((prev) => [...prev, newQualification.trim()]);
+                  setNewQualification('');
+                  toast(`「${newQualification.trim()}」を追加しました`);
+                }
+              }}
+            />
             <button
-              className="btn-outline text-[11px] py-1 px-3"
-              onClick={() => toast('資格管理機能は今後追加予定です')}
+              className="btn-outline text-[11px] py-2 px-3 whitespace-nowrap"
+              onClick={() => {
+                if (newQualification.trim()) {
+                  setQualifications((prev) => [...prev, newQualification.trim()]);
+                  toast(`「${newQualification.trim()}」を追加しました`);
+                  setNewQualification('');
+                }
+              }}
             >
               資格追加
             </button>
           </div>
 
-          <div className="text-sm text-secondary py-2">資格データはありません</div>
+          {qualifications.length === 0 ? (
+            <div className="text-sm text-secondary py-2">資格データはありません</div>
+          ) : (
+            <ul className="space-y-1.5">
+              {qualifications.map((q, idx) => (
+                <li key={`${q}-${idx}`} className="flex items-center justify-between px-3 py-2 bg-[#F7F7F5] rounded-md">
+                  <span className="text-sm">{q}</span>
+                  <button
+                    className="text-secondary hover:text-[#A32D2D] text-lg leading-none px-1"
+                    onClick={() => {
+                      setQualifications((prev) => prev.filter((_, i) => i !== idx));
+                      toast(`「${q}」を削除しました`);
+                    }}
+                  >
+                    &times;
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="text-[10px] text-secondary mt-[6px]">
             ※ スキルシートの資格欄に自動反映されます
           </div>

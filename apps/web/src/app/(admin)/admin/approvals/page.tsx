@@ -60,9 +60,21 @@ interface AttendanceCorrectionItem {
   attendance: { workDate: string };
 }
 
+interface DelayCertItem {
+  id: string;
+  targetDate: string;
+  route: string | null;
+  reason: string | null;
+  fileName: string | null;
+  filePath: string | null;
+  status: string;
+  createdAt: string;
+  employee: { lastName: string; firstName: string; employeeCode: string };
+}
+
 interface DoneItem {
   id: string;
-  type: 'leave' | 'expense' | 'change' | 'attendance';
+  type: 'leave' | 'expense' | 'change' | 'attendance' | 'delay';
   name: string;
   detail: string;
   approved: boolean;
@@ -111,6 +123,7 @@ export default function AdminApprovalsPage() {
   const [expenseItems, setExpenseItems] = useState<ExpenseItem[]>([]);
   const [changeItems, setChangeItems] = useState<ChangeItem[]>([]);
   const [correctionItems, setCorrectionItems] = useState<AttendanceCorrectionItem[]>([]);
+  const [delayCertItems, setDelayCertItems] = useState<DelayCertItem[]>([]);
   const [done, setDone] = useState<DoneItem[]>([]);
   const [activeTab, setActiveTab] = useState<0 | 1>(0);
   const [loading, setLoading] = useState(true);
@@ -119,16 +132,18 @@ export default function AdminApprovalsPage() {
   /* データ取得 */
   const fetchData = useCallback(async () => {
     try {
-      const [leaves, expenses, changes, corrections] = await Promise.all([
+      const [leaves, expenses, changes, corrections, delayCerts] = await Promise.all([
         apiClient<LeaveItem[]>('/leave/pending'),
         apiClient<ExpenseItem[]>('/expense/pending'),
         apiClient<ChangeItem[]>('/profile/change-requests/pending'),
         apiClient<AttendanceCorrectionItem[]>('/attendance/corrections/pending'),
+        apiClient<DelayCertItem[]>('/delay-certificates/pending'),
       ]);
       setLeaveItems(leaves);
       setExpenseItems(expenses);
       setChangeItems(changes);
       setCorrectionItems(corrections);
+      setDelayCertItems(delayCerts);
     } catch (e: any) {
       console.error('Failed to fetch approvals:', e);
     } finally {
@@ -263,6 +278,28 @@ export default function AdminApprovalsPage() {
     }
   }
 
+  /* 遅延証明書 確認 */
+  async function handleDelayCert(item: DelayCertItem) {
+    setProcessing(item.id);
+    try {
+      await apiClient(`/delay-certificates/${item.id}/confirm`, { method: 'POST' });
+      setDelayCertItems(prev => prev.filter(i => i.id !== item.id));
+      setDone(prev => [{
+        id: item.id,
+        type: 'delay',
+        name: `${item.employee.lastName} ${item.employee.firstName}`,
+        detail: `遅延証明書 ${fmtDate(item.targetDate)}${item.route ? ` (${item.route})` : ''}`,
+        approved: true,
+        processedDate: fmtDate(new Date().toISOString()),
+      }, ...prev]);
+      toast('確認しました');
+    } catch (e: any) {
+      toast(e.message || 'エラーが発生しました');
+    } finally {
+      setProcessing(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -276,7 +313,7 @@ export default function AdminApprovalsPage() {
       <h1 className="text-2xl font-medium mb-5">承認待ち</h1>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
         <div className="card p-4">
           <div className="text-xs text-secondary">有給申請</div>
           <div className="text-3xl font-medium">{leaveItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
@@ -292,6 +329,10 @@ export default function AdminApprovalsPage() {
         <div className="card p-4">
           <div className="text-xs text-secondary">勤怠修正</div>
           <div className="text-3xl font-medium">{correctionItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">遅延証明書</div>
+          <div className="text-3xl font-medium">{delayCertItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
         </div>
       </div>
 
@@ -444,6 +485,56 @@ export default function AdminApprovalsPage() {
                     </div>
                   );
                 })
+              )}
+            </div>
+          </div>
+          {/* 遅延証明書 */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-md font-medium">遅延証明書</h3>
+              <span className="text-sm text-secondary">{delayCertItems.length}件</span>
+            </div>
+            <div className="card p-0">
+              {delayCertItems.length === 0 ? (
+                <div className="px-5 py-4 text-base text-secondary">未確認の遅延証明書はありません</div>
+              ) : (
+                delayCertItems.map((item, idx) => (
+                  <div key={item.id} className={`flex items-center gap-3 px-5 py-3.5 flex-wrap ${idx < delayCertItems.length - 1 ? 'border-b border-border/20' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-base font-medium">{item.employee.lastName} {item.employee.firstName}</div>
+                      <div className="text-sm text-secondary">
+                        {fmtDate(item.targetDate)}
+                        {item.route && ` — ${item.route}`}
+                      </div>
+                      {item.reason && <div className="text-xs text-secondary mt-0.5">{item.reason}</div>}
+                      {item.fileName && item.filePath && (
+                        <div className="mt-1">
+                          <a
+                            href={item.filePath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                          >
+                            📎 {item.fileName}（クリックで表示）
+                          </a>
+                          {/\.(jpg|jpeg|png|gif|webp)$/i.test(item.fileName) && (
+                            <a href={item.filePath} target="_blank" rel="noopener noreferrer">
+                              <img
+                                src={item.filePath}
+                                alt="遅延証明書"
+                                className="mt-1.5 max-w-[200px] max-h-[120px] rounded border border-border object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                              />
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-sm text-secondary flex-shrink-0 mr-2">{fmtDate(item.createdAt)}</div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button onClick={() => handleDelayCert(item)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-green-bg text-status-green-text hover:bg-[#C8EDDA] transition-colors disabled:opacity-50">確認</button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>

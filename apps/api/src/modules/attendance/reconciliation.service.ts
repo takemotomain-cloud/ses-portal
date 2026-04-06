@@ -132,13 +132,16 @@ export class ReconciliationService {
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) fileType = 'image';
     else throw new BadRequestException(`未対応のファイル形式: ${ext}`);
 
+    // multerは日本語ファイル名をlatin1でエンコードするのでUTF-8にデコード
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
     // アップロード履歴を作成
     const upload = await this.db.clientAttendanceUpload.create({
       data: {
         employeeId,
         clientId: clientId || null,
         yearMonth,
-        fileName: file.originalname,
+        fileName: originalName,
         filePath: file.path,
         fileType,
         status: 'uploaded',

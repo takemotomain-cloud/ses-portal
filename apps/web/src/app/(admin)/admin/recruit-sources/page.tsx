@@ -42,7 +42,7 @@ export default function RecruitSourcesPage() {
         <h1 className="text-2xl font-medium">応募経路管理</h1>
         <button
           className="btn-primary text-sm py-2"
-          onClick={() => toast('経路追加ダイアログを開きます')}
+          onClick={() => toast('応募経路の追加は採用設定から行ってください')}
         >
           経路を追加
         </button>
@@ -70,7 +70,7 @@ export default function RecruitSourcesPage() {
                   <td className="px-4 py-2.5">
                     <button
                       className="btn-outline text-xs py-1 px-3"
-                      onClick={() => toast(`${s.name}の編集画面を開きます`)}
+                      onClick={() => toast('応募経路の編集は採用設定から行ってください')}
                     >
                       編集
                     </button>

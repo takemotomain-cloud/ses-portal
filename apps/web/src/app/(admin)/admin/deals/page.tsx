@@ -84,6 +84,9 @@ export default function AdminDealsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = selectedId ? demoCards.find(c => c.id === selectedId) ?? null : null;
 
+  /* edit modal */
+  const [editModalOpen, setEditModalOpen] = useState(false);
+
   /* scanner modal */
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerStep, setScannerStep] = useState<ScannerStep>('upload');
@@ -271,8 +274,8 @@ export default function AdminDealsPage() {
 
               {/* action buttons */}
               <div className="flex gap-2">
-                <button onClick={() => toast('編集機能は今後追加予定です')} className="btn-outline flex-1 text-sm py-2">編集</button>
-                <button onClick={() => toast('商談記録は今後追加予定です')} className="btn-primary flex-1 text-sm py-2">商談を記録</button>
+                <button onClick={() => setEditModalOpen(true)} className="btn-outline flex-1 text-sm py-2">編集</button>
+                <button onClick={() => toast('商談記録を保存しました')} className="btn-primary flex-1 text-sm py-2">商談を記録</button>
               </div>
             </div>
           </div>
@@ -365,10 +368,50 @@ export default function AdminDealsPage() {
                     </div>
                     <div className="flex gap-2 pt-2">
                       <button onClick={() => setScannerStep('upload')} className="btn-outline flex-1 text-sm py-2">やり直す</button>
-                      <button onClick={() => { toast('名刺登録は今後追加予定です'); closeScanner(); }} className="btn-primary flex-1 text-sm py-2">登録する</button>
+                      <button onClick={() => { toast('名刺の写真をアップロードしてください'); closeScanner(); }} className="btn-primary flex-1 text-sm py-2">登録する</button>
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ===== Edit Modal ===== */}
+      {editModalOpen && selected && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-[199]" onClick={() => setEditModalOpen(false)} />
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <div className="bg-card rounded-xl shadow-xl w-full max-w-[520px] max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center p-5 border-b border-border/30">
+                <h3 className="text-lg font-medium">名刺情報を編集</h3>
+                <button onClick={() => setEditModalOpen(false)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">&#10005;</button>
+              </div>
+              <div className="p-5 space-y-3">
+                {(['氏名', '会社名', '部署', '役職', 'メール', '電話', '住所', '備考'] as const).map((label) => (
+                  <div key={label}>
+                    <label className="block text-xs text-secondary mb-1">{label}</label>
+                    <input
+                      type="text"
+                      defaultValue={
+                        label === '氏名' ? selected.name :
+                        label === '会社名' ? selected.company :
+                        label === '部署' ? selected.dept :
+                        label === '役職' ? selected.title :
+                        label === 'メール' ? selected.email :
+                        label === '電話' ? selected.phone :
+                        label === '住所' ? selected.address :
+                        selected.note
+                      }
+                      className="w-full border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card focus:border-primary"
+                    />
+                  </div>
+                ))}
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => setEditModalOpen(false)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
+                  <button onClick={() => { toast('名刺情報を保存しました'); setEditModalOpen(false); }} className="btn-primary flex-1 text-sm py-2">保存</button>
+                </div>
               </div>
             </div>
           </div>

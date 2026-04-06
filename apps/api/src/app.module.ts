@@ -29,6 +29,7 @@ import { ClientsModule } from './modules/clients/clients.module';
 import { MeetingsModule } from './modules/meetings/meetings.module';
 import { CandidatesModule } from './modules/candidates/candidates.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { DelayCertificateModule } from './modules/delay-certificate/delay-certificate.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     MeetingsModule,
     CandidatesModule,
     SettingsModule,
+    DelayCertificateModule,
   ],
   controllers: [HealthController],
 })

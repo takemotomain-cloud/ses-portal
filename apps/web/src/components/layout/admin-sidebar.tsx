@@ -96,12 +96,13 @@ export function AdminSidebar() {
   useEffect(() => {
     async function fetchCounts() {
       try {
-        const [leaves, expenses, changes] = await Promise.all([
+        const [leaves, expenses, changes, delayCerts] = await Promise.all([
           apiClient<any[]>('/leave/pending').catch(() => []),
           apiClient<any[]>('/expense/pending').catch(() => []),
           apiClient<any[]>('/profile/change-requests/pending').catch(() => []),
+          apiClient<any[]>('/delay-certificates/pending').catch(() => []),
         ]);
-        setApprovalCount(leaves.length + expenses.length + changes.length);
+        setApprovalCount(leaves.length + expenses.length + changes.length + delayCerts.length);
       } catch {
         setApprovalCount(0);
       }
