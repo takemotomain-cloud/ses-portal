@@ -144,4 +144,30 @@ export class BusinessCardsController {
   async deleteLog(@Param('logId') logId: string) {
     return this.service.deleteDealLog(logId);
   }
+
+  /**
+   * 名刺画像をアップロード（スキャン風に加工して保存）
+   */
+  @Post(':id/card-image')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '名刺画像アップロード' })
+  @UseInterceptors(FileInterceptor('image', {
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith('image/')) {
+        return cb(new BadRequestException('画像ファイルのみアップロード可能です'), false);
+      }
+      cb(null, true);
+    },
+  }))
+  async uploadCardImage(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('画像ファイルが必要です');
+    }
+    const imagePath = await this.service.processAndSaveCardImage(id, file.buffer);
+    return { imagePath };
+  }
 }

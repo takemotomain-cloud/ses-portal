@@ -88,6 +88,8 @@ model Employee {
   bankAccountHolder String?   @map("bank_account_holder") @db.VarChar(100)
   myNumber          String?   @map("my_number") @db.VarChar(12)
   hasBonus          Boolean   @default(false) @map("has_bonus")
+  station           String?   @db.VarChar(100)
+  qualifications    Json?     @default("[]")
   profileImagePath  String?   @map("profile_image_path") @db.VarChar(500)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
@@ -116,8 +118,32 @@ model Employee {
   clientAttendanceUploads ClientAttendanceUpload[]
   delayCertificates       DelayCertificate[]
   confirmedDelayCerts     DelayCertificate[] @relation("DelayCertConfirmer")
+  skillsheet              Skillsheet?
 
   @@map("employees")
+}
+
+// ----------------------------------------
+// スキルシート
+// ----------------------------------------
+model Skillsheet {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId   String   @unique @map("employee_id") @db.Uuid
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  gender       String?  @db.VarChar(10)
+  experience   String?  @db.VarChar(50)
+  station      String?  @db.VarChar(100)
+  selfPr       String?  @map("self_pr")
+  skills       Json?    @default("[]")
+  projects     Json?    @default("[]")
+  certs        Json?    @default("[]")
+  summaryAffiliation   String?  @map("summary_affiliation") @db.VarChar(50)
+  summaryMonth         String?  @map("summary_month") @db.VarChar(10)
+  summaryRate          String?  @map("summary_rate") @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("skillsheets")
 }
 
 // ----------------------------------------
@@ -228,6 +254,7 @@ model BusinessCard {
   status     String?   @db.VarChar(30)
   owner      String?   @db.VarChar(100)
   note       String?
+  cardImage  String?   @map("card_image") @db.VarChar(500)
   deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

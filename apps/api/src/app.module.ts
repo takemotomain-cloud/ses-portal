@@ -31,6 +31,7 @@ import { CandidatesModule } from './modules/candidates/candidates.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { DelayCertificateModule } from './modules/delay-certificate/delay-certificate.module';
 import { BusinessCardsModule } from './modules/business-cards/business-cards.module';
+import { SkillsheetsModule } from './modules/skillsheets/skillsheets.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { BusinessCardsModule } from './modules/business-cards/business-cards.mod
     SettingsModule,
     DelayCertificateModule,
     BusinessCardsModule,
+    SkillsheetsModule,
   ],
   controllers: [HealthController],
 })

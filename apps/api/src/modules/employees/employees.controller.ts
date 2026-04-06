@@ -140,6 +140,8 @@ export class EmployeesController {
       bankBranch?: string;
       bankAccountType?: string;
       bankAccountNumber?: string;
+      station?: string;
+      qualifications?: any;
     },
   ) {
     return this.employeesService.update(id, body);

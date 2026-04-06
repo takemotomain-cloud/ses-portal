@@ -89,7 +89,7 @@ const navSections: NavSection[] = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
+
   const [approvalCount, setApprovalCount] = useState(0);
 
   // 承認待ち件数をAPIから取得
@@ -115,33 +115,11 @@ export function AdminSidebar() {
 
   return (
     <>
-      {/* モバイルハンバーガーメニューボタン */}
-      <button
-        className="fixed top-3 right-3 z-[60] w-9 h-9 bg-card border border-border rounded-lg
-                   flex flex-col items-center justify-center gap-1 cursor-pointer
-                   lg:hidden"
-        onClick={() => setIsMobileOpen(!isMobileOpen)}
-      >
-        <span className="block w-4 h-[1.5px] bg-primary rounded" />
-        <span className="block w-4 h-[1.5px] bg-primary rounded" />
-        <span className="block w-4 h-[1.5px] bg-primary rounded" />
-      </button>
-
-      {/* モバイルオーバーレイ */}
-      {isMobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/15 z-[199] lg:hidden"
-          onClick={() => setIsMobileOpen(false)}
-        />
-      )}
-
       {/* サイドバー本体 */}
       <aside
-        className={`fixed top-0 h-screen w-sidebar bg-card border-r border-border/30
+        className="fixed top-0 h-screen w-sidebar bg-card border-r border-border/30
                     flex flex-col py-6 overflow-y-auto z-[200]
-                    transition-transform duration-200
-                    ${isMobileOpen ? 'right-0 translate-x-0' : 'right-0 translate-x-full'}
-                    lg:left-0 lg:right-auto lg:translate-x-0`}
+                    hidden lg:flex lg:left-0"
       >
         {/* ロゴ */}
         <div className="px-5 pb-6">
@@ -171,7 +149,7 @@ export function AdminSidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setIsMobileOpen(false)}
+                    
                     className={`flex items-center justify-between px-3 py-[7px] rounded-md
                                text-base transition-colors cursor-pointer
                                ${active
@@ -200,7 +178,7 @@ export function AdminSidebar() {
               href="/mypage"
               className="flex items-center px-3 py-[7px] rounded-md text-base text-secondary
                          hover:bg-page hover:text-primary transition-colors"
-              onClick={() => setIsMobileOpen(false)}
+              
             >
               マイページを開く
             </Link>

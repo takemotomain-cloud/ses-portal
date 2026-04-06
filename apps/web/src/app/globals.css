@@ -78,3 +78,47 @@
            text-primary transition-colors hover:bg-page whitespace-nowrap;
   }
 }
+
+/* ---------- 印刷用スタイル ---------- */
+@media print {
+  /* サイドバー・ハンバーガー・ヘッダーボタン・印刷不要要素を非表示 */
+  aside,
+  aside *,
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  /* メインエリアを全幅に・余白除去 */
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* ページ背景のみ白に（コンテンツ内の色は維持） */
+  body {
+    background: white !important;
+  }
+
+  .bg-page {
+    background: white !important;
+  }
+
+  /* 背景色を印刷に反映 */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* テーブルセルの折り返し許可（印刷時） */
+  table td,
+  table th {
+    white-space: normal;
+  }
+
+  /* 改ページ制御 */
+  @page {
+    margin: 10mm 12mm;
+    size: A4;
+  }
+}

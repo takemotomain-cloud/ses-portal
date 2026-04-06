@@ -42,6 +42,7 @@ interface Card {
   phone: string;
   address: string;
   note: string;
+  cardImage: string | null;
   logs: DealLog[];
 }
 
@@ -101,6 +102,7 @@ export default function AdminDealsPage() {
           phone: c.phone || '',
           address: c.address || '',
           note: c.note || '',
+          cardImage: c.cardImage || null,
           logs: (c.logs || []).map((l: any) => ({
             id: l.id,
             date: l.date ? l.date.split('T')[0] : '',
@@ -144,6 +146,10 @@ export default function AdminDealsPage() {
   const [showLogForm, setShowLogForm] = useState(false);
   const [logForm, setLogForm] = useState({ date: '', content: '', recordingUrl: '' });
   const [logSaving, setLogSaving] = useState(false);
+
+  /* card image upload */
+  const cardImageRef = useRef<HTMLInputElement>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   /* deal log edit */
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
@@ -244,7 +250,7 @@ export default function AdminDealsPage() {
         const result: OcrResult = await res.json();
 
         if (result.name || result.company) {
-          await apiClient('/business-cards', {
+          const created = await apiClient<{ id: string }>('/business-cards', {
             method: 'POST',
             body: JSON.stringify({
               name: result.name || '(名前なし)',
@@ -256,6 +262,19 @@ export default function AdminDealsPage() {
               address: result.address || undefined,
             }),
           });
+
+          // 名刺画像もスキャン加工して保存
+          if (created?.id) {
+            try {
+              const imgForm = new FormData();
+              imgForm.append('image', items[i].file);
+              await fetch(`/api/business-cards/${created.id}/card-image`, {
+                method: 'POST',
+                headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                body: imgForm,
+              });
+            } catch { /* 画像保存失敗は無視 */ }
+          }
         }
 
         items[i] = { ...items[i], status: 'done', result };
@@ -332,6 +351,29 @@ export default function AdminDealsPage() {
       toast(err?.message || '更新に失敗しました');
     } finally {
       setEditLogSaving(false);
+    }
+  };
+
+  /* ---- 名刺画像アップロード ---- */
+  const handleCardImageUpload = async (file: File) => {
+    if (!selected) return;
+    setUploadingImage(true);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ses_portal_token') : null;
+      const formData = new FormData();
+      formData.append('image', file);
+      const res = await fetch(`/api/business-cards/${selected.id}/card-image`, {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: formData,
+      });
+      if (!res.ok) throw new Error('アップロードに失敗しました');
+      toast('名刺画像を保存しました');
+      fetchCards();
+    } catch (err: any) {
+      toast(err?.message || 'アップロードに失敗しました');
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -414,6 +456,46 @@ export default function AdminDealsPage() {
               <button onClick={() => setSelectedId(null)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">&#10005;</button>
             </div>
             <div className="p-5 space-y-6">
+              {/* 名刺画像 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-2xs text-secondary uppercase tracking-widest">名刺画像</div>
+                  <label className="text-xs text-primary hover:text-primary/80 cursor-pointer transition-colors">
+                    {uploadingImage ? '処理中...' : selected.cardImage ? '画像を変更' : '画像をアップロード'}
+                    <input
+                      ref={cardImageRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadingImage}
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (f) handleCardImageUpload(f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+                {selected.cardImage ? (
+                  <div className="bg-page rounded-lg p-3 flex justify-center">
+                    <img
+                      src={`http://localhost:3001${selected.cardImage}`}
+                      alt="名刺"
+                      className="max-w-full rounded shadow-sm"
+                      style={{ maxHeight: 200 }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="bg-page rounded-lg p-6 text-center border-2 border-dashed border-border/30 cursor-pointer hover:border-primary/30 transition-colors"
+                    onClick={() => cardImageRef.current?.click()}
+                  >
+                    <div className="text-2xl text-secondary mb-1">&#128444;</div>
+                    <div className="text-xs text-secondary">名刺画像をアップロード</div>
+                  </div>
+                )}
+              </div>
+
               {/* 名刺情報 */}
               <div>
                 <div className="text-2xs text-secondary uppercase tracking-widest mb-2">名刺情報</div>

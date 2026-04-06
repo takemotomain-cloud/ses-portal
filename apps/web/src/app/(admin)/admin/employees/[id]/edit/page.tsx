@@ -43,6 +43,8 @@ interface EmployeeDetail {
   bankAccountType: string | null;
   bankAccountNumber: string | null;
   bankAccountHolder: string | null;
+  station: string | null;
+  qualifications: string[] | null;
   department: { id: string; name: string; code: string } | null;
   position: { id: string; name: string; rank: number } | null;
   emergencyContacts?: { id: string; name: string; relationship: string; phone: string }[];
@@ -78,6 +80,7 @@ interface EditForm {
   bankBranch: string;
   bankAccountType: string;
   bankAccountNumber: string;
+  station: string;
   driveUrl: string;
 }
 
@@ -200,6 +203,7 @@ export default function EmployeeEditPage() {
     bankBranch: '',
     bankAccountType: '普通',
     bankAccountNumber: '',
+    station: '',
     driveUrl: '',
   });
 
@@ -240,8 +244,10 @@ export default function EmployeeEditPage() {
           bankBranch: d.bankBranch || '',
           bankAccountType: accountTypeLabel[d.bankAccountType || ''] || '普通',
           bankAccountNumber: d.bankAccountNumber || '',
+          station: d.station || '',
           driveUrl: '',
         });
+        setQualifications(Array.isArray(d.qualifications) ? d.qualifications : []);
       })
       .catch((err) => {
         console.error('Failed to fetch employee detail:', err);
@@ -279,6 +285,8 @@ export default function EmployeeEditPage() {
         bankBranch: form.bankBranch,
         bankAccountType: accountTypeReverse[form.bankAccountType] || form.bankAccountType,
         bankAccountNumber: form.bankAccountNumber,
+        station: form.station,
+        qualifications,
       };
 
       // 部署が変更された場合
@@ -502,15 +510,27 @@ export default function EmployeeEditPage() {
             </div>
           </div>
 
-          {/* 住所 */}
-          <div>
-            <label className={labelCls}>住所</label>
-            <input
-              type="text"
-              className={inputCls}
-              value={form.address}
-              onChange={set('address')}
-            />
+          {/* 住所 / 最寄駅 */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={labelCls}>住所</label>
+              <input
+                type="text"
+                className={inputCls}
+                value={form.address}
+                onChange={set('address')}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>最寄駅</label>
+              <input
+                type="text"
+                className={inputCls}
+                placeholder="JR大阪駅"
+                value={form.station}
+                onChange={set('station')}
+              />
+            </div>
           </div>
         </div>
 
