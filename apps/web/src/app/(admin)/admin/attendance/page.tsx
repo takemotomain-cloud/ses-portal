@@ -8,6 +8,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
@@ -20,6 +21,7 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 };
 
 export default function AdminAttendancePage() {
+  const router = useRouter();
   const [year, setYear] = useState(2026);
   const [month, setMonth] = useState(3);
 
@@ -72,6 +74,7 @@ export default function AdminAttendancePage() {
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">勤怠管理</h1>
         <div className="flex gap-2">
+          <button onClick={() => router.push('/admin/attendance/reconciliation')} className="btn-outline text-sm py-1.5">現場勤怠表を取込</button>
           <button onClick={handleCsvExport} className="btn-outline text-sm py-1.5">CSVエクスポート</button>
           <button onClick={handleMonthlyClose} className="btn-primary text-sm py-1.5">月次締め処理</button>
         </div>

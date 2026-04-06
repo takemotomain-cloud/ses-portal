@@ -12,11 +12,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { apiClient } from '@/lib/api-client';
+import { LinkedText } from '@/components/ui/linked-text';
 
 interface Notice {
   id: string;
   title: string;
   body: string;
+  imageUrl?: string | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -185,7 +187,13 @@ export default function MyPage() {
               {notices.slice(0, 3).map((item) => (
                 <li
                   key={item.id}
-                  onClick={() => setSelectedNotice(item)}
+                  onClick={() => {
+                    setSelectedNotice(item);
+                    if (!item.isRead) {
+                      apiClient(`/notifications/${item.id}/read`, { method: 'POST' }).catch(() => {});
+                      setNotices(prev => prev.map(n => n.id === item.id ? { ...n, isRead: true } : n));
+                    }
+                  }}
                   className="flex items-start gap-3 px-4 py-3.5 border-b border-border-light last:border-b-0
                              cursor-pointer hover:bg-page transition-colors"
                 >
@@ -214,7 +222,7 @@ export default function MyPage() {
         >
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative bg-card w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 animate-in slide-in-from-bottom duration-200"
+            className="relative bg-card w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sm:hidden flex justify-center mb-4">
@@ -232,7 +240,18 @@ export default function MyPage() {
             <span className="inline-block text-xs text-secondary bg-page px-2 py-0.5 rounded mb-4">
               {timeAgo(selectedNotice.createdAt)}
             </span>
-            <p className="text-md text-primary leading-relaxed">{selectedNotice.body}</p>
+            <div className="text-md text-primary leading-relaxed">
+              <LinkedText text={selectedNotice.body} />
+            </div>
+            {selectedNotice.imageUrl && (
+              <div className="mt-4">
+                <img
+                  src={`${selectedNotice.imageUrl}`}
+                  alt="添付画像"
+                  className="w-full rounded-lg border border-border"
+                />
+              </div>
+            )}
             <button
               onClick={() => setSelectedNotice(null)}
               className="mt-6 w-full py-3 rounded-lg border border-border text-md font-medium text-primary hover:bg-page transition-colors"

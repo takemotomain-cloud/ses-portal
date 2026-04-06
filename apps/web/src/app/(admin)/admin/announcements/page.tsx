@@ -3,12 +3,13 @@
  *
  * 管理者が社員向けにお知らせを一括送信する。
  * 送信先: 全社員 / 部署 / エリア / 個別選択
+ * 画像添付・URL自動リンク化対応。
  */
 
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { apiClient } from '@/lib/api-client';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { apiClient, getToken } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
 
 /* ---------- 型定義 ---------- */
@@ -35,6 +36,7 @@ interface AreaOption {
 interface SentNotification {
   title: string;
   body: string;
+  imageUrl?: string | null;
   createdAt: string;
   sentCount: number;
   readCount: number;
@@ -62,6 +64,14 @@ export default function AnnouncementsPage() {
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [empSearch, setEmpSearch] = useState('');
   const [sending, setSending] = useState(false);
+
+  /* 画像 */
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /* ���認ダイアログ */
+  const [showConfirm, setShowConfirm] = useState(false);
 
   /* 選択肢データ */
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -129,12 +139,59 @@ export default function AnnouncementsPage() {
     }
   }, [targetType, employees, departments, areas, selectedDepts, selectedArea, selectedEmployees]);
 
-  /* 送信 */
-  async function handleSend() {
+  /* 画像アップロード */
+  async function handleImageUpload(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast('画像サイズは5MB以下にしてください');
+      return;
+    }
+    if (!file.type.match(/^image\/(jpeg|jpg|png|gif|webp)$/)) {
+      toast('対応形式: JPG, PNG, GIF, WebP');
+      return;
+    }
+
+    setImageUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const token = getToken();
+      const res = await fetch('/api/notifications/upload-image', {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: formData,
+      });
+      if (!res.ok) throw new Error('アップロードに失敗しました');
+      const data = await res.json();
+      setImageUrl(data.imageUrl);
+    } catch (e: any) {
+      toast(e.message || 'アップロードに失敗しました');
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) handleImageUpload(file);
+  }
+
+  /* 送信前確認ダイアログを表示 */
+  function handleSendClick() {
     if (!title.trim() || !body.trim()) {
       toast('タイトルと本文を入力してください');
       return;
     }
+    if (targetType === 'department' && !selectedDepts.length) { toast('部署を選択してください'); return; }
+    if (targetType === 'area' && !selectedArea) { toast('エリアを選択してください'); return; }
+    if (targetType === 'individual' && !selectedEmployees.length) { toast('社員を選択してください'); return; }
+    setShowConfirm(true);
+  }
+
+  /* 送信実行（確認後） */
+  async function handleSend() {
+    setShowConfirm(false);
 
     const payload: any = {
       title: title.trim(),
@@ -142,14 +199,15 @@ export default function AnnouncementsPage() {
       targetType,
     };
 
+    if (imageUrl) {
+      payload.imageUrl = imageUrl;
+    }
+
     if (targetType === 'department') {
-      if (!selectedDepts.length) { toast('部署を選択してください'); return; }
       payload.targetIds = selectedDepts;
     } else if (targetType === 'area') {
-      if (!selectedArea) { toast('エリアを選択してください'); return; }
       payload.targetArea = selectedArea;
     } else if (targetType === 'individual') {
-      if (!selectedEmployees.length) { toast('社員を選択してください'); return; }
       payload.targetIds = selectedEmployees;
     }
 
@@ -165,6 +223,7 @@ export default function AnnouncementsPage() {
       setSelectedDepts([]);
       setSelectedArea('');
       setSelectedEmployees([]);
+      setImageUrl(null);
     } catch (e: any) {
       toast(e.message || '送信に失敗しました');
     } finally {
@@ -234,8 +293,64 @@ export default function AnnouncementsPage() {
               rows={6}
               value={body}
               onChange={e => setBody(e.target.value)}
-              placeholder="お知らせの内容を入力"
+              placeholder="お知らせの内容を入力（URLを貼り付けると社員側で自動リンク化されます）"
               className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary resize-y"
+            />
+            <p className="text-xs text-secondary mt-1.5">
+              💡 本文に URL を貼り付けると、社員側の表示でクリック可能なリンクになります
+            </p>
+          </div>
+
+          {/* 画像添付 */}
+          <div className="card p-5">
+            <label className="block text-sm font-medium mb-2">画像添付</label>
+            {imageUrl ? (
+              <div className="relative inline-block">
+                <img
+                  src={`${imageUrl}`}
+                  alt="添付画像"
+                  className="max-h-48 rounded-lg border border-border"
+                />
+                <button
+                  onClick={() => { setImageUrl(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-status-red-bg text-status-red-text
+                             rounded-full flex items-center justify-center text-xs hover:bg-status-red-text hover:text-white transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div
+                onDragOver={e => e.preventDefault()}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer
+                           hover:border-primary hover:bg-page/50 transition-colors"
+              >
+                {imageUploading ? (
+                  <p className="text-sm text-secondary">アップロード中...</p>
+                ) : (
+                  <>
+                    <div className="text-3xl text-secondary/40 mb-2">📷</div>
+                    <p className="text-sm text-secondary">
+                      クリックまたはドラッグ＆ドロップで画像を添付
+                    </p>
+                    <p className="text-xs text-secondary/60 mt-1">
+                      JPG, PNG, GIF, WebP（5MB以下）
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) handleImageUpload(file);
+              }}
             />
           </div>
 
@@ -363,7 +478,7 @@ export default function AnnouncementsPage() {
           {/* 送信ボタン */}
           <div className="flex justify-end gap-2">
             <button
-              onClick={handleSend}
+              onClick={handleSendClick}
               disabled={sending || !title.trim() || !body.trim()}
               className="px-6 py-2.5 rounded-lg text-sm bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50 font-medium"
             >
@@ -391,6 +506,13 @@ export default function AnnouncementsPage() {
                   <span className="text-xs text-secondary flex-shrink-0">{fmtDate(item.createdAt)}</span>
                 </div>
                 <p className="text-sm text-secondary mb-2 line-clamp-2">{item.body}</p>
+                {item.imageUrl && (
+                  <img
+                    src={`${item.imageUrl}`}
+                    alt="添付画像"
+                    className="max-h-24 rounded border border-border mb-2"
+                  />
+                )}
                 <div className="flex gap-3 text-xs text-secondary">
                   <span>送信: {item.sentCount}名</span>
                   <span>既読: {item.readCount}名</span>
@@ -401,6 +523,56 @@ export default function AnnouncementsPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* 送信確認ダイアログ */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowConfirm(false)} />
+          <div className="relative bg-card w-full max-w-lg rounded-2xl p-6 shadow-xl mx-4">
+            <h3 className="text-lg font-medium text-primary mb-4">送信内容の確認</h3>
+
+            <div className="space-y-3 mb-5">
+              <div>
+                <span className="text-xs text-secondary">タイトル</span>
+                <p className="text-base font-medium text-primary">{title}</p>
+              </div>
+              <div>
+                <span className="text-xs text-secondary">本文</span>
+                <p className="text-sm text-primary whitespace-pre-wrap bg-page rounded-lg p-3 max-h-40 overflow-y-auto">{body}</p>
+              </div>
+              {imageUrl && (
+                <div>
+                  <span className="text-xs text-secondary">添付画像</span>
+                  <img
+                    src={`${imageUrl}`}
+                    alt="添付画像"
+                    className="max-h-32 rounded-lg border border-border mt-1"
+                  />
+                </div>
+              )}
+              <div>
+                <span className="text-xs text-secondary">送信先</span>
+                <p className="text-sm text-primary">{targetPreview}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-5 py-2.5 rounded-lg text-sm border border-border text-secondary hover:bg-page transition-colors"
+              >
+                いいえ
+              </button>
+              <button
+                onClick={handleSend}
+                className="px-5 py-2.5 rounded-lg text-sm bg-primary text-white hover:bg-primary/90 transition-colors font-medium"
+              >
+                はい、送信する
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -1,10 +1,39 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  Controller, Get, Post, Param, Query, Body,
+  UseGuards, ParseUUIDPipe, UseInterceptors, UploadedFile,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+
+/** アップロード先ディレクトリ（プロジェクトルートの uploads/notifications） */
+const uploadDir = join(process.cwd(), 'uploads', 'notifications');
+if (!existsSync(uploadDir)) {
+  mkdirSync(uploadDir, { recursive: true });
+}
+
+/** アップロード設定 */
+const uploadStorage = diskStorage({
+  destination: uploadDir,
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
+  },
+});
+
+const imageFileFilter = (_req: any, file: any, cb: any) => {
+  if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
+    return cb(new Error('画像ファイルのみアップロード可能です'), false);
+  }
+  cb(null, true);
+};
 
 @ApiTags('通知')
 @ApiBearerAuth()
@@ -13,7 +42,27 @@ import { Roles } from '../../common/decorators/roles.decorator';
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  /* --- 管理者用 一括送信（固定パスを先に配置） --- */
+  /* --- 管理者用 --- */
+
+  @Post('upload-image')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'お知らせ用画像アップロード（管理者）' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      storage: uploadStorage,
+      fileFilter: imageFileFilter,
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    }),
+  )
+  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      return { imageUrl: null };
+    }
+    const imageUrl = `/uploads/notifications/${file.filename}`;
+    return { imageUrl };
+  }
 
   @Post('send')
   @UseGuards(RolesGuard)
@@ -25,6 +74,7 @@ export class NotificationsController {
     targetType: 'all' | 'department' | 'area' | 'individual';
     targetIds?: string[];
     targetArea?: string;
+    imageUrl?: string;
   }) {
     return this.notificationsService.sendBulk(body);
   }

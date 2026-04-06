@@ -14,11 +14,13 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // セキュリティヘッダー（X-Content-Type-Options, X-Frame-Options等）
   app.use(helmet());
@@ -45,6 +47,11 @@ async function bootstrap() {
       },
     }),
   );
+
+  // 静的ファイル配信（アップロ���ドされた画像等）
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   // APIプレフィックス
   app.setGlobalPrefix('api');

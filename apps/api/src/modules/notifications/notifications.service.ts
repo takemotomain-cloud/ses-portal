@@ -17,11 +17,11 @@ export class NotificationsService {
   constructor(private readonly db: DatabaseService) {}
 
   /** 社員の通知一覧（未読優先、新しい順） */
-  async getMyNotifications(employeeId: string, limit = 20) {
+  async getMyNotifications(employeeId: string, limit?: number) {
     return this.db.notification.findMany({
       where: { employeeId },
       orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
-      take: limit,
+      take: (limit && limit > 0) ? limit : 20,
     });
   }
 
@@ -150,6 +150,7 @@ export class NotificationsService {
     targetType: 'all' | 'department' | 'area' | 'individual';
     targetIds?: string[];
     targetArea?: string;
+    imageUrl?: string;
   }) {
     if (!data.title?.trim() || !data.body?.trim()) {
       throw new BadRequestException('タイトルと本文を入力してください');
@@ -223,6 +224,7 @@ export class NotificationsService {
         title: data.title.trim(),
         body: data.body.trim(),
         category: 'announcement',
+        ...(data.imageUrl ? { imageUrl: data.imageUrl } : {}),
       })),
     });
 
@@ -243,6 +245,7 @@ export class NotificationsService {
       select: {
         title: true,
         body: true,
+        imageUrl: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },

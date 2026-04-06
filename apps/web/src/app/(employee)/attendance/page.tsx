@@ -8,8 +8,8 @@
 
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { apiClient } from '@/lib/api-client';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { apiClient, getToken } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
 
 interface AttendanceRecordRaw {
@@ -88,8 +88,95 @@ export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [corrections, setCorrections] = useState<CorrectionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<0 | 1>(0);
+  const [activeTab, setActiveTab] = useState<0 | 1 | 2>(0);
   const { toast, ToastUI } = useToast();
+
+  /* ---- 現場勤怠表アップロード ---- */
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadYearMonth, setUploadYearMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [uploading, setUploading] = useState(false);
+  const [uploadDragOver, setUploadDragOver] = useState(false);
+  const [myUploads, setMyUploads] = useState<any[]>([]);
+  const [uploadResult, setUploadResult] = useState<{
+    records: number;
+    reconciliation: {
+      summary: { totalDays: number; matchCount: number; mismatchCount: number; clientOnlyCount: number; systemOnlyCount: number };
+    } | null;
+  } | null>(null);
+
+  const loadMyUploads = useCallback(() => {
+    apiClient<any[]>('/attendance/reconciliation/my-uploads')
+      .then(setMyUploads)
+      .catch(() => setMyUploads([]));
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 2) loadMyUploads();
+  }, [activeTab, loadMyUploads]);
+
+  const handleUploadFile = useCallback(async () => {
+    if (!uploadFile || !uploadYearMonth) {
+      toast('対象年月とファイルを指定してください');
+      return;
+    }
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      formData.append('yearMonth', uploadYearMonth);
+
+      const token = getToken();
+      const res = await fetch('/api/attendance/reconciliation/upload', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'アップロードに失敗しました' }));
+        throw new Error(err.message);
+      }
+
+      const data = await res.json();
+      const recSummary = data.reconciliation?.summary;
+      setUploadResult({
+        records: data.records?.length || 0,
+        reconciliation: data.reconciliation,
+      });
+      if (recSummary) {
+        toast(`${data.records?.length || 0}件を読取り、突合完了（一致: ${recSummary.matchCount}件 / 差異: ${recSummary.mismatchCount}件）`);
+      } else {
+        toast(`勤怠表をアップロードしました（${data.records?.length || 0}件）`);
+      }
+      setUploadFile(null);
+      loadMyUploads();
+    } catch (err: any) {
+      toast(err.message || 'エラーが発生しました');
+    } finally {
+      setUploading(false);
+    }
+  }, [uploadFile, uploadYearMonth, toast, loadMyUploads]);
+
+  const handleUploadDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setUploadDragOver(false);
+    if (e.dataTransfer.files?.[0]) setUploadFile(e.dataTransfer.files[0]);
+  }, []);
+
+  const uploadStatusLabel = (status: string) => {
+    switch (status) {
+      case 'uploaded': return { text: '受付済', cls: 'bg-status-blue-bg text-status-blue-text' };
+      case 'parsed': return { text: '解析済', cls: 'bg-status-amber-bg text-status-amber-text' };
+      case 'reconciled': return { text: '突合済', cls: 'bg-status-green-bg text-status-green-text' };
+      case 'confirmed': return { text: '確定済', cls: 'bg-status-green-bg text-status-green-text' };
+      case 'error': return { text: 'エラー', cls: 'bg-status-red-bg text-status-red-text' };
+      default: return { text: status, cls: 'bg-border-light text-secondary' };
+    }
+  };
 
   /* ---- 修正モーダル ---- */
   const [editTarget, setEditTarget] = useState<AttendanceRecord | null>(null);
@@ -218,6 +305,13 @@ export default function AttendancePage() {
             ${activeTab === 1 ? 'text-primary font-medium border-primary' : 'text-secondary border-transparent hover:text-primary'}`}
         >
           修正申請{corrections.length > 0 && ` (${corrections.length})`}
+        </button>
+        <button
+          onClick={() => setActiveTab(2)}
+          className={`px-5 py-2.5 text-base border-b-2 transition-colors
+            ${activeTab === 2 ? 'text-primary font-medium border-primary' : 'text-secondary border-transparent hover:text-primary'}`}
+        >
+          現場勤怠表
         </button>
       </div>
 
@@ -371,6 +465,168 @@ export default function AttendancePage() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* 現場勤怠表タブ */}
+      {activeTab === 2 && (
+        <div className="space-y-5">
+          {/* アップロードエリア */}
+          <div className="card p-5 space-y-4">
+            <div>
+              <h3 className="text-base font-medium mb-1">現場勤怠表のアップロード</h3>
+              <p className="text-sm text-secondary">クライアントから受け取った勤怠表をアップロードしてください。管理者が確認・突合を行います。</p>
+            </div>
+
+            <div>
+              <label className="block text-sm text-secondary mb-1">対象年月</label>
+              <select
+                value={uploadYearMonth}
+                onChange={e => setUploadYearMonth(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
+                disabled={uploading}
+              >
+                {(() => {
+                  const options: { value: string; label: string }[] = [];
+                  const d = new Date();
+                  for (let i = -1; i <= 12; i++) {
+                    const dt = new Date(d.getFullYear(), d.getMonth() - i, 1);
+                    const val = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+                    const label = `${dt.getFullYear()}年${dt.getMonth() + 1}月`;
+                    options.push({ value: val, label });
+                  }
+                  return options.map(o => <option key={o.value} value={o.value}>{o.label}</option>);
+                })()}
+              </select>
+            </div>
+
+            <div
+              onDragOver={e => { e.preventDefault(); setUploadDragOver(true); }}
+              onDragLeave={() => setUploadDragOver(false)}
+              onDrop={handleUploadDrop}
+              onClick={() => !uploading && fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer
+                ${uploadDragOver ? 'border-primary bg-accent' : uploadFile ? 'border-status-green-text bg-status-green-bg' : 'border-border hover:border-primary/50'}`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.gif,.webp"
+                className="hidden"
+                onChange={e => { if (e.target.files?.[0]) setUploadFile(e.target.files[0]); }}
+              />
+              {uploadFile ? (
+                <div>
+                  <p className="text-base font-medium text-primary">{uploadFile.name}</p>
+                  <p className="text-sm text-secondary mt-1">{(uploadFile.size / 1024).toFixed(1)} KB</p>
+                  {!uploading && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setUploadFile(null); }}
+                      className="text-sm text-status-red-text mt-2 hover:underline"
+                    >
+                      削除
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <p className="text-base text-secondary">タップしてファイルを選択</p>
+                  <p className="text-2xs text-secondary/70 mt-1">Excel / CSV / PDF / 画像</p>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={handleUploadFile}
+              disabled={!uploadFile || !uploadYearMonth || uploading}
+              className="w-full py-3 rounded-lg bg-primary text-white text-md font-semibold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {uploading ? (
+                <>
+                  <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  アップロード中...
+                </>
+              ) : (
+                'アップロード'
+              )}
+            </button>
+          </div>
+
+          {/* アップロード＆突合結果 */}
+          {uploadResult && (
+            <div className="card p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full bg-status-green-bg flex items-center justify-center text-status-green-text text-lg">✓</span>
+                <h3 className="text-base font-medium">アップロード完了</h3>
+              </div>
+              <p className="text-sm text-secondary">{uploadResult.records}件の勤怠データを読み取りました。</p>
+              {uploadResult.reconciliation?.summary && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-status-green-bg rounded-lg px-3 py-2 text-center">
+                    <div className="text-2xs text-status-green-text">一致</div>
+                    <div className="text-lg font-medium text-status-green-text">{uploadResult.reconciliation.summary.matchCount}日</div>
+                  </div>
+                  <div className="bg-status-red-bg rounded-lg px-3 py-2 text-center">
+                    <div className="text-2xs text-status-red-text">差異あり</div>
+                    <div className="text-lg font-medium text-status-red-text">{uploadResult.reconciliation.summary.mismatchCount}日</div>
+                  </div>
+                  {uploadResult.reconciliation.summary.clientOnlyCount > 0 && (
+                    <div className="bg-status-amber-bg rounded-lg px-3 py-2 text-center">
+                      <div className="text-2xs text-status-amber-text">現場のみ</div>
+                      <div className="text-lg font-medium text-status-amber-text">{uploadResult.reconciliation.summary.clientOnlyCount}日</div>
+                    </div>
+                  )}
+                  {uploadResult.reconciliation.summary.systemOnlyCount > 0 && (
+                    <div className="bg-status-blue-bg rounded-lg px-3 py-2 text-center">
+                      <div className="text-2xs text-status-blue-text">自社のみ</div>
+                      <div className="text-lg font-medium text-status-blue-text">{uploadResult.reconciliation.summary.systemOnlyCount}日</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="text-2xs text-secondary">管理者が内容を確認し、確定処理を行います。</p>
+              <button
+                onClick={() => setUploadResult(null)}
+                className="w-full py-2 rounded-lg border border-border text-sm text-primary hover:bg-page transition-colors"
+              >
+                閉じる
+              </button>
+            </div>
+          )}
+
+          {/* アップロード履歴 */}
+          <div>
+            <h3 className="text-base font-medium mb-2">アップロード履歴</h3>
+            <div className="card p-0">
+              {myUploads.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-secondary">アップロード履歴はありません</div>
+              ) : (
+                <ul>
+                  {myUploads.map((u: any, idx: number) => {
+                    const st = uploadStatusLabel(u.status);
+                    return (
+                      <li
+                        key={u.id}
+                        className={`px-4 py-3 ${idx < myUploads.length - 1 ? 'border-b border-border-light' : ''}`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-md font-medium">{u.yearMonth}</span>
+                          <span className={`text-2xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.text}</span>
+                        </div>
+                        <div className="text-sm text-secondary">
+                          <span>{u.fileName || 'ファイル'}</span>
+                          {u.client?.name && <span className="ml-2">({u.client.name})</span>}
+                        </div>
+                        <div className="text-2xs text-secondary/70 mt-0.5">
+                          {new Date(u.createdAt).toLocaleString('ja-JP')}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

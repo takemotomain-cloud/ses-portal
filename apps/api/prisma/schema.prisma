@@ -111,6 +111,9 @@ model Employee {
   meetings                Meeting[]
   attendanceCorrections   AttendanceCorrection[]
   approvedCorrections     AttendanceCorrection[] @relation("CorrectionApprover")
+  attendanceConfirmed     AttendanceConfirmed[]
+  confirmedAttendances    AttendanceConfirmed[]  @relation("ConfirmedBy")
+  clientAttendanceUploads ClientAttendanceUpload[]
 
   @@map("employees")
 }
@@ -193,7 +196,9 @@ model Client {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  assignments Assignment[]
+  assignments             Assignment[]
+  clientAttendanceUploads ClientAttendanceUpload[]
+  reconciliationSettings  ReconciliationSettings?
 
   @@map("clients")
 }
@@ -412,6 +417,7 @@ model Notification {
   employeeId String    @map("employee_id") @db.Uuid
   title      String    @db.VarChar(200)
   body       String
+  imageUrl   String?   @map("image_url") @db.VarChar(500)
   category   String?   @db.VarChar(30)
   isRead     Boolean   @default(false) @map("is_read")
   readAt     DateTime? @map("read_at") @db.Timestamptz
@@ -547,4 +553,121 @@ model Candidate {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("candidates")
+}
+
+// ----------------------------------------
+// 確定勤怠データ（突合後）
+// ----------------------------------------
+model AttendanceConfirmed {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId      String    @map("employee_id") @db.Uuid
+  workDate        DateTime  @map("work_date") @db.Date
+  startTime       DateTime? @map("start_time") @db.Timestamptz
+  endTime         DateTime? @map("end_time") @db.Timestamptz
+  breakMinutes    Int       @default(60) @map("break_minutes")
+  workMinutes     Int?      @map("work_minutes")
+  overtimeMinutes Int?      @map("overtime_minutes")
+  source          String    @default("system") @db.VarChar(30)
+  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz
+  confirmedBy     String?   @map("confirmed_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  confirmer Employee? @relation("ConfirmedBy", fields: [confirmedBy], references: [id])
+
+  @@unique([employeeId, workDate])
+  @@map("attendance_confirmed")
+}
+
+// ----------------------------------------
+// 現場勤怠表アップロード
+// ----------------------------------------
+model ClientAttendanceUpload {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  clientId   String?  @map("client_id") @db.Uuid
+  yearMonth  String   @map("year_month") @db.VarChar(7)
+  fileName   String?  @map("file_name") @db.VarChar(300)
+  filePath   String?  @map("file_path") @db.VarChar(500)
+  fileType   String?  @map("file_type") @db.VarChar(20)
+  rawJson    Json?    @map("raw_json")
+  status     String   @default("uploaded") @db.VarChar(20)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee              @relation(fields: [employeeId], references: [id])
+  client   Client?               @relation(fields: [clientId], references: [id])
+  records  ClientAttendanceRecord[]
+  results  ReconciliationResult[]
+
+  @@map("client_attendance_uploads")
+}
+
+// ----------------------------------------
+// 構造化された現場勤怠レコード
+// ----------------------------------------
+model ClientAttendanceRecord {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uploadId     String   @map("upload_id") @db.Uuid
+  workDate     DateTime @map("work_date") @db.Date
+  startTime    String?  @map("start_time") @db.VarChar(5)
+  endTime      String?  @map("end_time") @db.VarChar(5)
+  breakMinutes Int?     @map("break_minutes")
+  workHours    Decimal? @map("work_hours") @db.Decimal(5, 2)
+  dayType      String   @default("normal") @map("day_type") @db.VarChar(20)
+  note         String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  upload ClientAttendanceUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@map("client_attendance_records")
+}
+
+// ----------------------------------------
+// 突合結果
+// ----------------------------------------
+model ReconciliationResult {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uploadId      String   @map("upload_id") @db.Uuid
+  workDate      DateTime @map("work_date") @db.Date
+  matchStatus   String   @map("match_status") @db.VarChar(20)
+  clientStart   String?  @map("client_start") @db.VarChar(5)
+  clientEnd     String?  @map("client_end") @db.VarChar(5)
+  clientBreak   Int?     @map("client_break")
+  clientHours   Decimal? @map("client_hours") @db.Decimal(5, 2)
+  systemStart   String?  @map("system_start") @db.VarChar(5)
+  systemEnd     String?  @map("system_end") @db.VarChar(5)
+  systemBreak   Int?     @map("system_break")
+  systemHours   Decimal? @map("system_hours") @db.Decimal(5, 2)
+  resolvedBy    String   @default("client") @map("resolved_by") @db.VarChar(20)
+  resolvedStart String?  @map("resolved_start") @db.VarChar(5)
+  resolvedEnd   String?  @map("resolved_end") @db.VarChar(5)
+  resolvedBreak Int?     @map("resolved_break")
+  resolvedHours Decimal? @map("resolved_hours") @db.Decimal(5, 2)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  upload ClientAttendanceUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@map("reconciliation_results")
+}
+
+// ----------------------------------------
+// クライアント別突合設定
+// ----------------------------------------
+model ReconciliationSettings {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId         String   @unique @map("client_id") @db.Uuid
+  timeToleranceMin Int      @default(15) @map("time_tolerance_min")
+  hoursTolerance   Decimal  @default(0.5) @map("hours_tolerance") @db.Decimal(3, 1)
+  breakIncluded    Boolean  @default(false) @map("break_included")
+  roundingUnitMin  Int      @default(15) @map("rounding_unit_min")
+  defaultStartTime String?  @default("09:00") @map("default_start_time") @db.VarChar(5)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@map("reconciliation_settings")
 }

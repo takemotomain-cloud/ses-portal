@@ -10,10 +10,15 @@
 const nextConfig = {
   // APIリクエストをNestJSにプロキシ（CORSの複雑さを回避）
   async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/:path*`,
+        destination: `${apiUrl}/api/:path*`,
+      },
+      {
+        source: '/uploads/:path*',
+        destination: `${apiUrl}/uploads/:path*`,
       },
     ];
   },

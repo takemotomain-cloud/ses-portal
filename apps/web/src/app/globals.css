@@ -22,6 +22,11 @@
     line-height: 1.7;
   }
 
+  /* セレクトボックスの背景を白に統一 */
+  select {
+    background-color: #ffffff;
+  }
+
   /* デザインルール: テーブル全セル折り返し禁止 */
   table td,
   table th {

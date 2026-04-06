@@ -42,3 +42,8 @@ docker_data/
 
 # Test seed data
 seed_test_data.sql
+
+# Uploaded files (keep directory structure, ignore actual uploads)
+apps/api/uploads/**
+!apps/api/uploads/.gitkeep
+!apps/api/uploads/notifications/.gitkeep

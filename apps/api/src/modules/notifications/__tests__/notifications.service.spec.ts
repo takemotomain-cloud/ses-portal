@@ -132,6 +132,28 @@ describe('NotificationsService', () => {
       });
     });
 
+    it('画像URL付きで送信する', async () => {
+      db.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
+      db.notification.createMany.mockResolvedValue({ count: 1 });
+
+      await service.sendBulk({
+        title: 'テスト',
+        body: '本文',
+        targetType: 'all',
+        imageUrl: '/uploads/notifications/test.jpg',
+      });
+
+      expect(db.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            employeeId: 'emp-1',
+            imageUrl: '/uploads/notifications/test.jpg',
+            category: 'announcement',
+          }),
+        ],
+      });
+    });
+
     it('部署指定で送信する', async () => {
       db.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
       db.notification.createMany.mockResolvedValue({ count: 1 });

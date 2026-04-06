@@ -1,5 +1,7 @@
 /**
  * お知らせ一覧ページ（API連携版）
+ *
+ * URL自動リンク化・画像表示対応。
  */
 
 'use client';
@@ -7,11 +9,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
+import { LinkedText } from '@/components/ui/linked-text';
 
 interface Notice {
   id: string;
   title: string;
   body: string;
+  imageUrl?: string | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -87,6 +91,11 @@ export default function NotificationsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-md text-primary font-medium truncate">{item.title}</p>
                   <p className="text-sm text-secondary mt-0.5 truncate">{item.body}</p>
+                  {item.imageUrl && (
+                    <span className="text-xs text-secondary/60 mt-0.5 inline-flex items-center gap-1">
+                      📷 画像添付
+                    </span>
+                  )}
                 </div>
                 <span className="text-sm text-secondary flex-shrink-0">{timeAgo(item.createdAt)}</span>
               </li>
@@ -102,7 +111,7 @@ export default function NotificationsPage() {
         >
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative bg-card w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 animate-in slide-in-from-bottom duration-200"
+            className="relative bg-card w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sm:hidden flex justify-center mb-4">
@@ -120,7 +129,18 @@ export default function NotificationsPage() {
             <span className="inline-block text-xs text-secondary bg-page px-2 py-0.5 rounded mb-4">
               {timeAgo(selected.createdAt)}
             </span>
-            <p className="text-md text-primary leading-relaxed">{selected.body}</p>
+            <div className="text-md text-primary leading-relaxed">
+              <LinkedText text={selected.body} />
+            </div>
+            {selected.imageUrl && (
+              <div className="mt-4">
+                <img
+                  src={`${selected.imageUrl}`}
+                  alt="添付画像"
+                  className="w-full rounded-lg border border-border"
+                />
+              </div>
+            )}
             <button
               onClick={() => setSelected(null)}
               className="mt-6 w-full py-3 rounded-lg border border-border text-md font-medium text-primary hover:bg-page transition-colors"
