@@ -12,10 +12,11 @@
 import { Module } from '@nestjs/common';
 import { ClientsController } from './clients.controller';
 import { ClientsService } from './clients.service';
+import { GBizInfoService } from './gbizinfo.service';
 
 @Module({
   controllers: [ClientsController],
-  providers: [ClientsService],
+  providers: [ClientsService, GBizInfoService],
   exports: [ClientsService],
 })
 export class ClientsModule {}

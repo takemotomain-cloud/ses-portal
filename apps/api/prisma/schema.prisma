@@ -185,11 +185,18 @@ model Dependent {
 model Client {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name            String    @db.VarChar(200)
+  corporateNumber String?   @map("corporate_number") @db.VarChar(30)
+  invoiceNumber   String?   @map("invoice_number") @db.VarChar(30)
+  postalCode      String?   @map("postal_code") @db.VarChar(10)
+  address         String?
+  representName   String?   @map("represent_name") @db.VarChar(100)
+  establishedDate String?   @map("established_date") @db.VarChar(20)
+  capital         String?   @db.VarChar(50)
+  websiteUrl      String?   @map("website_url") @db.VarChar(500)
   industry        String?   @db.VarChar(50)
   contactPerson   String?   @map("contact_person") @db.VarChar(100)
   contactEmail    String?   @map("contact_email") @db.VarChar(255)
   contactPhone    String?   @map("contact_phone") @db.VarChar(20)
-  address         String?
   tradeFlow       String?   @map("trade_flow") @db.VarChar(50)
   billingEmail    String?   @map("billing_email") @db.VarChar(255)
   tradeStartDate  DateTime? @map("trade_start_date") @db.Date
@@ -203,6 +210,44 @@ model Client {
   reconciliationSettings  ReconciliationSettings?
 
   @@map("clients")
+}
+
+// ----------------------------------------
+// 名刺（商談ログ）
+// ----------------------------------------
+model BusinessCard {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String    @db.VarChar(100)
+  company    String    @db.VarChar(200)
+  department String?   @db.VarChar(200)
+  title      String?   @db.VarChar(100)
+  email      String?   @db.VarChar(255)
+  phone      String?   @db.VarChar(50)
+  address    String?
+  tag        String?   @db.VarChar(30)
+  status     String?   @db.VarChar(30)
+  owner      String?   @db.VarChar(100)
+  note       String?
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  logs       DealLog[]
+
+  @@map("business_cards")
+}
+
+model DealLog {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessCardId String       @map("business_card_id") @db.Uuid
+  businessCard   BusinessCard @relation(fields: [businessCardId], references: [id])
+  date           DateTime     @db.Date
+  content        String
+  recordingUrl   String?      @map("recording_url") @db.VarChar(500)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("deal_logs")
 }
 
 // ----------------------------------------

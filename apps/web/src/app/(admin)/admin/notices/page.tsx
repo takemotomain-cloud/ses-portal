@@ -84,13 +84,13 @@ export default function AdminNoticesPage() {
                     <span className={`badge ${offerBadge.cls}`}>{offerBadge.label}</span>
                     <span className="text-xs text-secondary">{n.offer.date}</span>
                     {n.offer.status === 'draft' && (
-                      <button className="btn-outline text-xs py-1 px-2.5">送付する</button>
+                      <button onClick={() => toast('送付機能は今後実装予定です')} className="btn-outline text-xs py-1 px-2.5">送付する</button>
                     )}
                     {n.offer.status === 'sent' && (
-                      <button className="btn-outline text-xs py-1 px-2.5">PDF</button>
+                      <button onClick={() => window.print()} className="btn-outline text-xs py-1 px-2.5">PDF</button>
                     )}
                     {n.offer.status === 'accepted' && (
-                      <button className="btn-outline text-xs py-1 px-2.5">PDF</button>
+                      <button onClick={() => window.print()} className="btn-outline text-xs py-1 px-2.5">PDF</button>
                     )}
                   </div>
 
@@ -102,19 +102,19 @@ export default function AdminNoticesPage() {
                         <span className={`badge ${laborBadge.cls}`}>{laborBadge.label}</span>
                         <span className="text-xs text-secondary">{n.labor.date}</span>
                         {n.labor.status === 'draft' && (
-                          <button className="btn-outline text-xs py-1 px-2.5">送付する</button>
+                          <button onClick={() => toast('送付機能は今後実装予定です')} className="btn-outline text-xs py-1 px-2.5">送付する</button>
                         )}
                         {n.labor.status === 'sent' && (
-                          <button className="btn-outline text-xs py-1 px-2.5">PDF</button>
+                          <button onClick={() => window.print()} className="btn-outline text-xs py-1 px-2.5">PDF</button>
                         )}
                         {n.labor.status === 'accepted' && (
-                          <button className="btn-outline text-xs py-1 px-2.5">PDF</button>
+                          <button onClick={() => window.print()} className="btn-outline text-xs py-1 px-2.5">PDF</button>
                         )}
                       </>
                     ) : (
                       <>
                         <span className="text-sm text-secondary">未発行</span>
-                        <button className="btn-primary text-xs py-1 px-2.5">発行する</button>
+                        <button onClick={() => toast('発行機能は今後実装予定です')} className="btn-primary text-xs py-1 px-2.5">発行する</button>
                       </>
                     )}
                   </div>

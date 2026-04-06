@@ -38,7 +38,7 @@ const invoices: Invoice[] = [];
 /*  ヘルパー                                                            */
 /* ------------------------------------------------------------------ */
 
-function fmt(n: number) { return n.toLocaleString(); }
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
 const statusBadge: Record<InvoiceStatus, { label: string; cls: string }> = {
   paid:    { label: '入金済', cls: 'badge-ok' },

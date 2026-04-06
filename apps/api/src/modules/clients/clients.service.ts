@@ -26,11 +26,18 @@ export class ClientsService {
    */
   async create(data: {
     name: string;
+    corporateNumber?: string;
+    invoiceNumber?: string;
+    postalCode?: string;
+    address?: string;
+    representName?: string;
+    establishedDate?: string;
+    capital?: string;
+    websiteUrl?: string;
     industry?: string;
     contactPerson?: string;
     contactEmail?: string;
     contactPhone?: string;
-    address?: string;
     tradeFlow?: string;
     billingEmail?: string;
     tradeStartDate?: string;
@@ -38,11 +45,18 @@ export class ClientsService {
     return this.db.client.create({
       data: {
         name: data.name,
+        corporateNumber: data.corporateNumber || null,
+        invoiceNumber: data.invoiceNumber || null,
+        postalCode: data.postalCode || null,
+        address: data.address || null,
+        representName: data.representName || null,
+        establishedDate: data.establishedDate || null,
+        capital: data.capital || null,
+        websiteUrl: data.websiteUrl || null,
         industry: data.industry || null,
         contactPerson: data.contactPerson || null,
         contactEmail: data.contactEmail || null,
         contactPhone: data.contactPhone || null,
-        address: data.address || null,
         tradeFlow: data.tradeFlow || null,
         billingEmail: data.billingEmail || null,
         tradeStartDate: data.tradeStartDate
@@ -131,6 +145,62 @@ export class ClientsService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * クライアント更新
+   */
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      corporateNumber?: string;
+      invoiceNumber?: string;
+      postalCode?: string;
+      address?: string;
+      representName?: string;
+      establishedDate?: string;
+      capital?: string;
+      websiteUrl?: string;
+      industry?: string;
+      contactPerson?: string;
+      contactEmail?: string;
+      contactPhone?: string;
+      tradeFlow?: string;
+      billingEmail?: string;
+      tradeStartDate?: string;
+    },
+  ) {
+    const client = await this.db.client.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!client) {
+      throw new NotFoundException('クライアントが見つかりません');
+    }
+
+    return this.db.client.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.corporateNumber !== undefined && { corporateNumber: data.corporateNumber || null }),
+        ...(data.invoiceNumber !== undefined && { invoiceNumber: data.invoiceNumber || null }),
+        ...(data.postalCode !== undefined && { postalCode: data.postalCode || null }),
+        ...(data.address !== undefined && { address: data.address || null }),
+        ...(data.representName !== undefined && { representName: data.representName || null }),
+        ...(data.establishedDate !== undefined && { establishedDate: data.establishedDate || null }),
+        ...(data.capital !== undefined && { capital: data.capital || null }),
+        ...(data.websiteUrl !== undefined && { websiteUrl: data.websiteUrl || null }),
+        ...(data.industry !== undefined && { industry: data.industry || null }),
+        ...(data.contactPerson !== undefined && { contactPerson: data.contactPerson || null }),
+        ...(data.contactEmail !== undefined && { contactEmail: data.contactEmail || null }),
+        ...(data.contactPhone !== undefined && { contactPhone: data.contactPhone || null }),
+        ...(data.tradeFlow !== undefined && { tradeFlow: data.tradeFlow || null }),
+        ...(data.billingEmail !== undefined && { billingEmail: data.billingEmail || null }),
+        ...(data.tradeStartDate !== undefined && {
+          tradeStartDate: data.tradeStartDate ? new Date(data.tradeStartDate) : null,
+        }),
+      },
+    });
   }
 
   /**

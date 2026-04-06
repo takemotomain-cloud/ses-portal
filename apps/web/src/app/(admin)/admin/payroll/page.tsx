@@ -7,14 +7,38 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
 const steps = ['勤怠締め', '給与計算', '確認・修正', '確定', '振込・通知'];
 const currentStepIdx = 2;
 
-const demoPayroll: {
+/** API レスポンスの1件分 */
+interface PayrollApiItem {
+  id: string;
+  employeeId: string;
+  employee?: { name?: string; lastName?: string; firstName?: string };
+  baseSalary: number;
+  overtimePay: number;
+  commuteAllowance: number;
+  otherAllowance: number;
+  grossSalary: number;
+  healthInsurance: number;
+  pension: number;
+  employmentInsurance: number;
+  incomeTax: number;
+  residentTax: number;
+  totalDeductions: number;
+  netSalary: number;
+  status: string;
+  workingHours?: number;
+  unitPrice?: number;
+  ratio?: number;
+}
+
+/** UI 用に整形した給与データ */
+interface PayrollRow {
   id: string;
   name: string;
   unitPrice: number;
@@ -27,9 +51,46 @@ const demoPayroll: {
   status: string;
   earnings: { label: string; amount: number }[];
   deductionItems: { label: string; amount: number }[];
-}[] = [];
+}
 
-function fmt(n: number) { return n.toLocaleString(); }
+/** API レスポンスを UI 行に変換 */
+function toRow(item: PayrollApiItem): PayrollRow {
+  const name =
+    item.employee?.name ??
+    (item.employee?.lastName && item.employee?.firstName
+      ? `${item.employee.lastName} ${item.employee.firstName}`
+      : `社員 ${item.employeeId}`);
+
+  const hours = item.workingHours ?? 0;
+
+  return {
+    id: item.id,
+    name,
+    unitPrice: item.unitPrice ?? 0,
+    ratio: item.ratio ?? 0,
+    gross: item.grossSalary,
+    deductions: item.totalDeductions,
+    net: item.netSalary,
+    hours,
+    hoursWarn: hours > 180 || hours < 140,
+    status: item.status ?? 'draft',
+    earnings: [
+      { label: '基本給', amount: item.baseSalary },
+      { label: '残業手当', amount: item.overtimePay },
+      { label: '通勤手当', amount: item.commuteAllowance },
+      { label: 'その他手当', amount: item.otherAllowance },
+    ],
+    deductionItems: [
+      { label: '健康保険', amount: item.healthInsurance },
+      { label: '厚生年金', amount: item.pension },
+      { label: '雇用保険', amount: item.employmentInsurance },
+      { label: '所得税', amount: item.incomeTax },
+      { label: '住民税', amount: item.residentTax },
+    ],
+  };
+}
+
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
   draft: { label: '未確認', cls: 'badge-wait' },
@@ -38,18 +99,47 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 };
 
 export default function AdminPayrollPage() {
+  const [payrollData, setPayrollData] = useState<PayrollRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = selectedId ? demoPayroll.find(p => p.id === selectedId) : null;
+  const selected = selectedId ? payrollData.find(p => p.id === selectedId) : null;
   const { toast, ToastUI } = useToast();
+
+  /** 対象年月（デフォルト 2026-03） */
+  const targetYear = 2026;
+  const targetMonth = 3;
+
+  /** 給与データを取得 */
+  const fetchPayroll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient<PayrollApiItem[]>(`/payroll/${targetYear}/${targetMonth}`);
+      setPayrollData((Array.isArray(data) ? data : []).map(toRow));
+    } catch {
+      toast('給与データの取得に失敗しました');
+      setPayrollData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [toast, targetYear, targetMonth]);
+
+  useEffect(() => {
+    fetchPayroll();
+  }, [fetchPayroll]);
+
+  /** 総支給額合計 */
+  const totalGross = payrollData.reduce((sum, p) => sum + p.gross, 0);
 
   const handleCalc = useCallback(async () => {
     try {
-      await apiClient('/payroll/2026/3/calc', { method: 'POST' });
+      await apiClient(`/payroll/${targetYear}/${targetMonth}/calc`, { method: 'POST' });
       toast('給与計算を実行しました');
+      // 再取得して画面を更新
+      await fetchPayroll();
     } catch {
       toast('給与計算の実行に失敗しました');
     }
-  }, [toast]);
+  }, [toast, targetYear, targetMonth, fetchPayroll]);
 
   return (
     <div>
@@ -84,15 +174,15 @@ export default function AdminPayrollPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div className="card p-4">
           <div className="text-xs text-secondary">対象月</div>
-          <div className="text-xl font-medium">2026年3月</div>
+          <div className="text-xl font-medium">{targetYear}年{targetMonth}月</div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">総支給額合計</div>
-          <div className="text-2xl font-medium tabular-nums">--<span className="text-sm font-normal text-secondary ml-1">円</span></div>
+          <div className="text-2xl font-medium tabular-nums">{payrollData.length > 0 ? fmt(totalGross) : '--'}<span className="text-sm font-normal text-secondary ml-1">円</span></div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">対象人数</div>
-          <div className="text-3xl font-medium">{demoPayroll.length}<span className="text-base font-normal text-secondary ml-1">名</span></div>
+          <div className="text-3xl font-medium">{payrollData.length}<span className="text-base font-normal text-secondary ml-1">名</span></div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">ステータス</div>
@@ -116,10 +206,12 @@ export default function AdminPayrollPage() {
             </tr>
           </thead>
           <tbody>
-            {demoPayroll.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan={8}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+            ) : payrollData.length === 0 ? (
               <tr><td colSpan={8}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
-            ) : demoPayroll.map(p => {
-              const st = statusBadge[p.status];
+            ) : payrollData.map(p => {
+              const st = statusBadge[p.status] ?? statusBadge.draft;
               return (
                 <tr key={p.id} onClick={() => setSelectedId(p.id)} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
                   <td className="px-4 py-2.5 text-base font-medium">{p.name}</td>
@@ -145,7 +237,7 @@ export default function AdminPayrollPage() {
             <div className="flex justify-between items-start p-5 border-b border-border/30">
               <div>
                 <div className="text-xl font-medium">{selected.name}</div>
-                <div className="text-sm text-secondary">2026年3月分</div>
+                <div className="text-sm text-secondary">{targetYear}年{targetMonth}月分</div>
               </div>
               <button onClick={() => setSelectedId(null)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">✕</button>
             </div>

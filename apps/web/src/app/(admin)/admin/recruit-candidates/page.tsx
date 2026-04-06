@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
+import { apiClient } from '@/lib/api-client';
 
 type Candidate = {
   id: string;
@@ -27,7 +28,85 @@ type Candidate = {
   history: { status: string; date: string; memo: string }[];
 };
 
-const candidates: Candidate[] = [];
+type ApiCandidate = {
+  id: string;
+  lastName: string;
+  firstName: string;
+  lastNameKana: string | null;
+  firstNameKana: string | null;
+  phone: string | null;
+  gender: string | null;
+  residence: string | null;
+  birthDate: string | null;
+  education: string | null;
+  applicationDate: string;
+  source: string;
+  jobPosting: string | null;
+  interviewDate: string | null;
+  interviewTime: string | null;
+  interviewer: string | null;
+  confirmStatus: string | null;
+  desiredLocation: string | null;
+  desiredMonth: string | null;
+  status: string;
+  createdAt: string;
+};
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}/${m}/${day}`;
+}
+
+function calcAge(birthDate: string | null): string {
+  if (!birthDate) return '';
+  const birth = new Date(birthDate);
+  if (isNaN(birth.getTime())) return '';
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return `${age}歳`;
+}
+
+function mapStatusLabel(status: string): string {
+  if (status === 'new') return '書類選考';
+  return status;
+}
+
+function mapCandidate(c: ApiCandidate): Candidate {
+  const interviewParts: string[] = [];
+  if (c.interviewDate) interviewParts.push(formatDate(c.interviewDate));
+  if (c.interviewTime) interviewParts.push(c.interviewTime);
+
+  return {
+    id: c.id,
+    name: `${c.lastName} ${c.firstName}`,
+    kana: `${c.lastNameKana || ''} ${c.firstNameKana || ''}`.trim(),
+    applyDate: formatDate(c.applicationDate),
+    status: mapStatusLabel(c.status),
+    position: c.jobPosting || '',
+    source: c.source,
+    sourceName: c.source,
+    firstInterview: interviewParts.join(' '),
+    firstInterviewer: c.interviewer || '',
+    firstConfirm: c.confirmStatus || '',
+    finalInterview: '',
+    age: calcAge(c.birthDate),
+    gender: c.gender || '',
+    address: c.residence || '',
+    education: c.education || '',
+    phone: c.phone || '',
+    desiredLocation: c.desiredLocation || '',
+    desiredMonth: c.desiredMonth || '',
+    history: [],
+  };
+}
 
 const statusBadge: Record<string, string> = {
   '一次面接待ち': 'badge-warn',
@@ -50,10 +129,28 @@ const sources = ['エージェント', '媒体', 'リファラル'];
 export default function RecruitCandidatesPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+
+  const fetchCandidates = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await apiClient<ApiCandidate[]>('/candidates');
+      setCandidates(data.map(mapCandidate));
+    } catch {
+      toast('候補者データの取得に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchCandidates();
+  }, [fetchCandidates]);
 
   const filtered = useMemo(() => {
     return candidates.filter((c) => {
@@ -62,7 +159,7 @@ export default function RecruitCandidatesPage() {
       if (sourceFilter && c.source !== sourceFilter) return false;
       return true;
     });
-  }, [search, statusFilter, sourceFilter]);
+  }, [candidates, search, statusFilter, sourceFilter]);
 
   return (
     <div>
@@ -138,7 +235,13 @@ export default function RecruitCandidatesPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={8}>
+                  <div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div>
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={8}>
                   <div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div>

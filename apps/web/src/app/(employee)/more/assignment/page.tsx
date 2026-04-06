@@ -14,31 +14,30 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 
-interface Assignment {
-  clientName: string;
+interface AssignmentResponse {
+  id: string;
   projectName: string;
   contractPrice: number;
   settlementLower: number;
   settlementUpper: number;
-  rewardRate: number;
-  workLocation: string;
+  workLocation: string | null;
   startDate: string;
-  endDate: string;
+  endDate: string | null;
   status: string;
+  client: { id: string; name: string };
 }
 
-interface AssignmentHistory {
-  client: string;
-  project: string;
-  period: string;
-  price: number;
-}
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
-function fmt(n: number) { return n.toLocaleString(); }
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '--';
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
 
 export default function AssignmentPage() {
-  const [currentAssignment, setCurrentAssignment] = useState<Assignment | null>(null);
-  const [history, setHistory] = useState<AssignmentHistory[]>([]);
+  const [currentAssignment, setCurrentAssignment] = useState<AssignmentResponse | null>(null);
+  const [history, setHistory] = useState<AssignmentResponse[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -46,12 +45,12 @@ export default function AssignmentPage() {
     async function fetchData() {
       try {
         const [current, hist] = await Promise.allSettled([
-          apiClient('/assignments/current'),
-          apiClient('/assignments/history'),
+          apiClient<AssignmentResponse | null>('/assignments/current'),
+          apiClient<AssignmentResponse[]>('/assignments/history'),
         ]);
         if (!cancelled) {
-          setCurrentAssignment(current.status === 'fulfilled' ? current.value as Assignment : null);
-          setHistory(hist.status === 'fulfilled' ? hist.value as AssignmentHistory[] : []);
+          setCurrentAssignment(current.status === 'fulfilled' ? current.value : null);
+          setHistory(hist.status === 'fulfilled' ? (hist.value || []) : []);
         }
       } catch {
         // both failed
@@ -81,7 +80,7 @@ export default function AssignmentPage() {
         ) : (
           <div className="card p-5 space-y-4">
             <div>
-              <div className="text-lg font-semibold">{currentAssignment.clientName}</div>
+              <div className="text-lg font-semibold">{currentAssignment.client?.name || '--'}</div>
               <div className="text-sm text-secondary mt-0.5">{currentAssignment.projectName}</div>
             </div>
 
@@ -91,16 +90,15 @@ export default function AssignmentPage() {
                 <div className="text-xl font-medium tabular-nums">{fmt(currentAssignment.contractPrice)}<span className="text-sm font-normal text-secondary">円/月</span></div>
               </div>
               <div className="bg-page rounded-lg p-3">
-                <div className="text-2xs text-secondary mb-0.5">還元率</div>
-                <div className="text-xl font-medium">{currentAssignment.rewardRate}<span className="text-sm font-normal text-secondary">%</span></div>
+                <div className="text-2xs text-secondary mb-0.5">精算幅</div>
+                <div className="text-xl font-medium">{currentAssignment.settlementLower}<span className="text-sm font-normal text-secondary">〜</span>{currentAssignment.settlementUpper}<span className="text-sm font-normal text-secondary">h</span></div>
               </div>
             </div>
 
             <div className="space-y-2.5 pt-1">
               {[
-                ['精算幅', `${currentAssignment.settlementLower}h 〜 ${currentAssignment.settlementUpper}h`],
-                ['勤務場所', currentAssignment.workLocation],
-                ['契約期間', `${currentAssignment.startDate} 〜 ${currentAssignment.endDate}`],
+                ['勤務場所', currentAssignment.workLocation || '未設定'],
+                ['契約期間', `${formatDate(currentAssignment.startDate)} 〜 ${formatDate(currentAssignment.endDate)}`],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between text-md border-b border-border-light pb-2 last:border-b-0 last:pb-0">
                   <span className="text-secondary">{label}</span>
@@ -121,16 +119,18 @@ export default function AssignmentPage() {
           <div className="card p-0">
             {history.map((item, idx) => (
               <div
-                key={idx}
+                key={item.id}
                 className={`px-4 py-3.5 ${idx < history.length - 1 ? 'border-b border-border-light' : ''}`}
               >
                 <div className="flex justify-between items-start mb-1">
-                  <span className="text-md font-medium">{item.client}</span>
-                  <span className="badge badge-wait">終了</span>
+                  <span className="text-md font-medium">{item.client?.name || '--'}</span>
+                  <span className={`badge ${item.status === 'active' ? 'badge-ok' : 'badge-wait'}`}>
+                    {item.status === 'active' ? '稼働中' : '終了'}
+                  </span>
                 </div>
-                <div className="text-sm text-secondary">{item.project}</div>
+                <div className="text-sm text-secondary">{item.projectName}</div>
                 <div className="text-sm text-secondary mt-1">
-                  {item.period}　単価 {fmt(item.price)}円
+                  {formatDate(item.startDate)} 〜 {formatDate(item.endDate)}　単価 {fmt(item.contractPrice)}円
                 </div>
               </div>
             ))}

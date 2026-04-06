@@ -112,8 +112,8 @@ function fmtMonth(m: string) {
   return `${y}年${parseInt(mo)}月分`;
 }
 
-function fmtAmount(n: number) {
-  return n.toLocaleString();
+function fmtAmount(n: number | null | undefined) {
+  return (n ?? 0).toLocaleString();
 }
 
 /* ---------- コンポーネント ---------- */

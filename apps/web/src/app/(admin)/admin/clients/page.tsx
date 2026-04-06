@@ -3,6 +3,9 @@
  *
  * HTMLプロトタイプ仕様を再現。
  * KPI行 + テーブル一覧 + 行クリック→詳細パネル（稼働メンバー・取引履歴）。
+ *
+ * クライアントデータは GET /api/clients から取得。
+ * 稼働メンバー数は GET /api/assignments から算出。
  */
 
 'use client';
@@ -12,6 +15,33 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
+/** API レスポンスのクライアント型 */
+interface ApiClient {
+  id: string;
+  name: string;
+  industry: string;
+  contactPerson: string;
+  contactEmail: string;
+  contactPhone: string;
+  address: string;
+  tradeFlow: string;
+  tradeStartDate: string | null;
+}
+
+/** API レスポンスのアサイン型 */
+interface ApiAssignment {
+  id: string;
+  employeeId: string;
+  clientId: string;
+  projectName: string;
+  status: string;
+  startDate: string;
+  endDate: string | null;
+  employee: { id: string; lastName: string; firstName: string; employeeCode: string };
+  client: { id: string; name: string };
+}
+
+/** 画面表示用のクライアント型 */
 interface Client {
   id: string;
   name: string;
@@ -25,45 +55,75 @@ interface Client {
   history: { period: string; description: string }[];
 }
 
-function fmt(n: number) { return n.toLocaleString(); }
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
 export default function AdminClientsPage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = selectedId ? clients.find(c => c.id === selectedId) : null;
   const { toast, ToastUI } = useToast();
 
   const fetchClients = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await apiClient<{ data: any[] }>('/clients');
+      // クライアントとアサインメントを並行取得
+      const [clientRes, assignRes] = await Promise.all([
+        apiClient<{ data: ApiClient[]; total: number; page: number; limit: number; totalPages: number }>('/clients?limit=200'),
+        apiClient<{ data: ApiAssignment[] }>('/assignments?limit=200').catch(() => ({ data: [] as ApiAssignment[] })),
+      ]);
+
+      const assignments = assignRes.data;
+
+      // クライアントごとの稼働中アサインを集計
+      const activeAssignmentsByClient = new Map<string, ApiAssignment[]>();
+      for (const a of assignments) {
+        if (a.status === 'active') {
+          const list = activeAssignmentsByClient.get(a.clientId) || [];
+          list.push(a);
+          activeAssignmentsByClient.set(a.clientId, list);
+        }
+      }
+
       setClients(
-        res.data.map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          industry: c.industry || '',
-          monthlyRevenue: c.monthlyRevenue || 0,
-          memberCount: c.memberCount || 0,
-          avgUnitPrice: c.memberCount ? Math.round(c.monthlyRevenue / c.memberCount) : 0,
-          startDate: c.tradeStartDate ? new Date(c.tradeStartDate).toLocaleDateString('ja-JP') : '--',
-          contact: c.contactPerson || '--',
-          activeMembers: (c.activeMembers || []).map((m: any) => ({
-            name: m.name,
-            role: m.project,
-            since: m.since ? new Date(m.since).toLocaleDateString('ja-JP') : '--',
-          })),
-          history: [],
-        })),
+        clientRes.data.map((c) => {
+          const clientAssignments = activeAssignmentsByClient.get(c.id) || [];
+          const memberCount = clientAssignments.length;
+
+          return {
+            id: c.id,
+            name: c.name,
+            industry: c.industry || '',
+            monthlyRevenue: 0,
+            memberCount,
+            avgUnitPrice: 0,
+            startDate: c.tradeStartDate
+              ? new Date(c.tradeStartDate).toLocaleDateString('ja-JP')
+              : '--',
+            contact: c.contactPerson || '--',
+            activeMembers: clientAssignments.map((a) => ({
+              name: `${a.employee.lastName} ${a.employee.firstName}`,
+              role: a.projectName || '--',
+              since: a.startDate
+                ? new Date(a.startDate).toLocaleDateString('ja-JP')
+                : '--',
+            })),
+            history: [],
+          };
+        }),
       );
-    } catch {
-      // 認証エラー等はapiClientが処理
+    } catch (e: any) {
+      toast(e?.message || 'クライアント一覧の取得に失敗しました');
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
   const totalClients = clients.length;
-  const activeClients = clients.length;
+  const activeClients = clients.filter(c => c.memberCount > 0).length;
   const maxRevenue = clients.length > 0 ? Math.max(...clients.map(c => c.monthlyRevenue)) : 0;
   const avgPeriod = 0;
 
@@ -109,14 +169,16 @@ export default function AdminClientsPage() {
             </tr>
           </thead>
           <tbody>
-            {clients.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan={6}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+            ) : clients.length === 0 ? (
               <tr><td colSpan={6}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
             ) : clients.map(c => (
               <tr key={c.id} onClick={() => setSelectedId(c.id)} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
                 <td className="px-4 py-2.5 text-base font-medium">{c.name}</td>
-                <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(c.monthlyRevenue)}円</td>
+                <td className="px-4 py-2.5 text-base text-right tabular-nums">{c.monthlyRevenue ? `${fmt(c.monthlyRevenue)}円` : '--'}</td>
                 <td className="px-4 py-2.5 text-base text-right">{c.memberCount}名</td>
-                <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(c.avgUnitPrice)}円</td>
+                <td className="px-4 py-2.5 text-base text-right tabular-nums">{c.avgUnitPrice ? `${fmt(c.avgUnitPrice)}円` : '--'}</td>
                 <td className="px-4 py-2.5 text-base text-right text-secondary">{c.startDate}</td>
                 <td className="px-4 py-2.5">
                   <button onClick={(e) => { e.stopPropagation(); setSelectedId(c.id); }} className="btn-outline text-xs py-1 px-2">詳細</button>
@@ -136,7 +198,7 @@ export default function AdminClientsPage() {
             <div className="flex justify-between items-start p-5 border-b border-border/30">
               <div>
                 <h2 className="text-xl font-medium">{selected.name}</h2>
-                <div className="text-sm text-secondary mt-0.5">{selected.industry}</div>
+                {/* industry removed */}
               </div>
               <button onClick={() => setSelectedId(null)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">✕</button>
             </div>
@@ -150,7 +212,7 @@ export default function AdminClientsPage() {
                 </div>
                 <div className="bg-page rounded-lg p-3 text-center">
                   <div className="text-2xs text-secondary">月間売上</div>
-                  <div className="text-lg font-medium tabular-nums">{fmt(selected.monthlyRevenue)}</div>
+                  <div className="text-lg font-medium tabular-nums">{selected.monthlyRevenue ? fmt(selected.monthlyRevenue) : '--'}</div>
                 </div>
                 <div className="bg-page rounded-lg p-3 text-center">
                   <div className="text-2xs text-secondary">取引開始</div>
@@ -161,7 +223,7 @@ export default function AdminClientsPage() {
               {/* 基本情報 */}
               <div>
                 <div className="text-2xs text-secondary uppercase tracking-widest mb-2">基本情報</div>
-                {[['担当者', selected.contact], ['業種', selected.industry]].map(([l, v]) => (
+                {[['担当者', selected.contact]].map(([l, v]) => (
                   <div key={l} className="flex justify-between py-1.5 border-b border-border/20 text-base">
                     <span className="text-secondary">{l}</span><span>{v}</span>
                   </div>

@@ -6,12 +6,66 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useToast } from '@/components/ui/toast';
+import { apiClient } from '@/lib/api-client';
 
-const demoExpenses: { name: string; type: string; desc: string; count: number; amount: number; date: string; status: string }[] = [];
+interface ExpenseItem {
+  expenseDate: string;
+  departure: string;
+  destination: string;
+  amount: number;
+  sortOrder: number;
+}
 
-function fmt(n: number) { return n.toLocaleString(); }
+interface ExpenseResponse {
+  id: string;
+  employeeId: string;
+  targetMonth: string;
+  totalAmount: number;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  employee: { lastName: string; firstName: string; employeeCode: string };
+  items: ExpenseItem[];
+}
+
+interface MappedExpense {
+  name: string;
+  type: string;
+  desc: string;
+  count: number;
+  amount: number;
+  date: string;
+  status: string;
+}
+
+function mapStatus(s: string): string {
+  if (s === 'approved') return 'ok';
+  if (s === 'rejected') return 'rejected';
+  return 'pending';
+}
+
+function formatJapaneseDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function mapExpense(e: ExpenseResponse): MappedExpense {
+  const desc = e.items.length > 0
+    ? `${e.items[0].departure} → ${e.items[0].destination}`
+    : '—';
+  return {
+    name: `${e.employee.lastName} ${e.employee.firstName}`,
+    type: '交通費',
+    desc,
+    count: e.items.length,
+    amount: e.totalAmount,
+    date: formatJapaneseDate(e.createdAt),
+    status: mapStatus(e.status),
+  };
+}
+
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
   pending: { label: '承認待ち', cls: 'badge-warn' },
@@ -23,7 +77,31 @@ export default function AdminExpensesPage() {
   const [year, setYear] = useState(2026);
   const [month, setMonth] = useState(3);
   const [filter, setFilter] = useState('');
+  const [expenses, setExpenses] = useState<MappedExpense[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast, ToastUI } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiClient<ExpenseResponse[]>('/expense/pending')
+      .then((data) => {
+        if (!cancelled) {
+          setExpenses(data.map(mapExpense));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExpenses([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   function changeMonth(delta: number) {
     let m = month + delta;
@@ -36,7 +114,7 @@ export default function AdminExpensesPage() {
 
   const handleCsvExport = useCallback(() => {
     const headers = ['申請者', '申請日', '種別', '金額', 'ステータス'];
-    const rows = (filter ? demoExpenses.filter(e => e.status === filter) : demoExpenses).map(e => {
+    const rows = (filter ? expenses.filter(e => e.status === filter) : expenses).map(e => {
       const st = statusBadge[e.status];
       return [e.name, e.date, e.type, String(e.amount), st?.label ?? e.status];
     });
@@ -50,13 +128,13 @@ export default function AdminExpensesPage() {
     a.click();
     URL.revokeObjectURL(url);
     toast('CSVをダウンロードしました');
-  }, [year, month, filter, toast]);
+  }, [year, month, filter, toast, expenses]);
 
-  const filtered = filter ? demoExpenses.filter(e => e.status === filter) : demoExpenses;
-  const total = demoExpenses.reduce((s, e) => s + e.amount, 0);
-  const pending = demoExpenses.filter(e => e.status === 'pending').length;
-  const approved = demoExpenses.filter(e => e.status === 'ok').length;
-  const rejected = demoExpenses.filter(e => e.status === 'rejected').length;
+  const filtered = filter ? expenses.filter(e => e.status === filter) : expenses;
+  const total = expenses.reduce((s, e) => s + e.amount, 0);
+  const pending = expenses.filter(e => e.status === 'pending').length;
+  const approved = expenses.filter(e => e.status === 'ok').length;
+  const rejected = expenses.filter(e => e.status === 'rejected').length;
 
   return (
     <div>
@@ -111,7 +189,9 @@ export default function AdminExpensesPage() {
             ))}
           </tr></thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+            ) : filtered.length === 0 ? (
               <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
             ) : filtered.map((e, idx) => {
               const st = statusBadge[e.status];

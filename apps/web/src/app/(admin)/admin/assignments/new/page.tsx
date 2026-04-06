@@ -9,7 +9,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
@@ -62,31 +62,63 @@ const requiredMark = <span className="text-red-600">*</span>;
 
 export default function NewAssignmentPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast, ToastUI } = useToast();
   const [form, setForm] = useState<AssignForm>(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [employees, setEmployees] = useState<{ id: string; label: string }[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
 
+  // URLパラメータから引き継ぎ値を取得
+  const prefillClientId = searchParams.get('clientId') || '';
+  const prefillEmployeeName = searchParams.get('employeeName') || '';
+  const prefillEmployeeCode = searchParams.get('employeeCode') || '';
+  const prefillProjectName = searchParams.get('projectName') || '';
+
   useEffect(() => {
-    // 社員一覧を取得
-    apiClient<{ data: any[] }>('/employees?limit=100')
-      .then((res) =>
-        setEmployees(
-          res.data.map((e: any) => ({
-            id: e.id,
-            label: `${e.lastName} ${e.firstName}`,
-          })),
-        ),
-      )
-      .catch(() => {});
-    // クライアント一覧を取得
-    apiClient<{ data: any[] }>('/clients?limit=100')
-      .then((res) =>
-        setClients(res.data.map((c: any) => ({ id: c.id, name: c.name }))),
-      )
-      .catch(() => {});
-  }, []);
+    // 社員一覧とクライアント一覧を並行取得
+    Promise.all([
+      apiClient<{ data: any[] }>('/employees?limit=200').catch(() => ({ data: [] })),
+      apiClient<{ data: any[] }>('/clients?limit=200').catch(() => ({ data: [] })),
+    ]).then(([empRes, clientRes]) => {
+      const empList = empRes.data.map((e: any) => ({
+        id: e.id,
+        label: `${e.lastName} ${e.firstName}`,
+        code: e.employeeCode || '',
+      }));
+      setEmployees(empList);
+
+      const clientList = clientRes.data.map((c: any) => ({ id: c.id, name: c.name }));
+      setClients(clientList);
+
+      // URLパラメータからの自動選択
+      const updates: Partial<AssignForm> = {};
+
+      // 社員を名前 or 社員コードでマッチング
+      if (prefillEmployeeName || prefillEmployeeCode) {
+        const matched = empList.find((e: any) =>
+          (prefillEmployeeCode && e.code === prefillEmployeeCode) ||
+          (prefillEmployeeName && e.label === prefillEmployeeName)
+        );
+        if (matched) updates.employeeId = matched.id;
+      }
+
+      // クライアントをIDで直接セット
+      if (prefillClientId) {
+        const matched = clientList.find((c: any) => c.id === prefillClientId);
+        if (matched) updates.clientId = matched.id;
+      }
+
+      // 案件名
+      if (prefillProjectName) {
+        updates.projectName = prefillProjectName;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        setForm(prev => ({ ...prev, ...updates }));
+      }
+    });
+  }, [prefillClientId, prefillEmployeeName, prefillEmployeeCode, prefillProjectName]);
 
   function update(field: keyof AssignForm, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));

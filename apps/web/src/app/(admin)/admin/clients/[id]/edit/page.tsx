@@ -1,14 +1,14 @@
 /**
- * 管理側 新規クライアント登録フォーム
+ * 管理側 クライアント編集ページ
  *
- * セクション: 基本情報 → 担当者情報 → 取引情報
- * gBizINFO連携: 会社名入力で企業情報を自動取得
+ * GET /api/clients/:id で既存データを取得し、フォームに表示。
+ * PATCH /api/clients/:id で更新。
  */
 
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
@@ -25,43 +25,10 @@ interface ClientForm {
   capital: string;
   websiteUrl: string;
   contactPerson: string;
-  salesRep: string;
   email: string;
   phone: string;
   startDate: string;
   invoiceEmail: string;
-}
-
-const initialForm: ClientForm = {
-  companyName: '',
-  corporateNumber: '',
-  invoiceNumber: '',
-  postalCode: '',
-  address: '',
-  representName: '',
-  establishedDate: '',
-  capital: '',
-  websiteUrl: '',
-  contactPerson: '',
-  salesRep: '',
-  email: '',
-  phone: '',
-  startDate: '',
-  invoiceEmail: '',
-};
-
-/* ---------- gBizINFO検索結果 ---------- */
-
-interface GBizResult {
-  corporateNumber: string;
-  name: string;
-  kana: string;
-  location: string;
-  postalCode: string;
-  representativeName: string;
-  capitalStock: string;
-  companyUrl: string;
-  employeeNumber: string;
 }
 
 /* ---------- 共通フォーム部品 ---------- */
@@ -78,88 +45,73 @@ function FormLabel({ children, required }: { children: React.ReactNode; required
 const inputCls =
   'w-full border border-border/30 rounded-md px-3 py-2 text-sm outline-none focus:border-primary/40 transition-colors';
 
-/* ---------- 資本金フォーマット ---------- */
-
-function formatCapital(value: string): string {
-  const num = parseInt(value, 10);
-  if (isNaN(num)) return value;
-  if (num >= 100000000) return `${(num / 100000000).toLocaleString()}億円`;
-  if (num >= 10000) return `${(num / 10000).toLocaleString()}万円`;
-  return `${num.toLocaleString()}円`;
-}
-
 /* ---------- メインコンポーネント ---------- */
 
-export default function NewClientPage() {
+export default function EditClientPage() {
   const router = useRouter();
+  const params = useParams();
+  const clientId = params.id as string;
   const { toast, ToastUI } = useToast();
-  const [form, setForm] = useState<ClientForm>(initialForm);
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState<ClientForm>({
+    companyName: '',
+    corporateNumber: '',
+    invoiceNumber: '',
+    postalCode: '',
+    address: '',
+    representName: '',
+    establishedDate: '',
+    capital: '',
+    websiteUrl: '',
+    contactPerson: '',
+    email: '',
+    phone: '',
+    startDate: '',
+    invoiceEmail: '',
+  });
 
-  /* gBizINFO検索 */
-  const [gbizResults, setGbizResults] = useState<GBizResult[]>([]);
-  const [gbizSearching, setGbizSearching] = useState(false);
-  const [showGbizDropdown, setShowGbizDropdown] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    apiClient<any>(`/clients/${clientId}`)
+      .then((data) => {
+        setForm({
+          companyName: data.name || '',
+          corporateNumber: data.corporateNumber || '',
+          invoiceNumber: data.invoiceNumber || '',
+          postalCode: data.postalCode || '',
+          address: data.address || '',
+          representName: data.representName || '',
+          establishedDate: data.establishedDate || '',
+          capital: data.capital || '',
+          websiteUrl: data.websiteUrl || '',
+          contactPerson: data.contactPerson || '',
+          email: data.contactEmail || '',
+          phone: data.contactPhone || '',
+          startDate: data.tradeStartDate
+            ? new Date(data.tradeStartDate).toISOString().split('T')[0]
+            : '',
+          invoiceEmail: data.billingEmail || '',
+        });
+      })
+      .catch((err: any) => {
+        toast(err?.message || 'クライアント情報の取得に失敗しました');
+      })
+      .finally(() => setLoading(false));
+  }, [clientId, toast]);
 
   function update(field: keyof ClientForm, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  /* 会社名入力でgBizINFO検索（デバウンス） */
-  const handleCompanyNameChange = useCallback((value: string) => {
-    update('companyName', value);
-
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-
-    if (value.trim().length < 2) {
-      setGbizResults([]);
-      setShowGbizDropdown(false);
-      return;
-    }
-
-    searchTimerRef.current = setTimeout(async () => {
-      setGbizSearching(true);
-      try {
-        const results = await apiClient<GBizResult[]>(`/clients/gbiz/search?name=${encodeURIComponent(value.trim())}`);
-        setGbizResults(results || []);
-        setShowGbizDropdown(results && results.length > 0);
-      } catch {
-        setGbizResults([]);
-        setShowGbizDropdown(false);
-      } finally {
-        setGbizSearching(false);
-      }
-    }, 500);
-  }, []);
-
-  /* gBizINFO結果を選択してフォームに反映 */
-  const applyGbizResult = (r: GBizResult) => {
-    setForm((prev) => ({
-      ...prev,
-      companyName: r.name || prev.companyName,
-      corporateNumber: r.corporateNumber || prev.corporateNumber,
-      invoiceNumber: r.corporateNumber ? `T${r.corporateNumber}` : prev.invoiceNumber,
-      postalCode: r.postalCode || prev.postalCode,
-      address: r.location || prev.address,
-      representName: r.representativeName || prev.representName,
-      capital: r.capitalStock ? formatCapital(r.capitalStock) : prev.capital,
-      websiteUrl: r.companyUrl || prev.websiteUrl,
-    }));
-    setShowGbizDropdown(false);
-    toast('gBizINFOから企業情報を取得しました');
-  };
-
-  const handleSubmit = async () => {
+  async function handleSubmit() {
     if (!form.companyName.trim()) {
       toast('会社名は必須です');
       return;
     }
     setSubmitting(true);
     try {
-      await apiClient('/clients', {
-        method: 'POST',
+      await apiClient(`/clients/${clientId}`, {
+        method: 'PATCH',
         body: JSON.stringify({
           name: form.companyName,
           corporateNumber: form.corporateNumber || undefined,
@@ -177,20 +129,26 @@ export default function NewClientPage() {
           tradeStartDate: form.startDate || undefined,
         }),
       });
-      toast('登録しました');
+      toast('更新しました');
       router.push('/admin/clients');
     } catch (err: any) {
       toast(err?.message || 'エラーが発生しました');
     } finally {
       setSubmitting(false);
     }
-  };
+  }
+
+  if (loading) {
+    return (
+      <div className="py-16 text-center text-sm text-secondary">読み込み中...</div>
+    );
+  }
 
   return (
     <div>
       {/* ページヘッダー */}
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
-        <h1 className="text-2xl font-medium">新規クライアント登録</h1>
+        <h1 className="text-2xl font-medium">クライアント編集</h1>
         <div className="flex gap-2">
           <button onClick={() => router.push('/admin/clients')} className="btn-outline text-sm py-2">
             キャンセル
@@ -206,53 +164,15 @@ export default function NewClientPage() {
         <div className="card p-5 mb-3">
           <div className="text-sm font-medium mb-3">基本情報</div>
 
-          {/* 会社名 + gBizINFO検索 */}
-          <div className="mb-2 relative" ref={dropdownRef}>
+          <div className="mb-2">
             <FormLabel required>会社名（正式名称）</FormLabel>
-            <div className="relative">
-              <input
-                type="text"
-                className={inputCls}
-                value={form.companyName}
-                onChange={(e) => handleCompanyNameChange(e.target.value)}
-                onFocus={() => { if (gbizResults.length > 0) setShowGbizDropdown(true); }}
-                placeholder="株式会社〇〇（2文字以上でgBizINFO検索）"
-              />
-              {gbizSearching && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-secondary">検索中...</span>
-              )}
-            </div>
-
-            {/* gBizINFO候補ドロップダウン */}
-            {showGbizDropdown && gbizResults.length > 0 && (
-              <div className="absolute z-50 left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg max-h-[300px] overflow-y-auto">
-                <div className="px-3 py-2 text-2xs text-secondary border-b border-border/30 bg-page/50">
-                  gBizINFO検索結果（{gbizResults.length}件） - クリックで自動入力
-                </div>
-                {gbizResults.map((r, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="w-full text-left px-3 py-2.5 hover:bg-page/80 transition-colors border-b border-border/10 last:border-b-0"
-                    onClick={() => applyGbizResult(r)}
-                  >
-                    <div className="text-sm font-medium">{r.name}</div>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                      {r.location && <span className="text-2xs text-secondary">{r.location}</span>}
-                      {r.representativeName && <span className="text-2xs text-secondary">代表: {r.representativeName}</span>}
-                      {r.corporateNumber && <span className="text-2xs text-secondary">法人番号: {r.corporateNumber}</span>}
-                    </div>
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="w-full text-center px-3 py-2 text-xs text-secondary hover:bg-page/80"
-                  onClick={() => setShowGbizDropdown(false)}
-                >
-                  閉じる
-                </button>
-              </div>
-            )}
+            <input
+              type="text"
+              className={inputCls}
+              value={form.companyName}
+              onChange={(e) => update('companyName', e.target.value)}
+              placeholder="株式会社〇〇"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
@@ -358,22 +278,9 @@ export default function NewClientPage() {
                 className={inputCls}
                 value={form.contactPerson}
                 onChange={(e) => update('contactPerson', e.target.value)}
-                placeholder="鶴田 部長"
+                placeholder="田中一郎"
               />
             </div>
-            <div>
-              <FormLabel>担当営業</FormLabel>
-              <input
-                type="text"
-                className={inputCls}
-                value={form.salesRep}
-                onChange={(e) => update('salesRep', e.target.value)}
-                placeholder=""
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
             <div>
               <FormLabel>連絡先メール</FormLabel>
               <input
@@ -384,16 +291,17 @@ export default function NewClientPage() {
                 placeholder="tanaka@example.co.jp"
               />
             </div>
-            <div>
-              <FormLabel>電話番号</FormLabel>
-              <input
-                type="text"
-                className={inputCls}
-                value={form.phone}
-                onChange={(e) => update('phone', e.target.value)}
-                placeholder="03-1234-5678"
-              />
-            </div>
+          </div>
+
+          <div className="mb-2">
+            <FormLabel>電話番号</FormLabel>
+            <input
+              type="text"
+              className={inputCls}
+              value={form.phone}
+              onChange={(e) => update('phone', e.target.value)}
+              placeholder="03-1234-5678"
+            />
           </div>
         </div>
 
@@ -422,12 +330,6 @@ export default function NewClientPage() {
             />
           </div>
         </div>
-      </div>
-
-      <div className="mt-5">
-        <button onClick={() => router.back()} className="btn-outline text-sm py-2">
-          戻る
-        </button>
       </div>
 
       <ToastUI />

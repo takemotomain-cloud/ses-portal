@@ -4,11 +4,18 @@
  * UIモックのpage-sales-pipelineを再現。
  * エンジニアごとのカード形式UI。KPI3枚（営業中/案件確定/未決定）。
  * 各エンジニアに提案先を複数登録、面談日程管理、確定→稼働管理連動。
+ *
+ * データソース:
+ * - アサインがendedまたはstandbyの社員を自動表示
+ * - 手動で「エンジニアを追加」でアクティブ社員も営業対象に追加可能
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api-client';
+import { useToast } from '@/components/ui/toast';
 
 interface Proposal {
   client: string;
@@ -21,11 +28,36 @@ interface Engineer {
   id: string;
   name: string;
   code?: string;
-  status: 'proposing' | 'confirmed' | 'undecided';
+  salesStatus: 'proposing' | 'confirmed' | 'undecided';
   currentClient?: string;
   currentProject?: string;
   endDate?: string;
   proposals: Proposal[];
+}
+
+interface AssignmentData {
+  id: string;
+  employeeId: string;
+  projectName: string;
+  contractPrice: number;
+  startDate: string;
+  endDate: string | null;
+  status: string;
+  employee: { id: string; lastName: string; firstName: string; employeeCode: string };
+  client: { id: string; name: string };
+}
+
+interface EmployeeData {
+  id: string;
+  lastName: string;
+  firstName: string;
+  employeeCode: string;
+  status: string;
+}
+
+interface ClientData {
+  id: string;
+  name: string;
 }
 
 const statusLabels: Record<string, { label: string; cls: string }> = {
@@ -35,13 +67,171 @@ const statusLabels: Record<string, { label: string; cls: string }> = {
   confirmed: { label: '確定', cls: 'badge-ok' },
 };
 
-const initialEngineers: Engineer[] = [];
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '--';
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+/* ---------- localStorage 永続化 ---------- */
+const STORAGE_KEY = 'ses_sales_data';
+
+interface SavedSalesData {
+  /** エンジニアごとの提案・ステータス情報 */
+  engineers: Record<string, {
+    salesStatus: Engineer['salesStatus'];
+    proposals: Proposal[];
+  }>;
+  /** 手動追加されたエンジニアID一覧 */
+  manuallyAdded: string[];
+}
+
+function loadSavedData(): SavedSalesData {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { engineers: {}, manuallyAdded: [] };
+}
+
+function saveSalesData(engineers: Engineer[], manualIds: string[]) {
+  const data: SavedSalesData = { engineers: {}, manuallyAdded: manualIds };
+  for (const e of engineers) {
+    // 提案がある or ステータスが変わっているものだけ保存
+    if (e.proposals.length > 0 || e.salesStatus !== 'undecided') {
+      data.engineers[e.id] = {
+        salesStatus: e.salesStatus,
+        proposals: e.proposals,
+      };
+    }
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
+}
 
 export default function AdminSalesPage() {
-  const [engineers, setEngineers] = useState(initialEngineers);
+  const router = useRouter();
+  const { toast, ToastUI } = useToast();
+  const [engineers, setEngineers] = useState<Engineer[]>([]);
+  const [allEmployees, setAllEmployees] = useState<EmployeeData[]>([]);
+  const [allClients, setAllClients] = useState<ClientData[]>([]);
+  const [manuallyAddedIds, setManuallyAddedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addSearch, setAddSearch] = useState('');
+  // 提案追加モーダル
+  const [proposalTarget, setProposalTarget] = useState<string | null>(null); // engineerId
+  const [proposalClientId, setProposalClientId] = useState('');
+  const [proposalProject, setProposalProject] = useState('');
+
+  const loadData = useCallback(async () => {
+    try {
+      const [assignRes, empRes, clientRes] = await Promise.all([
+        apiClient<{ data: AssignmentData[] }>('/assignments?limit=200'),
+        apiClient<{ data: EmployeeData[] }>('/employees?limit=200'),
+        apiClient<{ data: ClientData[] }>('/clients?limit=200').catch(() => ({ data: [] as ClientData[] })),
+      ]);
+
+      const assignments = assignRes.data;
+      const employees = empRes.data;
+      setAllEmployees(employees);
+      setAllClients(clientRes.data);
+
+      // ended/standbyのアサインを持つ社員 or アサインが無い社員を営業対象にする
+      const activeAssignEmployeeIds = new Set(
+        assignments.filter(a => a.status === 'active').map(a => a.employeeId)
+      );
+
+      // ended/standbyのアサインからエンジニア情報を構築
+      const endedStandbyAssignments = assignments.filter(
+        a => a.status === 'ended' || a.status === 'standby'
+      );
+
+      const engineerMap = new Map<string, Engineer>();
+
+      // ended/standbyのアサインがあるエンジニア
+      for (const a of endedStandbyAssignments) {
+        if (activeAssignEmployeeIds.has(a.employeeId)) continue; // activeがある人はスキップ
+        if (!engineerMap.has(a.employeeId)) {
+          engineerMap.set(a.employeeId, {
+            id: a.employeeId,
+            name: `${a.employee.lastName} ${a.employee.firstName}`,
+            code: a.employee.employeeCode,
+            salesStatus: 'undecided',
+            currentClient: a.client?.name,
+            currentProject: a.projectName,
+            endDate: formatDate(a.endDate),
+            proposals: [],
+          });
+        }
+      }
+
+      // アサインが一つもない社員も追加（待機中）
+      for (const emp of employees) {
+        if (emp.status !== 'active') continue;
+        const hasAnyAssignment = assignments.some(a => a.employeeId === emp.id);
+        if (!hasAnyAssignment && !engineerMap.has(emp.id)) {
+          engineerMap.set(emp.id, {
+            id: emp.id,
+            name: `${emp.lastName} ${emp.firstName}`,
+            code: emp.employeeCode,
+            salesStatus: 'undecided',
+            proposals: [],
+          });
+        }
+      }
+
+      // localStorageから保存データを復元
+      const saved = loadSavedData();
+
+      // 手動追加されたエンジニアを復元
+      for (const empId of saved.manuallyAdded) {
+        if (!engineerMap.has(empId)) {
+          const emp = employees.find(e => e.id === empId);
+          if (emp) {
+            engineerMap.set(empId, {
+              id: emp.id,
+              name: `${emp.lastName} ${emp.firstName}`,
+              code: emp.employeeCode,
+              salesStatus: 'undecided',
+              proposals: [],
+            });
+          }
+        }
+      }
+      setManuallyAddedIds(saved.manuallyAdded);
+
+      // 保存済みの提案データをマージ
+      for (const [id, data] of Object.entries(saved.engineers)) {
+        const eng = engineerMap.get(id);
+        if (eng) {
+          eng.proposals = data.proposals;
+          eng.salesStatus = data.salesStatus;
+        }
+      }
+
+      setEngineers(Array.from(engineerMap.values()));
+    } catch {
+      // API error
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // engineersが更新されたらlocalStorageに自動保存
+  useEffect(() => {
+    if (!loading && engineers.length > 0) {
+      saveSalesData(engineers, manuallyAddedIds);
+    }
+  }, [engineers, manuallyAddedIds, loading]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
@@ -51,26 +241,120 @@ export default function AdminSalesPage() {
     });
   };
 
-  const kpis = {
-    proposing: engineers.filter(e => e.status === 'proposing').length,
-    confirmed: engineers.filter(e => e.status === 'confirmed').length,
-    undecided: engineers.filter(e => e.status === 'undecided').length,
+  const kpis = useMemo(() => ({
+    proposing: engineers.filter(e => e.salesStatus === 'proposing').length,
+    confirmed: engineers.filter(e => e.salesStatus === 'confirmed').length,
+    undecided: engineers.filter(e => e.salesStatus === 'undecided').length,
+  }), [engineers]);
+
+  const filtered = useMemo(() => {
+    return engineers.filter(e => {
+      if (search && !e.name.includes(search)) return false;
+      if (statusFilter) {
+        if (statusFilter === 'undecided' && e.salesStatus !== 'undecided') return false;
+        if (statusFilter === 'proposing' && e.salesStatus !== 'proposing') return false;
+        if (statusFilter === 'confirmed' && e.salesStatus !== 'confirmed') return false;
+        if (['proposing_detail', 'interview', 'waiting', 'confirmed_detail'].includes(statusFilter)) {
+          const mappedStatus = statusFilter.replace('_detail', '');
+          const hasMatch = e.proposals.some(p => p.status === mappedStatus);
+          if (!hasMatch) return false;
+        }
+      }
+      return true;
+    });
+  }, [engineers, search, statusFilter]);
+
+  // 手動で追加する社員リスト（既に営業リストにいない社員）
+  const addableEmployees = useMemo(() => {
+    const existingIds = new Set(engineers.map(e => e.id));
+    return allEmployees
+      .filter(e => e.status === 'active' && !existingIds.has(e.id))
+      .filter(e => !addSearch || `${e.lastName} ${e.firstName}`.includes(addSearch));
+  }, [allEmployees, engineers, addSearch]);
+
+  const handleAddEngineer = (emp: EmployeeData) => {
+    setEngineers(prev => [
+      ...prev,
+      {
+        id: emp.id,
+        name: `${emp.lastName} ${emp.firstName}`,
+        code: emp.employeeCode,
+        salesStatus: 'undecided',
+        proposals: [],
+      },
+    ]);
+    setManuallyAddedIds(prev => [...prev, emp.id]);
+    setShowAddModal(false);
+    setAddSearch('');
+    toast(`${emp.lastName} ${emp.firstName}を営業リストに追加しました`);
   };
 
-  const filtered = engineers.filter(e => {
-    if (search && !e.name.includes(search)) return false;
-    if (statusFilter) {
-      const hasMatch = e.proposals.some(p => p.status === statusFilter);
-      if (!hasMatch) return false;
+  const openProposalModal = (engineerId: string) => {
+    setProposalTarget(engineerId);
+    setProposalClientId('');
+    setProposalProject('');
+  };
+
+  const handleAddProposal = () => {
+    if (!proposalTarget || !proposalClientId) {
+      toast('クライアントを選択してください');
+      return;
     }
-    return true;
-  });
+    const selectedClient = allClients.find(c => c.id === proposalClientId);
+    const clientName = selectedClient?.name || proposalClientId;
+
+    setEngineers(prev => prev.map(e => {
+      if (e.id !== proposalTarget) return e;
+      return {
+        ...e,
+        salesStatus: 'proposing',
+        proposals: [...e.proposals, { client: clientName, project: proposalProject || undefined, status: 'proposing' as const }],
+      };
+    }));
+    toast('提案を追加しました');
+    setProposalTarget(null);
+  };
+
+  const handleProposalStatusChange = (engineerId: string, proposalIdx: number, newStatus: string) => {
+    setEngineers(prev => prev.map(e => {
+      if (e.id !== engineerId) return e;
+      const newProposals = [...e.proposals];
+      newProposals[proposalIdx] = { ...newProposals[proposalIdx], status: newStatus as Proposal['status'] };
+
+      // 確定が1つでもあればconfirmed、提案中があればproposing、それ以外undecided
+      let salesStatus: Engineer['salesStatus'] = 'undecided';
+      if (newProposals.some(p => p.status === 'confirmed')) salesStatus = 'confirmed';
+      else if (newProposals.length > 0) salesStatus = 'proposing';
+
+      return { ...e, proposals: newProposals, salesStatus };
+    }));
+  };
+
+  const handleInterviewDateChange = (engineerId: string, proposalIdx: number, date: string) => {
+    setEngineers(prev => prev.map(e => {
+      if (e.id !== engineerId) return e;
+      const newProposals = [...e.proposals];
+      newProposals[proposalIdx] = { ...newProposals[proposalIdx], interviewDate: date };
+      return { ...e, proposals: newProposals };
+    }));
+  };
+
+  const handleCreateAssignment = (eng: Engineer, prop: Proposal) => {
+    // クライアントIDを逆引き
+    const client = allClients.find(c => c.name === prop.client);
+    const params = new URLSearchParams();
+    params.set('employeeName', eng.name);
+    if (eng.code) params.set('employeeCode', eng.code);
+    if (client) params.set('clientId', client.id);
+    if (prop.project) params.set('projectName', prop.project);
+    router.push(`/admin/assignments/new?${params.toString()}`);
+  };
 
   return (
     <div>
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">営業管理</h1>
-        <button className="btn-outline text-sm py-2">エンジニアを追加</button>
+        <button onClick={() => setShowAddModal(true)} className="btn-outline text-sm py-2">エンジニアを追加</button>
       </div>
 
       {/* KPI */}
@@ -93,10 +377,9 @@ export default function AdminSalesPage() {
       <div className="flex gap-2 mb-4 items-center flex-wrap">
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none min-w-[160px]">
           <option value="">ステータス: すべて</option>
-          <option value="proposing">提案中</option>
-          <option value="interview">面談予定</option>
-          <option value="waiting">結果待ち</option>
-          <option value="confirmed">確定</option>
+          <option value="undecided">未決定</option>
+          <option value="proposing">営業中</option>
+          <option value="confirmed">案件確定</option>
         </select>
         <input type="text" placeholder="氏名で検索" value={search} onChange={e => setSearch(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card min-w-[160px] focus:border-primary" />
         <span className="text-xs text-secondary ml-1">{filtered.length}名 表示中</span>
@@ -104,64 +387,191 @@ export default function AdminSalesPage() {
 
       {/* エンジニアカード */}
       <div className="space-y-3">
-        {filtered.length === 0 && (
+        {loading ? (
+          <div className="card px-4 py-8 text-center text-sm text-secondary">読み込み中...</div>
+        ) : filtered.length === 0 ? (
           <div className="card px-4 py-8 text-center text-sm text-secondary">データはありません</div>
+        ) : (
+          filtered.map(eng => {
+            const isExpanded = expandedIds.has(eng.id);
+            return (
+              <div key={eng.id} className="card p-5">
+                {/* エンジニアヘッダー行 */}
+                <div className="flex items-center gap-3 flex-wrap cursor-pointer" onClick={() => toggleExpand(eng.id)}>
+                  <span className="text-xs text-secondary select-none">{isExpanded ? '▼' : '▶'}</span>
+                  <span className={`badge ${eng.salesStatus === 'confirmed' ? 'badge-ok' : eng.salesStatus === 'proposing' ? 'badge-info' : 'badge-warn'}`}>
+                    {eng.salesStatus === 'confirmed' ? '案件確定' : eng.salesStatus === 'proposing' ? '営業中' : '未決定'}
+                  </span>
+                  <span className="text-[15px] font-medium">{eng.name}</span>
+                  {eng.code && <span className="text-xs text-secondary">{eng.code}</span>}
+                  <div className="ml-auto flex gap-4 text-[13px] text-secondary">
+                    <span>{eng.currentClient ? `前: ${eng.currentClient}` : '未稼働'}</span>
+                    {eng.endDate && eng.endDate !== '--' && <span className="text-status-amber-text">終了: {eng.endDate}</span>}
+                  </div>
+                </div>
+
+                {/* 提案一覧（展開時） */}
+                {isExpanded && (
+                  <>
+                    {eng.proposals.length > 0 && (
+                      <div className="border-t border-border/30 mt-3 pt-2.5">
+                        {eng.proposals.map((prop, idx) => {
+                          const st = statusLabels[prop.status];
+                          return (
+                            <div key={idx} className="py-2.5 border-b border-border/20">
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <div className="min-w-[180px]">
+                                  <div className="text-[13px] font-medium">{prop.client}</div>
+                                  {prop.project && <div className="text-xs text-secondary">{prop.project}</div>}
+                                </div>
+                                <select
+                                  className="border border-border rounded px-2 py-1 text-xs bg-card outline-none appearance-none"
+                                  value={prop.status}
+                                  onChange={e => handleProposalStatusChange(eng.id, idx, e.target.value)}
+                                >
+                                  <option value="proposing">提案中</option>
+                                  <option value="interview">面談予定</option>
+                                  <option value="waiting">結果待ち</option>
+                                  <option value="confirmed">確定</option>
+                                </select>
+                                <span className={`badge ${st.cls}`}>{st.label}</span>
+
+                                {/* 確定時：アサイン登録ボタン */}
+                                {prop.status === 'confirmed' && (
+                                  <button
+                                    onClick={() => handleCreateAssignment(eng, prop)}
+                                    className="btn-primary text-[11px] py-1 px-3 ml-auto"
+                                  >
+                                    アサイン登録
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* 面談予定時：日程入力 */}
+                              {prop.status === 'interview' && (
+                                <div className="flex items-center gap-2 mt-2 ml-0 pl-0">
+                                  <span className="text-xs text-secondary">面談日時:</span>
+                                  <input
+                                    type="datetime-local"
+                                    value={prop.interviewDate || ''}
+                                    onChange={e => handleInterviewDateChange(eng.id, idx, e.target.value)}
+                                    className="border border-border rounded px-2 py-1 text-xs bg-card outline-none focus:border-primary"
+                                  />
+                                  {prop.interviewDate && (
+                                    <span className="text-xs text-status-green-text">設定済</span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* 結果待ち時：面談日の表示 */}
+                              {prop.status === 'waiting' && prop.interviewDate && (
+                                <div className="mt-1.5 text-xs text-secondary">
+                                  面談実施日: {new Date(prop.interviewDate).toLocaleString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {eng.proposals.length === 0 && (
+                      <div className="border-t border-border/30 mt-3 pt-2.5 text-sm text-secondary">提案先はまだありません</div>
+                    )}
+                    <div className="mt-2">
+                      <button onClick={() => openProposalModal(eng.id)} className="btn-outline text-[11px] py-0.5 px-2.5">＋ 提案を追加</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })
         )}
-        {filtered.map(eng => {
-          const isExpanded = expandedIds.has(eng.id);
-          return (
-          <div key={eng.id} className="card p-5">
-            {/* エンジニアヘッダー行 */}
-            <div className="flex items-center gap-3 flex-wrap cursor-pointer" onClick={() => toggleExpand(eng.id)}>
-              <span className="text-xs text-secondary select-none">{isExpanded ? '▼' : '▶'}</span>
-              <span className={`badge ${eng.status === 'confirmed' ? 'badge-ok' : eng.status === 'proposing' ? 'badge-info' : 'badge-warn'}`}>
-                {eng.status === 'confirmed' ? '案件確定' : eng.status === 'proposing' ? '営業中' : '未決定'}
-              </span>
-              <span className="text-[15px] font-medium">{eng.name}</span>
-              {eng.code && <span className="text-xs text-secondary">{eng.code}</span>}
-              <div className="ml-auto flex gap-4 text-[13px] text-secondary">
-                <span>{eng.currentClient ? `${eng.currentClient} / ${eng.currentProject ?? ''}` : '未稼働'}</span>
-                {eng.endDate && <span className="text-status-amber-text">終了: {eng.endDate}</span>}
+      </div>
+
+      {/* エンジニア追加モーダル */}
+      {showAddModal && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[99]" onClick={() => { setShowAddModal(false); setAddSearch(''); }} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[480px] bg-card border border-border rounded-xl z-[100] shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">エンジニアを追加</h2>
+              <button onClick={() => { setShowAddModal(false); setAddSearch(''); }} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5">
+              <input
+                type="text"
+                placeholder="氏名で検索"
+                value={addSearch}
+                onChange={e => setAddSearch(e.target.value)}
+                className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary mb-3"
+              />
+              <div className="max-h-[300px] overflow-y-auto space-y-1">
+                {addableEmployees.length === 0 ? (
+                  <div className="text-sm text-secondary py-4 text-center">追加可能な社員はいません</div>
+                ) : (
+                  addableEmployees.map(emp => (
+                    <div
+                      key={emp.id}
+                      onClick={() => handleAddEngineer(emp)}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-page cursor-pointer transition-colors"
+                    >
+                      <div>
+                        <span className="text-sm font-medium">{emp.lastName} {emp.firstName}</span>
+                        <span className="text-xs text-secondary ml-2">{emp.employeeCode}</span>
+                      </div>
+                      <span className="text-xs text-primary">追加</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
-
-            {/* 提案一覧（展開時） */}
-            {isExpanded && (
-              <>
-                {eng.proposals.length > 0 && (
-                  <div className="border-t border-border/30 mt-3 pt-2.5">
-                    {eng.proposals.map((prop, idx) => {
-                      const st = statusLabels[prop.status];
-                      return (
-                        <div key={idx} className="flex items-center gap-2.5 py-1.5 border-b border-border/20 flex-wrap">
-                          <div className="min-w-[180px]">
-                            <div className="text-[13px] font-medium">{prop.client}</div>
-                            {prop.project && <div className="text-xs text-secondary">{prop.project}</div>}
-                          </div>
-                          {prop.interviewDate && (
-                            <span className="text-xs text-secondary">面談: {prop.interviewDate}</span>
-                          )}
-                          <select className="border border-border rounded px-2 py-1 text-xs bg-card outline-none appearance-none" defaultValue={prop.status}>
-                            <option value="proposing">提案中</option>
-                            <option value="interview">面談予定</option>
-                            <option value="waiting">結果待ち</option>
-                            <option value="confirmed">確定</option>
-                          </select>
-                          <span className={`badge ${st.cls}`}>{st.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="mt-2">
-                  <button className="btn-outline text-[11px] py-0.5 px-2.5">＋ 提案を追加</button>
-                </div>
-              </>
-            )}
           </div>
-          );
-        })}
-      </div>
+        </>
+      )}
+
+      {/* 提案追加モーダル */}
+      {proposalTarget && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[99]" onClick={() => setProposalTarget(null)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] bg-card border border-border rounded-xl z-[100] shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">提案を追加</h2>
+              <button onClick={() => setProposalTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs text-secondary mb-1">提案先クライアント <span className="text-status-red-text">*</span></label>
+                <select
+                  value={proposalClientId}
+                  onChange={e => setProposalClientId(e.target.value)}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card appearance-none focus:border-primary"
+                >
+                  <option value="">選択してください</option>
+                  {allClients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-secondary mb-1">案件名（任意）</label>
+                <input
+                  type="text"
+                  value={proposalProject}
+                  onChange={e => setProposalProject(e.target.value)}
+                  placeholder="案件名を入力"
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card focus:border-primary"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setProposalTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
+                <button onClick={handleAddProposal} className="btn-primary flex-1 text-sm py-2" disabled={!proposalClientId}>追加</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      <ToastUI />
     </div>
   );
 }

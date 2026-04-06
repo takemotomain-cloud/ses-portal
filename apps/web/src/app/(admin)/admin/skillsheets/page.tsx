@@ -7,10 +7,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/toast';
 
 const demoSkillsheets: { id: string; name: string; edu: string; exp: string; skills: string; projects: number; updated: string; status: string }[] = [];
 
 export default function AdminSkillsheetsPage() {
+  const router = useRouter();
+  const { toast, ToastUI } = useToast();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const filtered = demoSkillsheets.filter(s => (!search || s.name.includes(search)) && (!status || s.status === status));
@@ -47,8 +51,8 @@ export default function AdminSkillsheetsPage() {
                 <td className="px-4 py-2.5 text-base text-secondary">{s.updated}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex gap-1">
-                    <button className="btn-outline text-xs py-1 px-2">PDF</button>
-                    <button className="btn-outline text-xs py-1 px-2">Excel</button>
+                    <button onClick={() => router.push('/admin/skillsheets/preview')} className="btn-outline text-xs py-1 px-2">PDF</button>
+                    <button onClick={() => router.push('/admin/skillsheets/edit')} className="btn-outline text-xs py-1 px-2">Excel</button>
                   </div>
                 </td>
               </tr>

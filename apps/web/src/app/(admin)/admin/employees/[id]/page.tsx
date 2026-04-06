@@ -16,6 +16,20 @@ import { apiClient } from '@/lib/api-client';
 
 /* ---------- 型定義 ---------- */
 
+interface AssignmentInfo {
+  id: string;
+  employeeId: string;
+  projectName: string;
+  contractPrice: number;
+  settlementLower: number;
+  settlementUpper: number;
+  workLocation: string | null;
+  startDate: string;
+  endDate: string | null;
+  status: string;
+  client: { id: string; name: string };
+}
+
 interface EmployeeDetail {
   id: string;
   employeeCode: string;
@@ -148,13 +162,24 @@ export default function EmployeeDetailPage() {
   const { toast, ToastUI } = useToast();
 
   const [detail, setDetail] = useState<EmployeeDetail | null>(null);
+  const [currentAssignment, setCurrentAssignment] = useState<AssignmentInfo | null>(null);
+  const [assignmentHistory, setAssignmentHistory] = useState<AssignmentInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    apiClient<EmployeeDetail>(`/employees/${id}`)
-      .then((res) => setDetail(res))
+    Promise.all([
+      apiClient<EmployeeDetail>(`/employees/${id}`),
+      apiClient<{ data: AssignmentInfo[] }>(`/assignments?limit=100`).catch(() => ({ data: [] })),
+    ])
+      .then(([emp, assignRes]) => {
+        setDetail(emp);
+        const empAssignments = assignRes.data.filter((a: AssignmentInfo) => a.employeeId === id);
+        const active = empAssignments.find((a: AssignmentInfo) => a.status === 'active') || null;
+        setCurrentAssignment(active);
+        setAssignmentHistory(empAssignments);
+      })
       .catch((err) => {
         console.error('Failed to fetch employee detail:', err);
         setError(err?.message || '社員情報の取得に失敗しました');
@@ -214,11 +239,18 @@ export default function EmployeeDetailPage() {
       {/* 現在の稼働 / 給与・口座 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
         <SectionCard title="現在の稼働">
-          <InfoRow label="クライアント" value="--" />
-          <InfoRow label="案件" value="--" />
-          <InfoRow label="契約単価" value="--" />
-          <InfoRow label="契約期間" value="--" />
-          <div className="text-2xs text-secondary mt-2">※ 稼働管理から自動反映（本開発時）</div>
+          {currentAssignment ? (
+            <>
+              <InfoRow label="クライアント" value={currentAssignment.client?.name} />
+              <InfoRow label="案件" value={currentAssignment.projectName} />
+              <InfoRow label="契約単価" value={fmtCurrency(currentAssignment.contractPrice)} />
+              <InfoRow label="精算幅" value={`${currentAssignment.settlementLower}〜${currentAssignment.settlementUpper}h`} />
+              <InfoRow label="契約期間" value={`${fmtDate(currentAssignment.startDate)} 〜 ${fmtDate(currentAssignment.endDate)}`} />
+              <InfoRow label="勤務地" value={currentAssignment.workLocation} />
+            </>
+          ) : (
+            <div className="text-sm text-secondary py-2">現在の稼働はありません</div>
+          )}
         </SectionCard>
 
         <SectionCard title="給与・口座">
@@ -271,8 +303,26 @@ export default function EmployeeDetailPage() {
         </SectionCard>
 
         <SectionCard title="稼働ヒストリー">
-          <div className="text-sm text-secondary py-2">履歴なし</div>
-          <div className="text-2xs text-secondary mt-2">※ 稼働管理から自動反映（本開発時）</div>
+          {assignmentHistory.length === 0 ? (
+            <div className="text-sm text-secondary py-2">履歴なし</div>
+          ) : (
+            <div className="space-y-2">
+              {assignmentHistory.map((a) => {
+                const stLabel = a.status === 'active' ? '稼働中' : '終了';
+                const stCls = a.status === 'active' ? 'badge-ok' : 'badge-wait';
+                return (
+                  <div key={a.id} className="border-b border-border/15 pb-2 last:border-b-0">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">{a.client?.name}</span>
+                      <span className={`badge ${stCls} text-2xs`}>{stLabel}</span>
+                    </div>
+                    <div className="text-2xs text-secondary">{a.projectName}</div>
+                    <div className="text-2xs text-secondary">{fmtDate(a.startDate)} 〜 {fmtDate(a.endDate)}　{fmtCurrency(a.contractPrice)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </SectionCard>
       </div>
 

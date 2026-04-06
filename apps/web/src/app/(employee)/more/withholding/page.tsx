@@ -19,7 +19,7 @@ interface WithholdingItem {
   status: string;
 }
 
-function fmt(n: number) { return n.toLocaleString(); }
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
 export default function WithholdingPage() {
   const [withholdingData, setWithholdingData] = useState<WithholdingItem[]>([]);

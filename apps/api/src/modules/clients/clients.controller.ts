@@ -13,6 +13,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Query,
@@ -21,6 +22,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ClientsService } from './clients.service';
+import { GBizInfoService } from './gbizinfo.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -30,7 +32,10 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @Controller('clients')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ClientsController {
-  constructor(private readonly clientsService: ClientsService) {}
+  constructor(
+    private readonly clientsService: ClientsService,
+    private readonly gbizInfoService: GBizInfoService,
+  ) {}
 
   /**
    * クライアント新規登録
@@ -42,11 +47,18 @@ export class ClientsController {
     @Body()
     body: {
       name: string;
+      corporateNumber?: string;
+      invoiceNumber?: string;
+      postalCode?: string;
+      address?: string;
+      representName?: string;
+      establishedDate?: string;
+      capital?: string;
+      websiteUrl?: string;
       industry?: string;
       contactPerson?: string;
       contactEmail?: string;
       contactPhone?: string;
-      address?: string;
       tradeFlow?: string;
       billingEmail?: string;
       tradeStartDate?: string;
@@ -67,6 +79,58 @@ export class ClientsController {
     @Query('search') search?: string,
   ) {
     return this.clientsService.findAll({ page, limit, search });
+  }
+
+  /**
+   * クライアント更新
+   */
+  @Patch(':id')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'クライアント更新' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body()
+    body: {
+      name?: string;
+      corporateNumber?: string;
+      invoiceNumber?: string;
+      postalCode?: string;
+      address?: string;
+      representName?: string;
+      establishedDate?: string;
+      capital?: string;
+      websiteUrl?: string;
+      industry?: string;
+      contactPerson?: string;
+      contactEmail?: string;
+      contactPhone?: string;
+      tradeFlow?: string;
+      billingEmail?: string;
+      tradeStartDate?: string;
+    },
+  ) {
+    return this.clientsService.update(id, body);
+  }
+
+  /**
+   * gBizINFO 会社名検索
+   */
+  @Get('gbiz/search')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'gBizINFO 会社名検索' })
+  async gbizSearch(@Query('name') name: string) {
+    if (!name) return [];
+    return this.gbizInfoService.searchByName(name, 10);
+  }
+
+  /**
+   * gBizINFO 法人番号で取得
+   */
+  @Get('gbiz/:corpNumber')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'gBizINFO 法人番号取得' })
+  async gbizGet(@Param('corpNumber') corpNumber: string) {
+    return this.gbizInfoService.getByCorpNumber(corpNumber);
   }
 
   /**

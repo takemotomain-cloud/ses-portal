@@ -116,13 +116,13 @@ export default function AdminNoticesMukiPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         {t.status === 'none' && (
-                          <button className="btn-primary text-xs py-1 px-2.5">発行する</button>
+                          <button onClick={() => toast('発行機能は今後実装予定です')} className="btn-primary text-xs py-1 px-2.5">発行する</button>
                         )}
                         {t.status === 'draft' && (
-                          <button className="btn-outline text-xs py-1 px-2.5">送付する</button>
+                          <button onClick={() => toast('送付機能は今後実装予定です')} className="btn-outline text-xs py-1 px-2.5">送付する</button>
                         )}
                         {t.status === 'sent' && (
-                          <button className="btn-outline text-xs py-1 px-2.5">PDF</button>
+                          <button onClick={() => window.print()} className="btn-outline text-xs py-1 px-2.5">PDF</button>
                         )}
                       </td>
                     </tr>
@@ -169,10 +169,10 @@ export default function AdminNoticesMukiPage() {
                       <span className="text-sm text-secondary">{n.date}</span>
                       <span className="text-sm text-secondary">転換日: {n.convertDate}</span>
                       {n.status === 'draft' && (
-                        <button className="btn-outline text-xs py-1 px-2.5">送付する</button>
+                        <button onClick={() => toast('送付機能は今後実装予定です')} className="btn-outline text-xs py-1 px-2.5">送付する</button>
                       )}
                       {n.status === 'sent' && (
-                        <button className="btn-outline text-xs py-1 px-2.5">PDF</button>
+                        <button onClick={() => window.print()} className="btn-outline text-xs py-1 px-2.5">PDF</button>
                       )}
                     </div>
                   </div>

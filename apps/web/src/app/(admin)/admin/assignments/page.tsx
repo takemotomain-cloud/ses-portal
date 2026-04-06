@@ -31,7 +31,7 @@ interface Assignment {
   client: { id: string; name: string };
 }
 
-function fmt(n: number) { return n.toLocaleString(); }
+function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '--';
@@ -202,8 +202,8 @@ export default function AdminAssignmentsPage() {
                 <tr key={a.id} onClick={() => setSelectedId(a.id)} className={`border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors ${rowBg}`}>
                   <td className="px-4 py-2.5 text-base font-medium">{name}</td>
                   <td className="px-4 py-2.5 text-base">{a.client.name} / {a.projectName}</td>
-                  <td className="px-4 py-2.5 text-base tabular-nums text-right">{fmt(a.contractPrice)}円</td>
-                  <td className="px-4 py-2.5 text-base text-right">{a.settlementLower}〜{a.settlementUpper}h</td>
+                  <td className="px-4 py-2.5 text-base tabular-nums text-right">{a.contractPrice ? fmt(a.contractPrice) + '円' : '--'}</td>
+                  <td className="px-4 py-2.5 text-base text-right">{a.settlementLower ? `${a.settlementLower}〜${a.settlementUpper}h` : '--'}</td>
                   <td className="px-4 py-2.5 text-base text-right">{formatDate(a.startDate)}</td>
                   <td className="px-4 py-2.5 text-base text-right">{formatDate(a.endDate)}</td>
                   <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
@@ -230,9 +230,9 @@ export default function AdminAssignmentsPage() {
               <div>
                 <div className="text-2xs text-secondary uppercase tracking-widest mb-2">現在の稼働</div>
                 {[
-                  ['案件名', selected.projectName],
-                  ['契約単価', fmt(selected.contractPrice) + '円'],
-                  ['精算幅', `${selected.settlementLower}〜${selected.settlementUpper}h`],
+                  ['案件名', selected.projectName || '--'],
+                  ['契約単価', selected.contractPrice ? fmt(selected.contractPrice) + '円' : '--'],
+                  ['精算幅', selected.settlementLower ? `${selected.settlementLower}〜${selected.settlementUpper}h` : '--'],
                   ['契約期間', `${formatDate(selected.startDate)} 〜 ${formatDate(selected.endDate)}`],
                   ['勤務地', selected.workLocation || '未設定'],
                   ['エリア', selected.area ? areaLabel[selected.area] || selected.area : '未設定'],

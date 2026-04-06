@@ -8,8 +8,9 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/toast';
+import { apiClient } from '@/lib/api-client';
 
 interface MissedClockIn {
   name: string;
@@ -34,16 +35,83 @@ interface PaidLeave {
   approver: string;
 }
 
-const missedClockIn: MissedClockIn[] = [];
-const absences: Absence[] = [];
-const paidLeaves: PaidLeave[] = [];
-
 const today = new Date();
 const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
 
 export default function AlertsTodayPage() {
+  const [missedClockIn, setMissedClockIn] = useState<MissedClockIn[]>([]);
+  const [absences, setAbsences] = useState<Absence[]>([]);
+  const [paidLeaves, setPaidLeaves] = useState<PaidLeave[]>([]);
+  const [loading, setLoading] = useState(true);
   const [confirmedIds, setConfirmedIds] = useState<Set<number>>(new Set());
   const { toast, ToastUI } = useToast();
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch missed clock-in data
+      try {
+        const missedRes = await apiClient<Array<Record<string, unknown>>>('/attendance/missed');
+        const mapped: MissedClockIn[] = (missedRes || []).map((r) => ({
+          name: String(r.employeeName ?? r.name ?? ''),
+          client: String(r.client ?? r.projectName ?? ''),
+          expectedTime: String(r.expectedTime ?? r.startTime ?? ''),
+          elapsed: String(r.elapsed ?? r.elapsedTime ?? ''),
+          phone: String(r.phone ?? r.phoneNumber ?? ''),
+          status: (r.status === 'confirmed' ? 'confirmed' : 'unconfirmed') as MissedClockIn['status'],
+        }));
+        setMissedClockIn(mapped);
+      } catch {
+        setMissedClockIn([]);
+      }
+
+      // Fetch leave data (absences + paid leaves)
+      try {
+        const leaveRes = await apiClient<Array<{
+          id: number;
+          leaveType: string;
+          startDate: string;
+          endDate: string;
+          days: number;
+          reason: string;
+          status: string;
+          createdAt: string;
+          employee: { lastName: string; firstName: string; employeeCode: string };
+        }>>('/leave/pending');
+
+        const leaves = leaveRes || [];
+
+        const mappedAbsences: Absence[] = leaves
+          .filter((l) => l.leaveType !== '有給休暇')
+          .map((l) => ({
+            name: `${l.employee.lastName} ${l.employee.firstName}`,
+            client: '',
+            reason: l.reason || l.leaveType,
+            filedDate: l.createdAt ? new Date(l.createdAt).toLocaleDateString('ja-JP') : '',
+          }));
+        setAbsences(mappedAbsences);
+
+        const mappedPaidLeaves: PaidLeave[] = leaves
+          .filter((l) => l.leaveType === '有給休暇')
+          .map((l) => ({
+            name: `${l.employee.lastName} ${l.employee.firstName}`,
+            client: '',
+            applicationDate: l.createdAt ? new Date(l.createdAt).toLocaleDateString('ja-JP') : '',
+            approver: '',
+          }));
+        setPaidLeaves(mappedPaidLeaves);
+      } catch {
+        setAbsences([]);
+        setPaidLeaves([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   function confirmMissed(idx: number) {
     setConfirmedIds(prev => new Set([...prev, idx]));
@@ -60,6 +128,14 @@ export default function AlertsTodayPage() {
         <span className="text-sm text-secondary">{dateStr}</span>
       </div>
 
+      {loading && (
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+          <span className="ml-2 text-sm text-secondary">読み込み中...</span>
+        </div>
+      )}
+
+      {!loading && <>
       {/* Section 1: 出勤打刻未確認 */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-3">
@@ -168,6 +244,8 @@ export default function AlertsTodayPage() {
           </table>
         </div>
       </div>
+
+      </>}
 
       <ToastUI />
     </div>

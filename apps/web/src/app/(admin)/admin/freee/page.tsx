@@ -6,13 +6,17 @@
  */
 
 export default function AdminFreeePage() {
+  const handleTokenRefresh = () => alert('トークン更新機能は今後実装予定です');
+  const handleSync = () => alert('手動同期機能は今後実装予定です');
+  const handleSettings = () => alert('接続設定機能は今後実装予定です');
+
   return (
     <div>
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">freee連携</h1>
         <div className="flex gap-2">
-          <button className="btn-outline text-sm py-2">トークン更新</button>
-          <button className="btn-primary text-sm py-2">手動同期</button>
+          <button onClick={handleTokenRefresh} className="btn-outline text-sm py-2">トークン更新</button>
+          <button onClick={handleSync} className="btn-primary text-sm py-2">手動同期</button>
         </div>
       </div>
 
@@ -25,7 +29,7 @@ export default function AdminFreeePage() {
           </div>
           <div className="text-sm text-secondary">事業所: 株式会社サンプルSES　最終同期: 2026年3月31日 9時15分</div>
         </div>
-        <button className="btn-outline text-sm py-2">接続設定</button>
+        <button onClick={handleSettings} className="btn-outline text-sm py-2">接続設定</button>
       </div>
 
       {/* KPI */}

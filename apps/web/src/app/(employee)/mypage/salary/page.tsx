@@ -63,7 +63,7 @@ export default function SalaryPage() {
 
   const { toast, ToastUI } = useToast();
 
-  function fmt(n: number) { return n.toLocaleString(); }
+  function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
   const handleDownloadPDF = useCallback(() => {
     if (!data) return;

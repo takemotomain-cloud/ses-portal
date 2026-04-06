@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useToast } from '@/components/ui/toast';
 
-function fmt(n: number) {
-  return n.toLocaleString();
+function fmt(n: number | null | undefined) {
+  return (n ?? 0).toLocaleString();
 }
 
 type MonthlyData = [number, number, number, number, number, number, number, number, number, number, number, number];
