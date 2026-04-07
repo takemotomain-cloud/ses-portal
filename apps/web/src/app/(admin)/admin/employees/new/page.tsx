@@ -41,7 +41,7 @@ const initialForm: EmployeeForm = {
   firstName: '',
   lastNameKana: '',
   firstNameKana: '',
-  employeeCode: 'EMP-081',
+  employeeCode: '',
   hireDate: '',
   department: 'SES事業部',
   employmentType: '正社員',
@@ -71,17 +71,26 @@ const readonlyCls =
 
 /* ---------- メインコンポーネント ---------- */
 
-/** 部署名 → departmentId のマッピング（仮: 本来はAPIから取得） */
+/** 部署名 → departmentId のマッピング */
 const deptMap: Record<string, string> = {
-  'SES事業部': 'ses',
-  '開発部': 'dev',
-  '管理部': 'admin',
+  'SES事業部': 'd0000001-0000-0000-0000-000000000001',
+  '管理部': 'd0000001-0000-0000-0000-000000000005',
 };
 
 /** 雇用形態ラベル → DB値 */
 const empTypeMap: Record<string, string> = {
   '正社員': 'regular',
   '契約社員': 'contract',
+};
+
+/** 学歴ラベル → DB値 */
+const educationMap: Record<string, string> = {
+  '大卒': 'university',
+  '大学院卒': 'grad_school',
+  '専門卒': 'vocational',
+  '短大卒': 'junior_college',
+  '高専卒': 'technical_college',
+  '高卒': 'high_school',
 };
 
 export default function NewEmployeePage() {
@@ -98,6 +107,9 @@ export default function NewEmployeePage() {
 
   const handleSubmit = async () => {
     if (submitting) return;
+    if (!form.lastName || !form.firstName) { toast('姓・名は必須です'); return; }
+    if (!form.hireDate) { toast('入社日は必須です'); return; }
+    if (!form.email) { toast('メールアドレスは必須です'); return; }
     setSubmitting(true);
     try {
       // フォーム値をAPI形式に変換
@@ -106,12 +118,12 @@ export default function NewEmployeePage() {
         firstName: form.firstName,
         lastNameKana: form.lastNameKana || undefined,
         firstNameKana: form.firstNameKana || undefined,
-        employeeCode: form.employeeCode,
+        employeeCode: form.employeeCode || undefined,
         hireDate: form.hireDate,
         departmentId: deptMap[form.department] || form.department,
         employmentType: empTypeMap[form.employmentType] || form.employmentType,
         birthDate: form.birthDate || undefined,
-        education: form.education || undefined,
+        education: form.education ? (educationMap[form.education] || form.education) : undefined,
         schoolName: form.schoolName || undefined,
         email: form.email,
         phone: form.phone || undefined,

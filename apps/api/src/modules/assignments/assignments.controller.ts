@@ -40,6 +40,8 @@ export class AssignmentsController {
       settlementUpper: number;
       workLocation?: string;
       area?: string;
+      defaultStartTime?: string;
+      attendanceFormat?: string;
       startDate: string;
       endDate?: string;
     },

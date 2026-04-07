@@ -26,6 +26,7 @@ interface AssignForm {
   contractStartDate: string;
   contractEndDate: string;
   workStartTime: string;
+  attendanceFormat: string;
   workLocation: string;
   area: string;
   supplyChain: string;
@@ -43,6 +44,7 @@ const initialForm: AssignForm = {
   contractStartDate: '',
   contractEndDate: '',
   workStartTime: '9:00',
+  attendanceFormat: 'none',
   workLocation: '',
   area: '',
   supplyChain: 'エンド → 自社',
@@ -143,6 +145,8 @@ export default function NewAssignmentPage() {
           settlementUpper: parseInt(form.settlementUpper, 10) || 180,
           workLocation: form.workLocation || undefined,
           area: form.area || undefined,
+          defaultStartTime: form.workStartTime || undefined,
+          attendanceFormat: form.attendanceFormat,
           startDate: form.contractStartDate,
           endDate: form.contractEndDate || undefined,
         }),
@@ -297,20 +301,33 @@ export default function NewAssignmentPage() {
             </div>
           </div>
 
-          <div className="mb-2">
-            <label className={labelCls}>稼働開始時刻</label>
-            <select
-              className={selectCls}
-              style={{ width: 200 }}
-              value={form.workStartTime}
-              onChange={(e) => update('workStartTime', e.target.value)}
-            >
-              <option value="8:00">8時00分</option>
-              <option value="8:30">8時30分</option>
-              <option value="9:00">9時00分</option>
-              <option value="9:30">9時30分</option>
-              <option value="10:00">10時00分</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+            <div>
+              <label className={labelCls}>稼働開始時刻</label>
+              <select
+                className={selectCls}
+                value={form.workStartTime}
+                onChange={(e) => update('workStartTime', e.target.value)}
+              >
+                <option value="8:00">8時00分</option>
+                <option value="8:30">8時30分</option>
+                <option value="9:00">9時00分</option>
+                <option value="9:30">9時30分</option>
+                <option value="10:00">10時00分</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>請求時の勤怠表添付</label>
+              <select
+                className={selectCls}
+                value={form.attendanceFormat}
+                onChange={(e) => update('attendanceFormat', e.target.value)}
+              >
+                <option value="none">不要</option>
+                <option value="company">自社フォーマット</option>
+                <option value="client_original">現場データそのまま</option>
+              </select>
+            </div>
           </div>
         </div>
 

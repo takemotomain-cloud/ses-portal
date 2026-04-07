@@ -97,7 +97,7 @@ export class EmployeesController {
     firstName: string;
     lastNameKana?: string;
     firstNameKana?: string;
-    employeeCode: string;
+    employeeCode?: string;
     hireDate: string;
     departmentId: string;
     employmentType?: string;

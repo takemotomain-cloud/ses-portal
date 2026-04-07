@@ -33,6 +33,8 @@ export class AssignmentsService {
     settlementUpper: number;
     workLocation?: string;
     area?: string;
+    defaultStartTime?: string;
+    attendanceFormat?: string;
     startDate: string;
     endDate?: string;
   }) {
@@ -46,6 +48,8 @@ export class AssignmentsService {
         settlementUpper: data.settlementUpper,
         workLocation: data.workLocation || null,
         area: data.area || null,
+        defaultStartTime: data.defaultStartTime || null,
+        attendanceFormat: data.attendanceFormat || 'none',
         startDate: new Date(data.startDate),
         endDate: data.endDate ? new Date(data.endDate) : null,
         status: 'active',

@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
@@ -23,6 +23,8 @@ interface Employee {
   departmentName: string | null;
   positionName: string | null;
 }
+
+const PAGE_SIZE = 50;
 
 const statusBadge: Record<string, { label: string; cls: string }> = {
   active: { label: '在籍', cls: 'badge-ok' },
@@ -50,37 +52,50 @@ function fmtDate(iso: string): string {
 export default function AdminEmployeesPage() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const { toast, ToastUI } = useToast();
 
-  useEffect(() => {
-    apiClient<{ data: Employee[] }>('/employees')
-      .then((res) => setEmployees(res.data || []))
-      .catch((err) => {
-        console.error('Failed to fetch employees:', err);
-        setError(err?.message || 'データの取得に失敗しました');
-        setEmployees([]);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const filtered = useMemo(() => {
-    return employees.filter(e => {
-      const name = `${e.lastName} ${e.firstName}`;
-      if (search && !name.includes(search) && !e.employeeCode.includes(search)) return false;
-      if (statusFilter && e.status !== statusFilter) return false;
-      return true;
-    });
-  }, [employees, search, statusFilter]);
+  const fetchEmployees = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('limit', String(PAGE_SIZE));
+      if (search) params.set('search', search);
+      if (statusFilter) params.set('status', statusFilter);
+
+      const res = await apiClient<{ data: Employee[]; total: number }>(`/employees?${params}`);
+      setEmployees(res.data || []);
+      setTotal(res.total || 0);
+    } catch (err: any) {
+      setError(err?.message || 'データの取得に失敗しました');
+      setEmployees([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, statusFilter]);
+
+  useEffect(() => {
+    fetchEmployees();
+  }, [fetchEmployees]);
+
+  // 検索・フィルタ変更時はページを1にリセット
+  const handleSearch = (val: string) => { setSearch(val); setPage(1); };
+  const handleStatus = (val: string) => { setStatusFilter(val); setPage(1); };
 
   const kpis = useMemo(() => ({
-    total: employees.length,
+    total,
     active: employees.filter(e => e.status === 'active').length,
     leave: employees.filter(e => e.status === 'leave').length,
-  }), [employees]);
+  }), [employees, total]);
 
   return (
     <div>
@@ -111,12 +126,12 @@ export default function AdminEmployeesPage() {
           type="text"
           placeholder="氏名・社員番号で検索"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => handleSearch(e.target.value)}
           className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card min-w-[180px] focus:border-primary"
         />
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => handleStatus(e.target.value)}
           className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none"
         >
           <option value="">ステータス: すべて</option>
@@ -124,7 +139,7 @@ export default function AdminEmployeesPage() {
           <option value="leave">休職中</option>
           <option value="resigned">退職</option>
         </select>
-        <span className="text-sm text-secondary self-center">{filtered.length}名</span>
+        <span className="text-sm text-secondary self-center">{total}名</span>
       </div>
 
       {/* テーブル */}
@@ -142,9 +157,9 @@ export default function AdminEmployeesPage() {
               <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
             ) : error ? (
               <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-red-500">{error}</div></td></tr>
-            ) : filtered.length === 0 ? (
+            ) : employees.length === 0 ? (
               <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
-            ) : filtered.map((emp) => {
+            ) : employees.map((emp) => {
               const st = statusBadge[emp.status] || { label: emp.status, cls: 'badge-wait' };
               const ct = contractLabel[emp.contractType] || emp.contractType;
               return (
@@ -168,6 +183,27 @@ export default function AdminEmployeesPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ページネーション */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="px-3 py-1.5 border border-border rounded-md text-sm text-secondary hover:bg-page disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ‹ 前へ
+          </button>
+          <span className="text-sm text-secondary">{page} / {totalPages} ページ</span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="px-3 py-1.5 border border-border rounded-md text-sm text-secondary hover:bg-page disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            次へ ›
+          </button>
+        </div>
+      )}
 
       <ToastUI />
     </div>

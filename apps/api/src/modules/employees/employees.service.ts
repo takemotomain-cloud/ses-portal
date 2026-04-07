@@ -287,7 +287,7 @@ export class EmployeesService {
     firstName: string;
     lastNameKana?: string;
     firstNameKana?: string;
-    employeeCode: string;
+    employeeCode?: string;
     hireDate: string;
     departmentId: string;
     employmentType?: string;
@@ -314,11 +314,38 @@ export class EmployeesService {
       throw new BadRequestException('このメールアドレスは既に使用されています');
     }
 
+    // 社員番号が未指定または重複の場合は自動採番
+    let employeeCode = data.employeeCode;
+    if (!employeeCode) {
+      const latest = await this.db.employee.findFirst({
+        orderBy: { employeeCode: 'desc' },
+        select: { employeeCode: true },
+      });
+      const lastNum = latest?.employeeCode ? parseInt(latest.employeeCode.replace(/\D/g, ''), 10) : 0;
+      employeeCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`;
+    }
     const existingCode = await this.db.employee.findFirst({
-      where: { employeeCode: data.employeeCode, deletedAt: null },
+      where: { employeeCode, deletedAt: null },
     });
     if (existingCode) {
       throw new BadRequestException('この社員番号は既に使用されています');
+    }
+
+    // departmentId がUUIDでない場合、部署名からIDを解決
+    let departmentId = data.departmentId;
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(departmentId)) {
+      const dept = await this.db.department.findFirst({
+        where: { name: departmentId },
+        select: { id: true },
+      });
+      if (dept) {
+        departmentId = dept.id;
+      } else {
+        // デフォルトでSES事業部
+        const defaultDept = await this.db.department.findFirst({ select: { id: true } });
+        departmentId = defaultDept?.id || data.departmentId;
+      }
     }
 
     // デフォルトパスワードのハッシュ
@@ -333,17 +360,23 @@ export class EmployeesService {
           firstName: data.firstName,
           lastNameKana: data.lastNameKana || '',
           firstNameKana: data.firstNameKana || '',
-          employeeCode: data.employeeCode,
+          employeeCode,
           hireDate: new Date(data.hireDate),
-          departmentId: data.departmentId,
-          employmentType: data.employmentType || 'regular',
+          departmentId,
+          employmentType: (() => {
+            const empMap: Record<string, string> = { '正社員': 'regular', '契約社員': 'contract', 'パート': 'part_time' };
+            return data.employmentType ? (empMap[data.employmentType] || data.employmentType) : 'regular';
+          })(),
           contractType: data.contractType || 'fixed_term',
           birthDate: data.birthDate ? new Date(data.birthDate) : new Date('2000-01-01'),
           gender: data.gender || 'other',
           email: data.email,
           phone: data.phone || null,
           address: data.address || null,
-          education: data.education || null,
+          education: (() => {
+            const eduMap: Record<string, string> = { '大卒': 'university', '大学院卒': 'grad_school', '専門卒': 'vocational', '短大卒': 'junior_college', '高専卒': 'technical_college', '高卒': 'high_school' };
+            return data.education ? (eduMap[data.education] || data.education) : null;
+          })(),
           schoolName: data.schoolName || null,
           baseSalary: data.baseSalary || null,
           rewardRate: data.rewardRate || null,

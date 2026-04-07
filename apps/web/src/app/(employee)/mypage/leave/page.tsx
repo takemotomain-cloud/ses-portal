@@ -76,11 +76,25 @@ export default function LeaveRequestPage() {
 
   async function handleSubmit() {
     setIsSubmitting(true);
-    // Phase 1: デモ動作。API連携後にPOST /api/leave/requestを呼ぶ
-    await new Promise(r => setTimeout(r, 800));
-    setIsSubmitting(false);
-    setShowConfirm(false);
-    router.push('/applications');
+    try {
+      await apiClient('/leave/request', {
+        method: 'POST',
+        body: JSON.stringify({
+          leaveType,
+          startDate,
+          endDate,
+          days,
+          reason: reason || undefined,
+        }),
+      });
+      setShowConfirm(false);
+      router.push('/applications');
+    } catch (e: any) {
+      alert(e.message || '申請に失敗しました');
+      setShowConfirm(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -175,7 +189,7 @@ export default function LeaveRequestPage() {
 
         <button
           onClick={() => setShowConfirm(true)}
-          disabled={!startDate || !endDate || days === 0}
+          disabled={!startDate || !endDate || days === 0 || (balance !== null && days > balance.remaining)}
           className="w-full py-3.5 rounded-lg bg-primary text-white text-md font-semibold transition-all
                      hover:opacity-90 active:scale-[0.98] disabled:opacity-35 disabled:cursor-default"
         >

@@ -163,6 +163,122 @@ export class ReconciliationService {
   }
 
   /**
+   * 対象月に稼働情報（active Assignment）があるかチェック
+   */
+  async hasActiveAssignment(employeeId: string, yearMonth: string): Promise<boolean> {
+    const [y, m] = yearMonth.split('-').map(Number);
+    const monthStart = new Date(Date.UTC(y, m - 1, 1));
+    const monthEnd = new Date(Date.UTC(y, m, 0)); // 月末日
+
+    const assignment = await this.db.assignment.findFirst({
+      where: {
+        employeeId,
+        status: 'active',
+        deletedAt: null,
+        startDate: { lte: monthEnd },
+        OR: [
+          { endDate: null },
+          { endDate: { gte: monthStart } },
+        ],
+      },
+    });
+
+    return !!assignment;
+  }
+
+  /**
+   * 対象月に稼働中の社員一覧を取得
+   */
+  async findActiveEmployees(yearMonth: string) {
+    const [y, m] = yearMonth.split('-').map(Number);
+    const monthStart = new Date(Date.UTC(y, m - 1, 1));
+    const monthEnd = new Date(Date.UTC(y, m, 0));
+
+    const assignments = await this.db.assignment.findMany({
+      where: {
+        status: 'active',
+        deletedAt: null,
+        startDate: { lte: monthEnd },
+        OR: [
+          { endDate: null },
+          { endDate: { gte: monthStart } },
+        ],
+      },
+      include: {
+        employee: {
+          select: { id: true, lastName: true, firstName: true, employeeCode: true },
+        },
+      },
+      orderBy: { employee: { lastName: 'asc' } },
+    });
+
+    // 同一社員の重複を排除
+    const seen = new Set<string>();
+    return assignments
+      .filter(a => {
+        if (seen.has(a.employeeId)) return false;
+        seen.add(a.employeeId);
+        return true;
+      })
+      .map(a => ({
+        id: a.employee.id,
+        name: `${a.employee.lastName} ${a.employee.firstName}`,
+        employeeCode: a.employee.employeeCode,
+      }));
+  }
+
+  /**
+   * 稼働情報のdefaultStartTimeを取得
+   */
+  async getDefaultStartTime(employeeId: string, yearMonth: string): Promise<string | null> {
+    const [y, m] = yearMonth.split('-').map(Number);
+    const monthStart = new Date(Date.UTC(y, m - 1, 1));
+    const monthEnd = new Date(Date.UTC(y, m, 0));
+
+    const assignment = await this.db.assignment.findFirst({
+      where: {
+        employeeId,
+        status: 'active',
+        deletedAt: null,
+        startDate: { lte: monthEnd },
+        OR: [
+          { endDate: null },
+          { endDate: { gte: monthStart } },
+        ],
+      },
+      select: { defaultStartTime: true },
+    });
+
+    return assignment?.defaultStartTime || null;
+  }
+
+  /**
+   * 開始時間がないレコードを稼働情報の開始時刻から自動補完
+   * 開始時刻 + 稼働時間 + 休憩1h で終了時刻を計算
+   */
+  fillMissingStartTime(records: ParsedRecord[], defaultStartTime: string): ParsedRecord[] {
+    return records.map(r => {
+      if (r.start_time || r.type !== 'weekday' || !r.work_hours) return r;
+
+      // 開始時刻をパース
+      const [sh, sm] = defaultStartTime.split(':').map(Number);
+      const startMin = sh * 60 + (sm || 0);
+      const breakMin = r.break_minutes ?? 60; // 休憩は原則1時間
+      const endMin = startMin + Math.round(r.work_hours * 60) + breakMin;
+
+      const startTime = `${String(sh).padStart(2, '0')}:${String(sm || 0).padStart(2, '0')}`;
+      const endTime = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+
+      return {
+        ...r,
+        start_time: startTime,
+        end_time: r.end_time || endTime,
+        break_minutes: breakMin,
+      };
+    });
+  }
+
+  /**
    * 社員名からDBの社員を検索してマッチング
    */
   async matchEmployeeByName(name: string) {
@@ -295,6 +411,12 @@ export class ReconciliationService {
         parsed = await this.parseImage(file.path, file.mimetype, yearMonth);
       } else {
         throw new BadRequestException('未対応の形式です');
+      }
+
+      // 開始時間がないレコードを稼働情報から自動補完
+      const defaultStart = await this.getDefaultStartTime(employeeId, yearMonth);
+      if (defaultStart) {
+        parsed.records = this.fillMissingStartTime(parsed.records, defaultStart);
       }
 
       // レコードをDBに保存

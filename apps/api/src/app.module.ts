@@ -10,6 +10,7 @@
 
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { join } from 'path';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './common/health.controller';
@@ -43,6 +44,7 @@ import { FreeeModule } from './modules/freee/freee.module';
       isGlobal: true,
       envFilePath: join(__dirname, '..', '.env'),
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     EmployeesModule,

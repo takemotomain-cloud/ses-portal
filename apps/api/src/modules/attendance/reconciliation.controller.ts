@@ -61,6 +61,21 @@ export class ReconciliationController {
   ) {}
 
   /**
+   * 対象月に稼働中の社員一覧
+   */
+  @Get('active-employees')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '稼働中社員一覧' })
+  async getActiveEmployees(@Query('yearMonth') yearMonth: string) {
+    if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
+      const now = new Date();
+      yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+    return this.reconciliationService.findActiveEmployees(yearMonth);
+  }
+
+  /**
    * 一括アップロード（複数ファイル）＋社員名自動マッチング
    * DB保存なし。解析結果と社員マッチングのみ返す。
    */
@@ -114,6 +129,23 @@ export class ReconciliationController {
           : null;
 
         this.logger.log(`bulk-upload: parsed file=${originalName}, employee=${parsed.employeeName}, matched=${matchedEmployee?.lastName}`);
+
+        // 稼働情報チェック + 開始時間自動補完
+        let warning: string | null = null;
+        let records = parsed.records;
+        if (matchedEmployee) {
+          const targetYm = parsed.yearMonth || yearMonth;
+          const hasAssignment = await this.reconciliationService.hasActiveAssignment(matchedEmployee.id, targetYm);
+          if (!hasAssignment) {
+            warning = `${targetYm}に稼働情報がありません（待機中）`;
+          } else {
+            const defaultStart = await this.reconciliationService.getDefaultStartTime(matchedEmployee.id, targetYm);
+            if (defaultStart) {
+              records = this.reconciliationService.fillMissingStartTime(records, defaultStart);
+            }
+          }
+        }
+
         results.push({
           fileName: originalName,
           filePath: file.path,
@@ -121,12 +153,13 @@ export class ReconciliationController {
           matchedEmployee: matchedEmployee
             ? { id: matchedEmployee.id, name: `${matchedEmployee.lastName} ${matchedEmployee.firstName}`, employeeCode: matchedEmployee.employeeCode }
             : null,
-          recordCount: parsed.records.length,
+          recordCount: records.length,
           yearMonth: parsed.yearMonth,
-          records: parsed.records,
+          records,
           summary: parsed.summary,
           client: parsed.client,
           error: null,
+          warning,
         });
       } catch (err: any) {
         this.logger.error(`bulk-upload: error processing file=${originalName}: ${err.message}`, err.stack);
@@ -245,6 +278,12 @@ export class ReconciliationController {
     const targetEmployeeId = user.role === 'admin' && employeeId
       ? employeeId
       : user.employeeId;
+
+    // Step0.5: 稼働情報チェック — 対象月にアクティブな稼働がなければ拒否
+    const hasAssignment = await this.reconciliationService.hasActiveAssignment(targetEmployeeId, yearMonth);
+    if (!hasAssignment) {
+      throw new BadRequestException('対象月に稼働情報がありません。稼働中の社員のみアップロードできます。');
+    }
 
     // Step1: アップロード＋構造化
     const parsed = await this.reconciliationService.uploadAndParse(file, targetEmployeeId, yearMonth, clientId);

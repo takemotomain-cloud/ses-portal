@@ -293,12 +293,14 @@ model Assignment {
   contractPrice   Int       @map("contract_price")
   settlementLower Int       @map("settlement_lower")
   settlementUpper Int       @map("settlement_upper")
-  workLocation    String?   @map("work_location") @db.VarChar(200)
-  area            String?   @db.VarChar(20)
-  startDate       DateTime  @map("start_date") @db.Date
-  endDate         DateTime? @map("end_date") @db.Date
-  status          String    @default("active") @db.VarChar(20)
-  endReason       String?   @map("end_reason") @db.VarChar(30)
+  workLocation       String?   @map("work_location") @db.VarChar(200)
+  area               String?   @db.VarChar(20)
+  defaultStartTime   String?   @map("default_start_time") @db.VarChar(5)
+  attendanceFormat   String    @default("none") @map("attendance_format") @db.VarChar(20)
+  startDate          DateTime  @map("start_date") @db.Date
+  endDate            DateTime? @map("end_date") @db.Date
+  status             String    @default("active") @db.VarChar(20)
+  endReason          String?   @map("end_reason") @db.VarChar(30)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -506,6 +508,25 @@ model Notification {
   employee Employee @relation(fields: [employeeId], references: [id])
 
   @@map("notifications")
+}
+
+// ----------------------------------------
+// 自動通知ルール
+// ----------------------------------------
+model AutoNotificationRule {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String    @db.VarChar(100)
+  triggerType     String    @map("trigger_type") @db.VarChar(50)
+  triggerConfig   Json?     @map("trigger_config")
+  targetType      String    @map("target_type") @db.VarChar(30)
+  titleTemplate   String    @map("title_template") @db.VarChar(200)
+  bodyTemplate    String    @map("body_template")
+  isEnabled       Boolean   @default(true) @map("is_enabled")
+  lastExecutedAt  DateTime? @map("last_executed_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("auto_notification_rules")
 }
 
 // ----------------------------------------

@@ -21,6 +21,7 @@ interface AssignmentResponse {
   settlementLower: number;
   settlementUpper: number;
   workLocation: string | null;
+  defaultStartTime: string | null;
   startDate: string;
   endDate: string | null;
   status: string;
@@ -97,6 +98,7 @@ export default function AssignmentPage() {
 
             <div className="space-y-2.5 pt-1">
               {[
+                ['稼働開始時刻', currentAssignment.defaultStartTime ? `${currentAssignment.defaultStartTime}〜` : '未設定'],
                 ['勤務場所', currentAssignment.workLocation || '未設定'],
                 ['契約期間', `${formatDate(currentAssignment.startDate)} 〜 ${formatDate(currentAssignment.endDate)}`],
               ].map(([label, value]) => (

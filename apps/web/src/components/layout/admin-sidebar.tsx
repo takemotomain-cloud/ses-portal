@@ -56,6 +56,7 @@ const navSections: NavSection[] = [
       { label: '通知書（無期転換）', href: '/admin/notices-muki' },
       { label: '入社予定社員', href: '/admin/onboarding' },
       { label: 'お知らせ配信', href: '/admin/announcements' },
+      { label: '自動通知', href: '/admin/auto-notifications' },
     ],
   },
   {

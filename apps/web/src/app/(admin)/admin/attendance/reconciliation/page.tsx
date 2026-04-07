@@ -15,6 +15,12 @@ import { useRouter } from 'next/navigation';
 import { apiClient, getToken } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
 
+interface ActiveEmployee {
+  id: string;
+  name: string;
+  employeeCode: string;
+}
+
 interface BulkUploadResult {
   fileName: string;
   filePath: string;
@@ -26,6 +32,7 @@ interface BulkUploadResult {
   summary: any;
   client: string | null;
   error: string | null;
+  warning: string | null;
   // フロント側状態
   checked: boolean;
   manualEmployeeId: string;
@@ -44,6 +51,13 @@ export default function ReconciliationPage() {
   const [uploadResults, setUploadResults] = useState<BulkUploadResult[]>([]);
   const [parseProgress, setParseProgress] = useState({ current: 0, total: 0 });
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [activeEmployees, setActiveEmployees] = useState<ActiveEmployee[]>([]);
+
+  // 対象月（デフォルト: 先月）
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const defaultYm = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}`;
+  const [yearMonth, setYearMonth] = useState(defaultYm);
 
   // ファイル追加（FileListはliveオブジェクトなので即座にArrayに変換）
   const addFiles = useCallback((newFiles: FileList | File[]) => {
@@ -80,6 +94,7 @@ export default function ReconciliationPage() {
 
       const formData = new FormData();
       formData.append('files', files[i]);
+      formData.append('yearMonth', yearMonth);
 
       try {
         const res = await fetch('/api/attendance/reconciliation/bulk-upload', {
@@ -108,6 +123,7 @@ export default function ReconciliationPage() {
             summary: null,
             client: null,
             error: message,
+            warning: null,
             checked: false,
             manualEmployeeId: '',
           }]);
@@ -119,6 +135,7 @@ export default function ReconciliationPage() {
         if (result) {
           setUploadResults(prev => [...prev, {
             ...result,
+            warning: result.warning || null,
             checked: !result.error,
             manualEmployeeId: result.matchedEmployee?.id || '',
           }]);
@@ -136,6 +153,7 @@ export default function ReconciliationPage() {
           summary: null,
           client: null,
           error: err.message || '通信エラー',
+          warning: null,
           checked: false,
           manualEmployeeId: '',
         }]);
@@ -143,7 +161,15 @@ export default function ReconciliationPage() {
     }
 
     setStep('confirm');
-  }, [files, toast]);
+  }, [files, yearMonth, toast]);
+
+  // confirmステップに入ったら稼働中社員一覧を取得（ユーザー選択の対象月で）
+  useEffect(() => {
+    if (step !== 'confirm') return;
+    apiClient<ActiveEmployee[]>(`/attendance/reconciliation/active-employees?yearMonth=${yearMonth}`)
+      .then(setActiveEmployees)
+      .catch(() => {});
+  }, [step, yearMonth]);
 
   // チェックボックス切り替え
   const toggleCheck = useCallback((index: number) => {
@@ -154,6 +180,10 @@ export default function ReconciliationPage() {
     setUploadResults(prev => prev.map(r => r.error ? r : { ...r, checked }));
   }, []);
 
+  const updateManualEmployee = useCallback((index: number, employeeId: string) => {
+    setUploadResults(prev => prev.map((r, i) => i === index ? { ...r, manualEmployeeId: employeeId } : r));
+  }, []);
+
   // 取込実行
   const handleConfirm = useCallback(async () => {
     const selected = uploadResults.filter(r => r.checked && !r.error);
@@ -162,10 +192,10 @@ export default function ReconciliationPage() {
       return;
     }
 
-    // 社員マッチングできていない行があるかチェック
-    const unmatched = selected.filter(r => !r.matchedEmployee);
-    if (unmatched.length > 0) {
-      toast(`社員を特定できないファイルがあります: ${unmatched.map(r => r.fileName).join(', ')}`);
+    // 社員が選択されていない行があるかチェック
+    const unselected = selected.filter(r => !r.manualEmployeeId);
+    if (unselected.length > 0) {
+      toast(`社員を選択してください: ${unselected.map(r => r.fileName).join(', ')}`);
       return;
     }
 
@@ -173,7 +203,7 @@ export default function ReconciliationPage() {
 
     try {
       const uploads = selected.map(r => ({
-        employeeId: r.matchedEmployee!.id,
+        employeeId: r.manualEmployeeId,
         yearMonth: r.yearMonth,
         fileName: r.fileName,
         records: r.records,
@@ -247,6 +277,17 @@ export default function ReconciliationPage() {
         <div className="space-y-5">
           <div className="card p-5 space-y-5">
             <h2 className="text-lg font-medium">現場勤怠表のアップロード</h2>
+
+            {/* 対象月 */}
+            <div>
+              <label className="block text-xs text-secondary mb-1">対象月</label>
+              <input
+                type="month"
+                value={yearMonth}
+                onChange={e => setYearMonth(e.target.value)}
+                className="border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+            </div>
 
             {/* ファイルドロップエリア */}
             <div
@@ -362,6 +403,7 @@ export default function ReconciliationPage() {
                     />
                   </th>
                   <th className="text-left text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA]">社員名（抽出）</th>
+                  <th className="text-left text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] min-w-[160px]">社員名（実績）</th>
                   <th className="text-left text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA]">ファイル名</th>
                   <th className="text-center text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA]">対象月</th>
                   <th className="text-right text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA]">レコード数</th>
@@ -391,6 +433,25 @@ export default function ReconciliationPage() {
                         {r.employeeName || <span className="text-secondary">—</span>}
                       </td>
                       <td className="px-3 py-2.5 text-sm">
+                        {!isError ? (
+                          <select
+                            value={r.manualEmployeeId}
+                            onChange={e => updateManualEmployee(i, e.target.value)}
+                            disabled={step === 'importing'}
+                            className={`w-full border rounded-md px-2 py-1.5 text-sm outline-none appearance-none ${
+                              r.manualEmployeeId ? 'border-border bg-white' : 'border-red-300 bg-red-50'
+                            }`}
+                          >
+                            <option value="">選択してください</option>
+                            {activeEmployees.map(emp => (
+                              <option key={emp.id} value={emp.id}>{emp.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-secondary">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-sm">
                         {r.filePath && !isError ? (
                           <button
                             onClick={() => setPreviewIndex(i)}
@@ -407,6 +468,8 @@ export default function ReconciliationPage() {
                       <td className="px-3 py-2.5 text-center">
                         {isError ? (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">エラー</span>
+                        ) : r.warning ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700" title={r.warning}>注意</span>
                         ) : (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-status-green-bg text-status-green-text">OK</span>
                         )}

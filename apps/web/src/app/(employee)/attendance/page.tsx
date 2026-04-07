@@ -396,7 +396,9 @@ export default function AttendancePage() {
                           ) : formatMinutes(row.overtimeMinutes)}
                         </td>
                         <td className="px-3 py-2 text-right pr-4">
-                          {hasPending ? (
+                          {row.status === 'confirmed' ? (
+                            <span className="text-2xs text-secondary">確定済</span>
+                          ) : hasPending ? (
                             <span className="text-2xs px-2 py-0.5 rounded bg-status-amber-bg text-status-amber-text">申請中</span>
                           ) : (
                             <button
