@@ -271,6 +271,8 @@ model DealLog {
   businessCard   BusinessCard @relation(fields: [businessCardId], references: [id])
   date           DateTime     @db.Date
   content        String
+  contacts       String?      /// 商談相手の名前（カンマ区切り）
+  cardImages     String?      @map("card_images") /// 名刺画像パスのJSON配列
   recordingUrl   String?      @map("recording_url") @db.VarChar(500)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

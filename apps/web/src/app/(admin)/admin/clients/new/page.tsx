@@ -7,8 +7,8 @@
 
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 
@@ -92,9 +92,24 @@ function formatCapital(value: string): string {
 
 export default function NewClientPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast, ToastUI } = useToast();
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [submitting, setSubmitting] = useState(false);
+
+  /* 商談ログからの自動入力 */
+  useEffect(() => {
+    if (searchParams.get('from') === 'deal') {
+      setForm(prev => ({
+        ...prev,
+        companyName: searchParams.get('company') || prev.companyName,
+        email: searchParams.get('email') || prev.email,
+        phone: searchParams.get('phone') || prev.phone,
+        address: searchParams.get('address') || prev.address,
+        contactPerson: searchParams.get('contactPerson') || prev.contactPerson,
+      }));
+    }
+  }, [searchParams]);
 
   /* gBizINFO検索 */
   const [gbizResults, setGbizResults] = useState<GBizResult[]>([]);

@@ -92,6 +92,29 @@ export class BusinessCardsController {
   }
 
   /**
+   * 名刺（会社）情報を更新
+   */
+  @Patch(':id')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '名刺情報更新' })
+  async updateCard(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      name?: string;
+      company?: string;
+      department?: string;
+      title?: string;
+      email?: string;
+      phone?: string;
+      address?: string;
+      note?: string;
+    },
+  ) {
+    return this.service.updateCard(id, body);
+  }
+
+  /**
    * 商談ログを追加
    */
   @Post(':id/logs')
@@ -103,6 +126,7 @@ export class BusinessCardsController {
     body: {
       date: string;
       content: string;
+      contacts?: string;
       recordingUrl?: string;
     },
   ) {
@@ -113,8 +137,35 @@ export class BusinessCardsController {
       businessCardId: id,
       date: body.date,
       content: body.content,
+      contacts: body.contacts,
       recordingUrl: body.recordingUrl,
     });
+  }
+
+  /**
+   * 商談ログに名刺画像を追加
+   */
+  @Post('logs/:logId/images')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '商談ログ名刺画像追加' })
+  @UseInterceptors(FileInterceptor('image', {
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith('image/')) {
+        return cb(new BadRequestException('画像ファイルのみアップロード可能です'), false);
+      }
+      cb(null, true);
+    },
+  }))
+  async addLogImage(
+    @Param('logId') logId: string,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('画像ファイルが必要です');
+    }
+    const imagePath = await this.service.addCardImageToLog(logId, file.buffer);
+    return { imagePath };
   }
 
   /**
@@ -129,6 +180,7 @@ export class BusinessCardsController {
     body: {
       date?: string;
       content?: string;
+      contacts?: string;
       recordingUrl?: string;
     },
   ) {

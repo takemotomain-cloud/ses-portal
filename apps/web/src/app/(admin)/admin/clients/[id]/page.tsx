@@ -24,9 +24,12 @@ interface ClientDetail {
   tradeStartDate: string | null;
   corporateNumber?: string;
   invoiceNumber?: string;
+  postalCode?: string;
   websiteUrl?: string;
   representName?: string;
+  establishedDate?: string;
   capital?: string;
+  billingEmail?: string;
 }
 
 interface Assignment {
@@ -47,6 +50,38 @@ interface ProposalHistory {
   status: string;
   sentAt: string;
   employees: { id: string; name: string; initial: string }[];
+}
+
+interface DealLogEntry {
+  id: string;
+  date: string;
+  content: string;
+  contacts: string | null;
+  recordingUrl: string | null;
+  cardImages: string | null;
+}
+
+interface BusinessCardWithLogs {
+  id: string;
+  name: string;
+  company: string;
+  logs: DealLogEntry[];
+}
+
+function parseContacts(json: string | null): { name: string; title: string }[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    return json.split(/[,、]/).map(s => ({ name: s.trim(), title: '' })).filter(c => c.name);
+  }
+  return [];
+}
+
+function parseCardImages(json: string | null): string[] {
+  if (!json) return [];
+  try { return JSON.parse(json); } catch { return []; }
 }
 
 function fmtDate(dateStr: string | null): string {
@@ -72,8 +107,10 @@ export default function ClientDetailPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [pastAssignments, setPastAssignments] = useState<Assignment[]>([]);
   const [proposals, setProposals] = useState<ProposalHistory[]>([]);
+  const [dealLogs, setDealLogs] = useState<DealLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'members' | 'history' | 'proposals'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'history' | 'proposals' | 'deals'>('members');
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -86,6 +123,28 @@ export default function ClientDetailPage() {
 
       setClient(clientRes);
       setProposals(proposalRes);
+
+      // 商談ログを会社名で取得
+      if (clientRes?.name) {
+        try {
+          const bcData = await apiClient<any[]>(`/business-cards?search=${encodeURIComponent(clientRes.name)}`);
+          const matchedCards = (bcData || []).filter((bc: any) => bc.company === clientRes.name);
+          const allLogs: DealLogEntry[] = matchedCards.flatMap((bc: any) =>
+            (bc.logs || []).map((l: any) => ({
+              id: l.id,
+              date: l.date ? l.date.split('T')[0] : '',
+              content: l.content || '',
+              contacts: l.contacts || null,
+              recordingUrl: l.recordingUrl || null,
+              cardImages: l.cardImages || null,
+            }))
+          );
+          allLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          setDealLogs(allLogs);
+        } catch {
+          setDealLogs([]);
+        }
+      }
 
       const clientAssigns = assignRes.data.filter((a) => a.employee && (a as any).clientId === clientId);
       // fallback: filter by checking if assignment belongs to this client
@@ -152,15 +211,52 @@ export default function ClientDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left: Basic Info */}
         <div className="lg:col-span-1 space-y-4">
+          {/* 基本情報 */}
           <div className="card p-5">
             <div className={sectionLabel}>基本情報</div>
             <div className="space-y-0">
               {[
-                ['担当者', client.contactPerson || '--'],
+                ['法人番号', client.corporateNumber || '--'],
+                ['インボイス番号', client.invoiceNumber || '--'],
+                ['郵便番号', client.postalCode || '--'],
+                ['本社所在地', client.address || '--'],
+                ['代表者名', client.representName || '--'],
+                ['設立年月', client.establishedDate || '--'],
+                ['資本金', client.capital || '--'],
+                ['Webサイト', client.websiteUrl || '--'],
+              ].map(([l, v]) => (
+                <div key={l} className={infoRow}>
+                  <span className="text-secondary text-sm">{l}</span>
+                  <span className="text-sm text-right max-w-[60%] break-all">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 担当者情報 */}
+          <div className="card p-5">
+            <div className={sectionLabel}>担当者情報</div>
+            <div className="space-y-0">
+              {[
+                ['先方担当者', client.contactPerson || '--'],
                 ['メール', client.contactEmail || '--'],
                 ['電話', client.contactPhone || '--'],
-                ['住所', client.address || '--'],
-                ['Webサイト', client.websiteUrl || '--'],
+              ].map(([l, v]) => (
+                <div key={l} className={infoRow}>
+                  <span className="text-secondary text-sm">{l}</span>
+                  <span className="text-sm text-right max-w-[60%] break-all">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 取引情報 */}
+          <div className="card p-5">
+            <div className={sectionLabel}>取引情報</div>
+            <div className="space-y-0">
+              {[
+                ['取引開始日', client.tradeStartDate ? fmtDate(client.tradeStartDate) : '--'],
+                ['請求書送付先', client.billingEmail || '--'],
               ].map(([l, v]) => (
                 <div key={l} className={infoRow}>
                   <span className="text-secondary text-sm">{l}</span>
@@ -180,6 +276,7 @@ export default function ClientDetailPage() {
                 { key: 'members', label: `稼働メンバー (${assignments.length})` },
                 { key: 'history', label: `取引履歴 (${pastAssignments.length})` },
                 { key: 'proposals', label: `提案履歴 (${proposals.length})` },
+                { key: 'deals', label: `商談ログ (${dealLogs.length})` },
               ] as const).map(tab => (
                 <button
                   key={tab.key}
@@ -277,10 +374,95 @@ export default function ClientDetailPage() {
                   </div>
                 )
               )}
+
+              {/* 商談ログ（タイムライン） */}
+              {activeTab === 'deals' && (
+                dealLogs.length === 0 ? (
+                  <div className="text-sm text-secondary py-4 text-center">商談ログはありません</div>
+                ) : (
+                  <div className="relative">
+                    {/* タイムライン縦線 */}
+                    {dealLogs.length > 1 && (
+                      <div className="absolute left-[11px] top-6 bottom-6 w-px bg-border/30" />
+                    )}
+                    <div className="space-y-0">
+                      {dealLogs.map((log, idx) => (
+                        <div key={log.id} className="relative pl-9 pb-6 last:pb-0">
+                          {/* タイムラインドット */}
+                          <div className={`absolute left-[6px] top-[6px] w-[11px] h-[11px] rounded-full border-2 ${idx === 0 ? 'border-primary bg-primary/20' : 'border-border/50 bg-card'}`} />
+
+                          {/* ヘッダー: 日付 + 回数 */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm font-medium">{fmtDate(log.date)}</span>
+                            <span className="text-2xs text-secondary">({dealLogs.length - idx}回目)</span>
+                          </div>
+
+                          {/* 商談相手 */}
+                          {log.contacts && parseContacts(log.contacts).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {parseContacts(log.contacts).map((person, nIdx) => (
+                                <span key={nIdx} className="inline-flex items-center px-2 py-0.5 bg-page rounded text-xs border border-border/15">
+                                  <span className="font-medium">{person.name}</span>
+                                  {person.title && <span className="text-secondary ml-1">{person.title}</span>}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 内容 */}
+                          <div className="text-sm whitespace-pre-wrap leading-relaxed text-primary/85">{log.content}</div>
+
+                          {/* 名刺画像 */}
+                          {parseCardImages(log.cardImages).length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              {parseCardImages(log.cardImages).map((img, imgIdx) => (
+                                <img
+                                  key={imgIdx}
+                                  src={img}
+                                  alt="名刺"
+                                  className="h-20 rounded border border-border/30 shadow-sm cursor-pointer hover:opacity-80 hover:shadow-md transition-all"
+                                  onClick={() => setLightboxImage(img)}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          {/* フッター */}
+                          {log.recordingUrl && (
+                            <div className="mt-2.5 text-xs">
+                              <a href={log.recordingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                                <span>&#9654;</span><span>録画を見る</span>
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* 名刺画像ライトボックス */}
+      {lightboxImage && (
+        <>
+          <div className="fixed inset-0 bg-black/60 z-[300]" onClick={() => setLightboxImage(null)} />
+          <div className="fixed inset-0 z-[301] flex items-center justify-center p-8" onClick={() => setLightboxImage(null)}>
+            <div className="relative max-w-[90vw] max-h-[90vh]" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={() => setLightboxImage(null)}
+                className="absolute -top-3 -right-3 w-8 h-8 bg-card rounded-full shadow-lg flex items-center justify-center text-secondary hover:text-primary transition-colors z-[302]"
+              >
+                &#10005;
+              </button>
+              <img src={lightboxImage} alt="名刺（拡大）" className="max-w-full max-h-[85vh] rounded-lg shadow-2xl" />
+            </div>
+          </div>
+        </>
+      )}
 
       <ToastUI />
     </div>
