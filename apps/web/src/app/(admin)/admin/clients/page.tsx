@@ -51,8 +51,6 @@ interface Client {
   avgUnitPrice: number;
   startDate: string;
   contact: string;
-  activeMembers: { name: string; role: string; since: string }[];
-  history: { period: string; description: string }[];
 }
 
 function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
@@ -61,8 +59,6 @@ export default function AdminClientsPage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = selectedId ? clients.find(c => c.id === selectedId) : null;
   const { toast, ToastUI } = useToast();
 
   const fetchClients = useCallback(async () => {
@@ -102,14 +98,6 @@ export default function AdminClientsPage() {
               ? (() => { const d = new Date(c.tradeStartDate); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()
               : '--',
             contact: c.contactPerson || '--',
-            activeMembers: clientAssignments.map((a) => ({
-              name: `${a.employee.lastName} ${a.employee.firstName}`,
-              role: a.projectName || '--',
-              since: a.startDate
-                ? (() => { const d = new Date(a.startDate); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()
-                : '--',
-            })),
-            history: [],
           };
         }),
       );
@@ -174,14 +162,14 @@ export default function AdminClientsPage() {
             ) : clients.length === 0 ? (
               <tr><td colSpan={6}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
             ) : clients.map(c => (
-              <tr key={c.id} onClick={() => setSelectedId(c.id)} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
+              <tr key={c.id} onClick={() => router.push(`/admin/clients/${c.id}`)} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
                 <td className="px-4 py-2.5 text-base font-medium">{c.name}</td>
                 <td className="px-4 py-2.5 text-base text-right tabular-nums">{c.monthlyRevenue ? `${fmt(c.monthlyRevenue)}円` : '--'}</td>
                 <td className="px-4 py-2.5 text-base text-right">{c.memberCount}名</td>
                 <td className="px-4 py-2.5 text-base text-right tabular-nums">{c.avgUnitPrice ? `${fmt(c.avgUnitPrice)}円` : '--'}</td>
                 <td className="px-4 py-2.5 text-base text-right text-secondary">{c.startDate}</td>
                 <td className="px-4 py-2.5">
-                  <button onClick={(e) => { e.stopPropagation(); setSelectedId(c.id); }} className="btn-outline text-xs py-1 px-2">詳細</button>
+                  <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/clients/${c.id}`); }} className="btn-outline text-xs py-1 px-2">詳細</button>
                 </td>
               </tr>
             ))}
@@ -189,81 +177,6 @@ export default function AdminClientsPage() {
         </table>
       </div>
 
-      {/* Detail Panel */}
-      {selected && (
-        <>
-          <div className="fixed inset-0 bg-black/8 z-[99]" onClick={() => setSelectedId(null)} />
-          <div className="fixed top-0 right-0 bottom-0 w-full max-w-[480px] bg-card border-l border-border z-[100] overflow-y-auto">
-            {/* Panel Header */}
-            <div className="flex justify-between items-start p-5 border-b border-border/30">
-              <div>
-                <h2 className="text-xl font-medium">{selected.name}</h2>
-                {/* industry removed */}
-              </div>
-              <button onClick={() => setSelectedId(null)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">✕</button>
-            </div>
-
-            <div className="p-5 space-y-5">
-              {/* Stats Grid (3 col) */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-page rounded-lg p-3 text-center">
-                  <div className="text-2xs text-secondary">稼働人数</div>
-                  <div className="text-2xl font-medium">{selected.memberCount}</div>
-                </div>
-                <div className="bg-page rounded-lg p-3 text-center">
-                  <div className="text-2xs text-secondary">月間売上</div>
-                  <div className="text-lg font-medium tabular-nums">{selected.monthlyRevenue ? fmt(selected.monthlyRevenue) : '--'}</div>
-                </div>
-                <div className="bg-page rounded-lg p-3 text-center">
-                  <div className="text-2xs text-secondary">取引開始</div>
-                  <div className="text-base font-medium">{selected.startDate}</div>
-                </div>
-              </div>
-
-              {/* 基本情報 */}
-              <div>
-                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">基本情報</div>
-                {[['担当者', selected.contact]].map(([l, v]) => (
-                  <div key={l} className="flex justify-between py-1.5 border-b border-border/20 text-base">
-                    <span className="text-secondary">{l}</span><span>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* 現在の稼働メンバー */}
-              <div>
-                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">現在の稼働メンバー</div>
-                {selected.activeMembers.length === 0 ? (
-                  <div className="text-sm text-secondary py-2">データはありません</div>
-                ) : selected.activeMembers.map((m, i) => (
-                  <div key={i} className="flex justify-between py-1.5 border-b border-border/20 text-base">
-                    <span>{m.name}<span className="text-secondary text-sm ml-2">{m.role}</span></span>
-                    <span className="text-secondary text-sm">{m.since}〜</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* 過去の取引履歴 */}
-              <div>
-                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">過去の取引履歴</div>
-                {selected.history.length === 0 ? (
-                  <div className="text-sm text-secondary py-2">データはありません</div>
-                ) : selected.history.map((h, i) => (
-                  <div key={i} className="flex justify-between py-1.5 border-b border-border/20 text-base">
-                    <span className="text-secondary">{h.period}</span><span>{h.description}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2">
-                <button onClick={() => router.push(`/admin/clients/${selected.id}/edit`)} className="btn-outline flex-1 text-sm py-2">編集</button>
-                <button onClick={() => router.push('/admin/billing')} className="btn-outline flex-1 text-sm py-2">請求書発行</button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
       <ToastUI />
     </div>
   );

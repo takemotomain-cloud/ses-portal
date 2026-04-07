@@ -15,10 +15,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { apiClient } from '@/lib/api-client';
+import { useNavigationGuard } from '@/lib/navigation-guard';
 
 interface NavSection {
   label: string;
@@ -88,7 +89,9 @@ const navSections: NavSection[] = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout } = useAuth();
+  const { confirmNavigation } = useNavigationGuard();
 
   const [approvalCount, setApprovalCount] = useState(0);
 
@@ -146,10 +149,13 @@ export function AdminSidebar() {
                 const active = pathname === item.href || pathname.startsWith(item.href + '/');
                 const dynamicBadge = item.href === '/admin/approvals' ? approvalCount : 0;
                 return (
-                  <Link
+                  <a
                     key={item.href}
                     href={item.href}
-                    
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (confirmNavigation()) router.push(item.href);
+                    }}
                     className={`flex items-center justify-between px-3 py-[7px] rounded-md
                                text-base transition-colors cursor-pointer
                                ${active
@@ -163,7 +169,7 @@ export function AdminSidebar() {
                         {dynamicBadge}
                       </span>
                     )}
-                  </Link>
+                  </a>
                 );
               })}
             </div>
@@ -174,14 +180,17 @@ export function AdminSidebar() {
             <div className="text-2xs text-secondary/60 uppercase tracking-widest px-2 mb-1">
               マイページ
             </div>
-            <Link
+            <a
               href="/mypage"
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirmNavigation()) router.push('/mypage');
+              }}
               className="flex items-center px-3 py-[7px] rounded-md text-base text-secondary
                          hover:bg-page hover:text-primary transition-colors"
-              
             >
               マイページを開く
-            </Link>
+            </a>
           </div>
         </nav>
 

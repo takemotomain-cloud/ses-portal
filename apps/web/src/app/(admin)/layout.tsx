@@ -10,6 +10,7 @@
 
 import { AuthProvider } from '@/lib/auth-context';
 import { AdminSidebar } from '@/components/layout/admin-sidebar';
+import { AdminProviders } from '@/components/layout/admin-providers';
 
 export default function AdminLayout({
   children,
@@ -18,12 +19,14 @@ export default function AdminLayout({
 }) {
   return (
     <AuthProvider>
-      <div className="min-h-screen bg-page">
-        <AdminSidebar />
-        <main className="ml-0 lg:ml-sidebar p-4 lg:p-7 min-h-screen">
-          {children}
-        </main>
-      </div>
+      <AdminProviders>
+        <div className="min-h-screen bg-page">
+          <AdminSidebar />
+          <main className="ml-0 lg:ml-sidebar p-4 lg:p-7 min-h-screen">
+            {children}
+          </main>
+        </div>
+      </AdminProviders>
     </AuthProvider>
   );
 }

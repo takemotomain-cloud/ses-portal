@@ -7,10 +7,11 @@
 
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
+import { useNavigationGuard } from '@/lib/navigation-guard';
 
 /* ---------- 型定義 ---------- */
 
@@ -593,6 +594,47 @@ function SkillsheetEditContent() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  /* ---------- 未保存変更検知 ---------- */
+  const snapshotRef = useRef('');
+  const { setGuard } = useNavigationGuard();
+  const isDirty = useCallback(() => {
+    if (mode !== 'edit') return false;
+    return JSON.stringify({ experience, selfPr, projects }) !== snapshotRef.current;
+  }, [mode, experience, selfPr, projects]);
+
+  // 編集モード開始時にスナップショットを保存
+  useEffect(() => {
+    if (mode === 'edit') {
+      snapshotRef.current = JSON.stringify({ experience, selfPr, projects });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  // isDirtyの変化をグローバルガードに反映
+  useEffect(() => {
+    setGuard(isDirty());
+    return () => setGuard(false);
+  }, [isDirty, setGuard]);
+
+  // ブラウザの戻る/リロード時の警告
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty()) { e.preventDefault(); }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const confirmIfDirty = (action: () => void) => {
+    if (isDirty()) {
+      if (window.confirm('変更が保存されていません。このまま移動しますか？')) {
+        action();
+      }
+    } else {
+      action();
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -601,6 +643,7 @@ function SkillsheetEditContent() {
         body: JSON.stringify({ experience, selfPr, projects }),
       });
       toast('スキルシートを保存しました');
+      snapshotRef.current = JSON.stringify({ experience, selfPr, projects });
       setMode('preview');
     } catch (err: any) {
       toast(err?.message || '保存に失敗しました');
@@ -814,7 +857,7 @@ function SkillsheetEditContent() {
       <div data-print-hide className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">{empName} のスキルシート</h1>
         <div className="flex gap-2">
-          <button onClick={() => router.push('/admin/skillsheets')} className="btn-outline text-sm py-2">一覧に戻る</button>
+          <button onClick={() => confirmIfDirty(() => router.push('/admin/skillsheets'))} className="btn-outline text-sm py-2">一覧に戻る</button>
           {mode === 'preview' ? (
             <>
               <button onClick={() => setMode('edit')} className="btn-outline text-sm py-2">編集する</button>
@@ -822,7 +865,7 @@ function SkillsheetEditContent() {
               <button onClick={() => window.print()} className="btn-primary text-sm py-2">PDFダウンロード</button>
             </>
           ) : (
-            <button onClick={() => { setMode('preview'); fetchData(); }} className="btn-outline text-sm py-2">キャンセル</button>
+            <button onClick={() => confirmIfDirty(() => { setMode('preview'); fetchData(); })} className="btn-outline text-sm py-2">キャンセル</button>
           )}
           {mode === 'edit' && (
             <button onClick={handleSave} disabled={saving} className="btn-primary text-sm py-2 disabled:opacity-50">
