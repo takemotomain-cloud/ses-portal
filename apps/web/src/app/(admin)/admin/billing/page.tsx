@@ -7,32 +7,46 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
 
 /* ------------------------------------------------------------------ */
 /*  型定義                                                              */
 /* ------------------------------------------------------------------ */
 
-type InvoiceStatus = 'paid' | 'sent' | 'draft' | 'overdue';
+type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue';
+
+interface InvoiceItem {
+  id: string;
+  employeeName: string;
+  description: string;
+  workHours: number | null;
+  unitPrice: number;
+  settlementLower: number | null;
+  settlementUpper: number | null;
+  overtimeAmount: number;
+  deductionAmount: number;
+  subtotal: number;
+}
 
 interface Invoice {
   id: string;
-  number: string;
-  client: string;
-  members: number;
-  amount: number;       // 税込
+  invoiceNo: string;
+  clientId: string;
+  client: { id: string; name: string; address?: string; contactPerson?: string; contactEmail?: string };
+  targetMonth: string;
+  totalAmount: number;
+  tax: number;
+  status: InvoiceStatus;
   invoiceDate: string;
   dueDate: string;
-  recipient: string;
-  status: InvoiceStatus;
+  recipientEmail: string | null;
+  notes: string | null;
+  sentAt: string | null;
+  paidAt: string | null;
+  items: InvoiceItem[];
 }
-
-/* ------------------------------------------------------------------ */
-/*  データ (空配列 — API未接続)                                          */
-/* ------------------------------------------------------------------ */
-
-const invoices: Invoice[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  ヘルパー                                                            */
@@ -47,19 +61,10 @@ const statusBadge: Record<InvoiceStatus, { label: string; cls: string }> = {
   overdue: { label: '遅延',   cls: 'badge-danger' },
 };
 
-/* ------------------------------------------------------------------ */
-/*  請求書プレビュー用データ (API接続後は動的に取得)                         */
-/* ------------------------------------------------------------------ */
-
-const sampleInvoice: {
-  number: string; date: string; dueDate: string; client: string;
-  issuer: { company: string; zip: string; address: string; tel: string };
-  totalWithTax: number;
-  lines: { name: string; description: string; hours: number; range: string; unitPrice: number; overtime: number; subtotal: number }[];
-  baseTotal: number; overtimeTotal: number; subtotal: number; tax: number;
-  bank: { bankName: string; accountType: string; accountNumber: string; accountHolder: string };
-  notes: string;
-} | null = null;
+function fmtDate(d: string) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}年${dt.getMonth() + 1}月${dt.getDate()}日`;
+}
 
 /* ================================================================== */
 /*  コンポーネント                                                      */
@@ -69,17 +74,53 @@ export default function AdminBillingPage() {
   const [tab, setTab] = useState<0 | 1>(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const { toast, ToastUI } = useToast();
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   // 月ラベル
   const now = new Date();
   const viewDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
   const monthLabel = `${viewDate.getFullYear()}年${viewDate.getMonth() + 1}月`;
+  const monthQuery = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient<Invoice[]>(`/invoices?month=${monthQuery}`);
+      setInvoices(data);
+    } catch {
+      toast('データの取得に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  }, [monthQuery]);
+
+  useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
 
   // KPI
-  const total      = invoices.reduce((s, i) => s + i.amount, 0);
-  const paidTotal  = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
-  const unpaid     = invoices.filter(i => i.status === 'sent').reduce((s, i) => s + i.amount, 0);
-  const overdueAmt = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
+  const total      = invoices.reduce((s, i) => s + i.totalAmount + i.tax, 0);
+  const paidTotal  = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.totalAmount + i.tax, 0);
+  const unpaid     = invoices.filter(i => i.status === 'sent').reduce((s, i) => s + i.totalAmount + i.tax, 0);
+  const overdueAmt = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + i.totalAmount + i.tax, 0);
+
+  async function handleStatusUpdate(id: string, status: string) {
+    try {
+      await apiClient(`/invoices/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      toast('ステータスを更新しました');
+      fetchInvoices();
+    } catch {
+      toast('更新に失敗しました');
+    }
+  }
+
+  function openPreview(inv: Invoice) {
+    setSelectedInvoice(inv);
+    setTab(1);
+  }
 
   return (
     <div>
@@ -88,7 +129,7 @@ export default function AdminBillingPage() {
         <h1 className="text-2xl font-medium">請求管理</h1>
         <div className="flex gap-2">
           <button onClick={() => window.print()} className="btn-outline text-sm py-2">一括PDF出力</button>
-          <button onClick={() => toast('請求書作成はfreee連携で対応予定です')} className="btn-primary text-sm py-2">請求書作成</button>
+          <button onClick={() => toast('請求書作成機能は今後実装予定です')} className="btn-primary text-sm py-2">請求書作成</button>
         </div>
       </div>
 
@@ -139,48 +180,55 @@ export default function AdminBillingPage() {
           </div>
 
           {/* テーブル */}
-          <div className="card p-0 overflow-x-auto">
-            <table className="w-full min-w-[900px]">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">請求番号</th>
-                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">クライアント</th>
-                  <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">人数</th>
-                  <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">請求金額(税込)</th>
-                  <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">請求日</th>
-                  <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">支払期日</th>
-                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">送信先</th>
-                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">ステータス</th>
-                  <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">アクション</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.length === 0 ? (
-                  <tr><td colSpan={9}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
-                ) : invoices.map(inv => {
-                  const st = statusBadge[inv.status];
-                  return (
-                    <tr key={inv.id} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
-                      <td className="px-4 py-2.5 text-base font-medium">{inv.number}</td>
-                      <td className="px-4 py-2.5 text-base">{inv.client}</td>
-                      <td className="px-4 py-2.5 text-base text-right">{inv.members}名</td>
-                      <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(inv.amount)}円</td>
-                      <td className="px-4 py-2.5 text-base text-right">{inv.invoiceDate}</td>
-                      <td className="px-4 py-2.5 text-base text-right">{inv.dueDate}</td>
-                      <td className="px-4 py-2.5 text-base text-secondary">{inv.recipient}</td>
-                      <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex gap-1">
-                          <button onClick={() => setTab(1)} className="btn-outline text-xs py-1 px-2">プレビュー</button>
-                          <button onClick={() => toast('送信済みに更新しました')} className="btn-outline text-xs py-1 px-2">送信</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {loading ? (
+            <div className="flex justify-center py-12"><div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" /></div>
+          ) : (
+            <div className="card p-0 overflow-x-auto">
+              <table className="w-full min-w-[900px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">請求番号</th>
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">クライアント</th>
+                    <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">人数</th>
+                    <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">請求金額(税込)</th>
+                    <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">請求日</th>
+                    <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">支払期日</th>
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">送信先</th>
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">ステータス</th>
+                    <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">アクション</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.length === 0 ? (
+                    <tr><td colSpan={9}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
+                  ) : invoices.map(inv => {
+                    const st = statusBadge[inv.status] || statusBadge.draft;
+                    const totalWithTax = inv.totalAmount + inv.tax;
+                    return (
+                      <tr key={inv.id} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
+                        <td className="px-4 py-2.5 text-base font-medium">{inv.invoiceNo}</td>
+                        <td className="px-4 py-2.5 text-base">{inv.client.name}</td>
+                        <td className="px-4 py-2.5 text-base text-right">{inv.items.length}名</td>
+                        <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(totalWithTax)}円</td>
+                        <td className="px-4 py-2.5 text-base text-right">{fmtDate(inv.invoiceDate)}</td>
+                        <td className="px-4 py-2.5 text-base text-right">{fmtDate(inv.dueDate)}</td>
+                        <td className="px-4 py-2.5 text-base text-secondary">{inv.recipientEmail || '--'}</td>
+                        <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex gap-1">
+                            <button onClick={() => openPreview(inv)} className="btn-outline text-xs py-1 px-2">プレビュー</button>
+                            {inv.status === 'draft' && (
+                              <button onClick={() => handleStatusUpdate(inv.id, 'sent')} className="btn-outline text-xs py-1 px-2">送信</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
@@ -197,8 +245,7 @@ export default function AdminBillingPage() {
             <button onClick={() => toast('メール送信はfreee連携で対応予定です')} className="btn-primary text-sm py-2">メール送信</button>
           </div>
 
-          {/* 請求書プレビュー */}
-          {!sampleInvoice ? (
+          {!selectedInvoice ? (
             <div className="card p-10 text-center text-secondary">
               請求書を選択してください
             </div>
@@ -209,22 +256,15 @@ export default function AdminBillingPage() {
 
             {/* 宛先 + 発行者情報 */}
             <div className="flex justify-between items-start mb-8 flex-wrap gap-4">
-              {/* 宛先 */}
               <div>
-                <div className="text-lg font-medium">{sampleInvoice.client}</div>
+                <div className="text-lg font-medium">{selectedInvoice.client.name}</div>
                 <div className="text-base">御中</div>
               </div>
-
-              {/* 発行者・請求情報 */}
               <div className="text-right text-sm space-y-0.5">
-                <div className="font-medium">{sampleInvoice.issuer.company}</div>
-                <div className="text-secondary">{sampleInvoice.issuer.zip}</div>
-                <div className="text-secondary">{sampleInvoice.issuer.address}</div>
-                <div className="text-secondary">{sampleInvoice.issuer.tel}</div>
                 <div className="mt-3 space-y-0.5">
-                  <div>請求番号: <span className="font-medium">{sampleInvoice.number}</span></div>
-                  <div>請求日: {sampleInvoice.date}</div>
-                  <div>お支払期限: {sampleInvoice.dueDate}</div>
+                  <div>請求番号: <span className="font-medium">{selectedInvoice.invoiceNo}</span></div>
+                  <div>請求日: {fmtDate(selectedInvoice.invoiceDate)}</div>
+                  <div>お支払期限: {fmtDate(selectedInvoice.dueDate)}</div>
                 </div>
               </div>
             </div>
@@ -232,7 +272,7 @@ export default function AdminBillingPage() {
             {/* ご請求金額(税込) */}
             <div className="bg-page border border-border rounded-lg p-5 mb-8 text-center">
               <div className="text-sm text-secondary mb-1">ご請求金額（税込）</div>
-              <div className="text-3xl font-medium tabular-nums">&yen;{fmt(sampleInvoice.totalWithTax)}</div>
+              <div className="text-3xl font-medium tabular-nums">&yen;{fmt(selectedInvoice.totalAmount + selectedInvoice.tax)}</div>
             </div>
 
             {/* 明細テーブル */}
@@ -250,14 +290,14 @@ export default function AdminBillingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sampleInvoice.lines.map((line, idx) => (
-                    <tr key={idx} className="border-b border-border/30">
-                      <td className="px-3 py-2.5 text-sm font-medium">{line.name}</td>
+                  {selectedInvoice.items.map((line) => (
+                    <tr key={line.id} className="border-b border-border/30">
+                      <td className="px-3 py-2.5 text-sm font-medium">{line.employeeName}</td>
                       <td className="px-3 py-2.5 text-sm">{line.description}</td>
-                      <td className="px-3 py-2.5 text-sm text-right">{line.hours}h</td>
-                      <td className="px-3 py-2.5 text-sm text-right">{line.range}</td>
+                      <td className="px-3 py-2.5 text-sm text-right">{line.workHours ?? '--'}h</td>
+                      <td className="px-3 py-2.5 text-sm text-right">{line.settlementLower && line.settlementUpper ? `${line.settlementLower}〜${line.settlementUpper}h` : '--'}</td>
                       <td className="px-3 py-2.5 text-sm text-right tabular-nums">&yen;{fmt(line.unitPrice)}</td>
-                      <td className="px-3 py-2.5 text-sm text-right tabular-nums">&yen;{fmt(line.overtime)}</td>
+                      <td className="px-3 py-2.5 text-sm text-right tabular-nums">&yen;{fmt(line.overtimeAmount)}</td>
                       <td className="px-3 py-2.5 text-sm text-right tabular-nums">&yen;{fmt(line.subtotal)}</td>
                     </tr>
                   ))}
@@ -269,10 +309,8 @@ export default function AdminBillingPage() {
             <div className="flex justify-end mb-8">
               <div className="w-full max-w-[320px] space-y-0">
                 {[
-                  ['基本報酬計',   sampleInvoice.baseTotal],
-                  ['超過精算計',   sampleInvoice.overtimeTotal],
-                  ['税抜合計',     sampleInvoice.subtotal],
-                  ['消費税（10%）', sampleInvoice.tax],
+                  ['税抜合計', selectedInvoice.totalAmount],
+                  ['消費税（10%）', selectedInvoice.tax],
                 ].map(([label, value]) => (
                   <div key={label as string} className="flex justify-between py-1.5 border-b border-border/20 text-sm">
                     <span className="text-secondary">{label}</span>
@@ -281,26 +319,18 @@ export default function AdminBillingPage() {
                 ))}
                 <div className="flex justify-between py-2 border-b-2 border-border text-base font-medium">
                   <span>合計（税込）</span>
-                  <span className="tabular-nums">&yen;{fmt(sampleInvoice.totalWithTax)}</span>
+                  <span className="tabular-nums">&yen;{fmt(selectedInvoice.totalAmount + selectedInvoice.tax)}</span>
                 </div>
               </div>
             </div>
 
-            {/* 振込先情報 */}
-            <div className="bg-page border border-border rounded-lg p-5 mb-6">
-              <div className="text-xs text-secondary uppercase tracking-widest mb-2">お振込先</div>
-              <div className="text-sm space-y-0.5">
-                <div>{sampleInvoice.bank.bankName}</div>
-                <div>{sampleInvoice.bank.accountType} {sampleInvoice.bank.accountNumber}</div>
-                <div>口座名義: {sampleInvoice.bank.accountHolder}</div>
-              </div>
-            </div>
-
             {/* 備考 */}
-            <div>
-              <div className="text-xs text-secondary uppercase tracking-widest mb-2">備考</div>
-              <div className="text-sm text-secondary whitespace-pre-line">{sampleInvoice.notes}</div>
-            </div>
+            {selectedInvoice.notes && (
+              <div>
+                <div className="text-xs text-secondary uppercase tracking-widest mb-2">備考</div>
+                <div className="text-sm text-secondary whitespace-pre-line">{selectedInvoice.notes}</div>
+              </div>
+            )}
           </div>
           )}
         </>

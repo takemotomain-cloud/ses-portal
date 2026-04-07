@@ -2,6 +2,8 @@
  * Reconciliation Controller — 勤怠突合のREST APIエンドポイント
  *
  * エンドポイント:
+ *   POST   /api/attendance/reconciliation/bulk-upload   — 一括アップロード＋社員自動マッチング
+ *   POST   /api/attendance/reconciliation/bulk-confirm   — 一括取込確定
  *   POST   /api/attendance/reconciliation/upload        — 現場勤怠表アップロード＋構造化
  *   POST   /api/attendance/reconciliation/:uploadId/reconcile — 突合実行
  *   GET    /api/attendance/reconciliation/:uploadId      — 突合結果取得
@@ -21,11 +23,15 @@ import {
   Query,
   UseGuards,
   UseInterceptors,
+  UsePipes,
   UploadedFile,
+  UploadedFiles,
   ParseUUIDPipe,
   BadRequestException,
+  ValidationPipe,
+  Logger,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { existsSync, mkdirSync } from 'fs';
 import { join, extname } from 'path';
@@ -47,10 +53,154 @@ if (!existsSync(uploadDir)) {
 @Controller('attendance/reconciliation')
 @UseGuards(JwtAuthGuard)
 export class ReconciliationController {
+  private readonly logger = new Logger(ReconciliationController.name);
+
   constructor(
     private readonly reconciliationService: ReconciliationService,
     private readonly db: DatabaseService,
   ) {}
+
+  /**
+   * 一括アップロード（複数ファイル）＋社員名自動マッチング
+   * DB保存なし。解析結果と社員マッチングのみ返す。
+   */
+  @Post('bulk-upload')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '一括アップロード＋社員自動マッチング' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: false, forbidNonWhitelisted: false }))
+  @UseInterceptors(
+    FilesInterceptor('files', 20, {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => cb(null, uploadDir),
+        filename: (_req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const ext = extname(file.originalname);
+          cb(null, `attendance-${uniqueSuffix}${ext}`);
+        },
+      }),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = /\.(xlsx|xls|csv|pdf|jpg|jpeg|png|gif|webp)$/i;
+        if (!allowed.test(file.originalname)) {
+          return cb(new BadRequestException('未対応のファイル形式です'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async bulkUpload(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body() body: any,
+  ) {
+    // yearMonth はオプショナル。未指定時は当月をフォールバックとして使用
+    const now = new Date();
+    const fallbackYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const yearMonth = (body?.yearMonth && /^\d{4}-\d{2}$/.test(body.yearMonth))
+      ? body.yearMonth
+      : fallbackYm;
+    this.logger.log(`bulk-upload: files=${files?.length}, yearMonth=${yearMonth}`);
+
+    if (!files?.length) throw new BadRequestException('ファイルが指定されていません');
+
+    const results = [];
+    for (const file of files) {
+      const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      this.logger.log(`bulk-upload: processing file=${originalName}, path=${file.path}, mime=${file.mimetype}`);
+      try {
+        const parsed = await this.reconciliationService.parseOnly(file, yearMonth);
+        const matchedEmployee = parsed.employeeName
+          ? await this.reconciliationService.matchEmployeeByName(parsed.employeeName)
+          : null;
+
+        this.logger.log(`bulk-upload: parsed file=${originalName}, employee=${parsed.employeeName}, matched=${matchedEmployee?.lastName}`);
+        results.push({
+          fileName: originalName,
+          filePath: file.path,
+          employeeName: parsed.employeeName,
+          matchedEmployee: matchedEmployee
+            ? { id: matchedEmployee.id, name: `${matchedEmployee.lastName} ${matchedEmployee.firstName}`, employeeCode: matchedEmployee.employeeCode }
+            : null,
+          recordCount: parsed.records.length,
+          yearMonth: parsed.yearMonth,
+          records: parsed.records,
+          summary: parsed.summary,
+          client: parsed.client,
+          error: null,
+        });
+      } catch (err: any) {
+        this.logger.error(`bulk-upload: error processing file=${originalName}: ${err.message}`, err.stack);
+        results.push({
+          fileName: originalName,
+          filePath: file.path,
+          employeeName: null,
+          matchedEmployee: null,
+          recordCount: 0,
+          yearMonth,
+          records: [],
+          summary: null,
+          client: null,
+          error: err.message || '解析に失敗しました',
+        });
+      }
+    }
+
+    return { results };
+  }
+
+  /**
+   * 一括取込確定
+   * チェック済みのファイルをDBに保存＋突合実行
+   */
+  @Post('bulk-confirm')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '一括取込確定' })
+  async bulkConfirm(
+    @Body() body: {
+      uploads: {
+        employeeId: string;
+        yearMonth: string;
+        fileName: string;
+        records: any[];
+        summary: any;
+        client: string | null;
+      }[];
+    },
+  ) {
+    if (!body.uploads?.length) {
+      throw new BadRequestException('取込対象が指定されていません');
+    }
+
+    const results = [];
+    for (const item of body.uploads) {
+      try {
+        const result = await this.reconciliationService.saveAndReconcile(
+          item.employeeId,
+          item.yearMonth,
+          { records: item.records, summary: item.summary, client: item.client },
+          item.fileName,
+        );
+        results.push({
+          employeeId: item.employeeId,
+          fileName: item.fileName,
+          uploadId: result.uploadId,
+          reconciliation: result.reconciliation,
+          error: null,
+        });
+      } catch (err: any) {
+        results.push({
+          employeeId: item.employeeId,
+          fileName: item.fileName,
+          uploadId: null,
+          reconciliation: null,
+          error: err.message || '取込に失敗しました',
+        });
+      }
+    }
+
+    return { results };
+  }
 
   /**
    * 現場勤怠表アップロード＋構造化
@@ -98,6 +248,24 @@ export class ReconciliationController {
 
     // Step1: アップロード＋構造化
     const parsed = await this.reconciliationService.uploadAndParse(file, targetEmployeeId, yearMonth, clientId);
+
+    // Step1.5: 社員（非admin）の場合、抽出した社員名が本人と一致するかチェック
+    if (user.role !== 'admin') {
+      const employee = await this.reconciliationService.getEmployee(targetEmployeeId);
+      const extractedName = parsed.employeeName;
+      if (!extractedName) {
+        throw new BadRequestException('ファイルから社員名を読み取れませんでした。ファイルが間違っています。');
+      }
+      if (employee) {
+        const normalize = (s: string) => s.replace(/[\s　]+/g, '');
+        const fullName = `${employee.lastName}${employee.firstName}`;
+        const nameMatch = normalize(extractedName) === fullName;
+        const lastNameMatch = extractedName.includes(employee.lastName);
+        if (!nameMatch && !lastNameMatch) {
+          throw new BadRequestException('ファイルが間違っています。PDFに記載の社員名が本人と一致しません。');
+        }
+      }
+    }
 
     // Step2: 自動で突合実行
     let reconciliation = null;
@@ -191,6 +359,20 @@ export class ReconciliationController {
     },
   ) {
     return this.reconciliationService.updateSettings(clientId, body);
+  }
+
+  @Get('employee/:employeeId/:yearMonth')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '社員月別突合結果取得' })
+  async getResultsByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('yearMonth') yearMonth: string,
+  ) {
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      throw new BadRequestException('yearMonth must be YYYY-MM format');
+    }
+    return this.reconciliationService.getReconcileResultsByEmployee(employeeId, yearMonth);
   }
 
   @Get(':uploadId')

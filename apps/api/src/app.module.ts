@@ -10,6 +10,7 @@
 
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { join } from 'path';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './common/health.controller';
 import { AuthModule } from './modules/auth/auth.module';
@@ -33,12 +34,14 @@ import { DelayCertificateModule } from './modules/delay-certificate/delay-certif
 import { BusinessCardsModule } from './modules/business-cards/business-cards.module';
 import { SkillsheetsModule } from './modules/skillsheets/skillsheets.module';
 import { ProposalsModule } from './modules/proposals/proposals.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
+import { FreeeModule } from './modules/freee/freee.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: join(__dirname, '..', '.env'),
     }),
     DatabaseModule,
     AuthModule,
@@ -62,6 +65,8 @@ import { ProposalsModule } from './modules/proposals/proposals.module';
     BusinessCardsModule,
     SkillsheetsModule,
     ProposalsModule,
+    InvoicesModule,
+    FreeeModule,
   ],
   controllers: [HealthController],
 })

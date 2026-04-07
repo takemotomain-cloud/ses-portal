@@ -94,17 +94,14 @@ export default function AttendancePage() {
   /* ---- 現場勤怠表アップロード ---- */
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadYearMonth, setUploadYearMonth] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const uploadYearMonth = `${year}-${String(month).padStart(2, '0')}`;
   const [uploading, setUploading] = useState(false);
   const [uploadDragOver, setUploadDragOver] = useState(false);
   const [myUploads, setMyUploads] = useState<any[]>([]);
   const [uploadResult, setUploadResult] = useState<{
     records: number;
     reconciliation: {
-      summary: { totalDays: number; matchCount: number; mismatchCount: number; clientOnlyCount: number; systemOnlyCount: number };
+      summary: { totalDays: number; matchCount: number; discrepancyCount: number; clientOnlyCount: number; systemOnlyCount: number };
     } | null;
   } | null>(null);
 
@@ -115,8 +112,8 @@ export default function AttendancePage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 2) loadMyUploads();
-  }, [activeTab, loadMyUploads]);
+    loadMyUploads();
+  }, [loadMyUploads]);
 
   const handleUploadFile = useCallback(async () => {
     if (!uploadFile || !uploadYearMonth) {
@@ -142,16 +139,11 @@ export default function AttendancePage() {
       }
 
       const data = await res.json();
-      const recSummary = data.reconciliation?.summary;
       setUploadResult({
         records: data.records?.length || 0,
         reconciliation: data.reconciliation,
       });
-      if (recSummary) {
-        toast(`${data.records?.length || 0}件を読取り、突合完了（一致: ${recSummary.matchCount}件 / 差異: ${recSummary.mismatchCount}件）`);
-      } else {
-        toast(`勤怠表をアップロードしました（${data.records?.length || 0}件）`);
-      }
+      toast('アップロード完了しました！');
       setUploadFile(null);
       loadMyUploads();
     } catch (err: any) {
@@ -166,17 +158,6 @@ export default function AttendancePage() {
     setUploadDragOver(false);
     if (e.dataTransfer.files?.[0]) setUploadFile(e.dataTransfer.files[0]);
   }, []);
-
-  const uploadStatusLabel = (status: string) => {
-    switch (status) {
-      case 'uploaded': return { text: '受付済', cls: 'bg-status-blue-bg text-status-blue-text' };
-      case 'parsed': return { text: '解析済', cls: 'bg-status-amber-bg text-status-amber-text' };
-      case 'reconciled': return { text: '突合済', cls: 'bg-status-green-bg text-status-green-text' };
-      case 'confirmed': return { text: '確定済', cls: 'bg-status-green-bg text-status-green-text' };
-      case 'error': return { text: 'エラー', cls: 'bg-status-red-bg text-status-red-text' };
-      default: return { text: status, cls: 'bg-border-light text-secondary' };
-    }
-  };
 
   /* ---- 修正モーダル ---- */
   const [editTarget, setEditTarget] = useState<AttendanceRecord | null>(null);
@@ -199,6 +180,16 @@ export default function AttendancePage() {
       .then(setCorrections)
       .catch(() => setCorrections([]));
   }, []);
+
+  const filteredCorrections = useMemo(() => {
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    return corrections.filter(c => c.attendance.workDate.startsWith(ym));
+  }, [corrections, year, month]);
+
+  const filteredUploads = useMemo(() => {
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    return myUploads.filter((u: any) => u.yearMonth === ym);
+  }, [myUploads, year, month]);
 
   function changeMonth(delta: number) {
     let m = month + delta;
@@ -290,6 +281,25 @@ export default function AttendancePage() {
 
   return (
     <div className="space-y-5">
+      {/* 月切り替え */}
+      <div className="flex items-center justify-center gap-3">
+        <button
+          onClick={() => changeMonth(-1)}
+          className="w-9 h-9 flex items-center justify-center border border-border rounded-lg text-secondary hover:bg-page"
+        >
+          ‹
+        </button>
+        <span className="text-lg font-medium min-w-[120px] text-center">
+          {year}年{month}月
+        </span>
+        <button
+          onClick={() => changeMonth(1)}
+          className="w-9 h-9 flex items-center justify-center border border-border rounded-lg text-secondary hover:bg-page"
+        >
+          ›
+        </button>
+      </div>
+
       {/* タブ切り替え */}
       <div className="flex border-b border-border/40">
         <button
@@ -304,7 +314,7 @@ export default function AttendancePage() {
           className={`px-5 py-2.5 text-base border-b-2 transition-colors
             ${activeTab === 1 ? 'text-primary font-medium border-primary' : 'text-secondary border-transparent hover:text-primary'}`}
         >
-          修正申請{corrections.length > 0 && ` (${corrections.length})`}
+          修正申請{filteredCorrections.length > 0 && ` (${filteredCorrections.length})`}
         </button>
         <button
           onClick={() => setActiveTab(2)}
@@ -317,25 +327,6 @@ export default function AttendancePage() {
 
       {activeTab === 0 && (
         <>
-          {/* 月切り替え */}
-          <div className="flex items-center justify-center gap-3">
-            <button
-              onClick={() => changeMonth(-1)}
-              className="w-9 h-9 flex items-center justify-center border border-border rounded-lg text-secondary hover:bg-page"
-            >
-              ‹
-            </button>
-            <span className="text-lg font-medium min-w-[120px] text-center">
-              {year}年{month}月
-            </span>
-            <button
-              onClick={() => changeMonth(1)}
-              className="w-9 h-9 flex items-center justify-center border border-border rounded-lg text-secondary hover:bg-page"
-            >
-              ›
-            </button>
-          </div>
-
           {/* サマリー */}
           <div className="grid grid-cols-3 gap-2">
             {[
@@ -429,16 +420,16 @@ export default function AttendancePage() {
       {/* 修正申請履歴タブ */}
       {activeTab === 1 && (
         <div className="card p-0">
-          {corrections.length === 0 ? (
+          {filteredCorrections.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-secondary">修正申請の履歴はありません</div>
           ) : (
-            corrections.map((c, idx) => {
+            filteredCorrections.map((c, idx) => {
               const wd = new Date(c.attendance.workDate);
               const st = statusLabel[c.status] || { text: c.status, cls: 'bg-muted text-secondary' };
               return (
                 <div
                   key={c.id}
-                  className={`px-5 py-3.5 ${idx < corrections.length - 1 ? 'border-b border-border/20' : ''}`}
+                  className={`px-5 py-3.5 ${idx < filteredCorrections.length - 1 ? 'border-b border-border/20' : ''}`}
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium">
@@ -475,29 +466,7 @@ export default function AttendancePage() {
           <div className="card p-5 space-y-4">
             <div>
               <h3 className="text-base font-medium mb-1">現場勤怠表のアップロード</h3>
-              <p className="text-sm text-secondary">クライアントから受け取った勤怠表をアップロードしてください。管理者が確認・突合を行います。</p>
-            </div>
-
-            <div>
-              <label className="block text-sm text-secondary mb-1">対象年月</label>
-              <select
-                value={uploadYearMonth}
-                onChange={e => setUploadYearMonth(e.target.value)}
-                className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
-                disabled={uploading}
-              >
-                {(() => {
-                  const options: { value: string; label: string }[] = [];
-                  const d = new Date();
-                  for (let i = -1; i <= 12; i++) {
-                    const dt = new Date(d.getFullYear(), d.getMonth() - i, 1);
-                    const val = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-                    const label = `${dt.getFullYear()}年${dt.getMonth() + 1}月`;
-                    options.push({ value: val, label });
-                  }
-                  return options.map(o => <option key={o.value} value={o.value}>{o.label}</option>);
-                })()}
-              </select>
+              <p className="text-sm text-secondary">クライアントから受け取った勤怠表をアップロードしてください。</p>
             </div>
 
             <div
@@ -552,39 +521,14 @@ export default function AttendancePage() {
             </button>
           </div>
 
-          {/* アップロード＆突合結果 */}
+          {/* アップロード完了 */}
           {uploadResult && (
             <div className="card p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-8 h-8 rounded-full bg-status-green-bg flex items-center justify-center text-status-green-text text-lg">✓</span>
-                <h3 className="text-base font-medium">アップロード完了</h3>
+                <h3 className="text-base font-medium">アップロード完了しました！</h3>
               </div>
               <p className="text-sm text-secondary">{uploadResult.records}件の勤怠データを読み取りました。</p>
-              {uploadResult.reconciliation?.summary && (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-status-green-bg rounded-lg px-3 py-2 text-center">
-                    <div className="text-2xs text-status-green-text">一致</div>
-                    <div className="text-lg font-medium text-status-green-text">{uploadResult.reconciliation.summary.matchCount}日</div>
-                  </div>
-                  <div className="bg-status-red-bg rounded-lg px-3 py-2 text-center">
-                    <div className="text-2xs text-status-red-text">差異あり</div>
-                    <div className="text-lg font-medium text-status-red-text">{uploadResult.reconciliation.summary.mismatchCount}日</div>
-                  </div>
-                  {uploadResult.reconciliation.summary.clientOnlyCount > 0 && (
-                    <div className="bg-status-amber-bg rounded-lg px-3 py-2 text-center">
-                      <div className="text-2xs text-status-amber-text">現場のみ</div>
-                      <div className="text-lg font-medium text-status-amber-text">{uploadResult.reconciliation.summary.clientOnlyCount}日</div>
-                    </div>
-                  )}
-                  {uploadResult.reconciliation.summary.systemOnlyCount > 0 && (
-                    <div className="bg-status-blue-bg rounded-lg px-3 py-2 text-center">
-                      <div className="text-2xs text-status-blue-text">自社のみ</div>
-                      <div className="text-lg font-medium text-status-blue-text">{uploadResult.reconciliation.summary.systemOnlyCount}日</div>
-                    </div>
-                  )}
-                </div>
-              )}
-              <p className="text-2xs text-secondary">管理者が内容を確認し、確定処理を行います。</p>
               <button
                 onClick={() => setUploadResult(null)}
                 className="w-full py-2 rounded-lg border border-border text-sm text-primary hover:bg-page transition-colors"
@@ -598,20 +542,17 @@ export default function AttendancePage() {
           <div>
             <h3 className="text-base font-medium mb-2">アップロード履歴</h3>
             <div className="card p-0">
-              {myUploads.length === 0 ? (
+              {filteredUploads.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-secondary">アップロード履歴はありません</div>
               ) : (
                 <ul>
-                  {myUploads.map((u: any, idx: number) => {
-                    const st = uploadStatusLabel(u.status);
-                    return (
+                  {filteredUploads.map((u: any, idx: number) => (
                       <li
                         key={u.id}
-                        className={`px-4 py-3 ${idx < myUploads.length - 1 ? 'border-b border-border-light' : ''}`}
+                        className={`px-4 py-3 ${idx < filteredUploads.length - 1 ? 'border-b border-border-light' : ''}`}
                       >
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="mb-1">
                           <span className="text-md font-medium">{u.yearMonth}</span>
-                          <span className={`text-2xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.text}</span>
                         </div>
                         <div className="text-sm text-secondary">
                           <span>{u.fileName || 'ファイル'}</span>
@@ -621,8 +562,7 @@ export default function AttendancePage() {
                           {(() => { const d = new Date(u.createdAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}時${String(d.getMinutes()).padStart(2, '0')}分`; })()}
                         </div>
                       </li>
-                    );
-                  })}
+                    ))}
                 </ul>
               )}
             </div>

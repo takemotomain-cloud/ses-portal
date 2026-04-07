@@ -11,6 +11,21 @@
  * - whitelist: リクエストボディから未定義プロパティを自動除去
  */
 
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// .envを手動ロード（pnpm + nest start --watch でdotenvのパス解決が不安定なため）
+try {
+  const envPath = resolve(__dirname, '..', '.env');
+  const envContent = readFileSync(envPath, 'utf8');
+  for (const line of envContent.split('\n')) {
+    const match = line.match(/^([^#=]+)=["']?([^"'\n]*)["']?$/);
+    if (match && !process.env[match[1].trim()]) {
+      process.env[match[1].trim()] = match[2];
+    }
+  }
+} catch {}
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';

@@ -98,6 +98,98 @@ export class AttendanceController {
     return this.attendanceService.detectMissedClocks(user.employeeId);
   }
 
+  /* --- シフト計画 --- */
+
+  @Get('shift/:yearMonth')
+  @ApiOperation({ summary: '自分のシフト計画取得' })
+  async getMyShift(
+    @CurrentUser() user: RequestUser,
+    @Param('yearMonth') yearMonth: string,
+  ) {
+    return this.attendanceService.getMyShift(user.employeeId, yearMonth);
+  }
+
+  @Post('shift/confirm')
+  @ApiOperation({ summary: 'シフト確認' })
+  async confirmShift(
+    @CurrentUser() user: RequestUser,
+    @Body() body: {
+      yearMonth: string;
+      isStandard: boolean;
+      startTime?: string;
+      customDays?: { day: number; isWorkDay: boolean; startTime: string }[];
+    },
+  ) {
+    return this.attendanceService.confirmShift(user.employeeId, body);
+  }
+
+  /* --- アラート --- */
+
+  @Get('alerts/my')
+  @ApiOperation({ summary: '自分のアラート一覧' })
+  async getMyAlerts(@CurrentUser() user: RequestUser) {
+    return this.attendanceService.getMyAlerts(user.employeeId);
+  }
+
+  @Get('alerts/admin')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '管理者用アラート集約' })
+  async getAdminAlerts() {
+    return this.attendanceService.getAdminAlerts();
+  }
+
+  /* --- 管理者用: 月次ステータス一覧 --- */
+
+  @Get('admin/status/:year/:month')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '管理者用: 全社員の勤怠ステータス一覧' })
+  async getMonthlyStatus(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.getMonthlyStatus(year, month);
+  }
+
+  /* --- 管理者用: 指定社員の月次勤怠 --- */
+
+  @Get('admin/:employeeId/:year/:month')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '管理者用: 指定社員の月次勤怠データ取得' })
+  async getMonthlyByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.getMonthlyByEmployee(employeeId, year, month);
+  }
+
+  @Patch('admin/:employeeId/:workDate')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '管理者用: 本人勤怠の修正' })
+  async updateAttendanceByAdmin(
+    @CurrentUser() user: RequestUser,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('workDate') workDate: string,
+    @Body() body: { clockIn?: string; clockOut?: string; breakMinutes?: number; correction?: boolean },
+  ) {
+    return this.attendanceService.updateAttendanceByAdmin(employeeId, workDate, body, user.userId);
+  }
+
+  @Post('admin/:employeeId/confirm/:yearMonth')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '管理者用: 本人勤怠を一括確定' })
+  async confirmAttendanceByAdmin(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('yearMonth') yearMonth: string,
+  ) {
+    return this.attendanceService.confirmAttendanceByAdmin(employeeId, yearMonth);
+  }
+
   /* --- パラメータ付きルート（後方に配置） --- */
 
   @Get(':year/:month')

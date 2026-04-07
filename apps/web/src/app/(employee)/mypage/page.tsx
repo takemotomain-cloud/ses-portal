@@ -2,8 +2,7 @@
  * マイページ ホーム
  *
  * 社員がログイン後に最初に表示されるページ。
- * 打刻エリア + クイックアクション + お知らせ。
- * 打刻はAPI連携、お知らせはAPIから取得（データがなければ空表示）。
+ * アラートバナー + シフト確認 + 打刻エリア + クイックアクション + お知らせ。
  */
 
 'use client';
@@ -14,6 +13,8 @@ import { useAuth } from '@/lib/auth-context';
 import { apiClient } from '@/lib/api-client';
 import { LinkedText } from '@/components/ui/linked-text';
 
+/* ---- 型定義 ---- */
+
 interface Notice {
   id: string;
   title: string;
@@ -22,6 +23,27 @@ interface Notice {
   isRead: boolean;
   createdAt: string;
 }
+
+interface MissedClock {
+  id: string;
+  workDate: string;
+  clockIn: string | null;
+}
+
+interface MyAlerts {
+  missedClocks: MissedClock[];
+  shiftUnconfirmed: boolean;
+  expenseMissing: boolean;
+  attendanceGaps: { date: string }[];
+}
+
+interface ShiftDay {
+  day: number;
+  isWorkDay: boolean;
+  startTime: string;
+}
+
+/* ---- ヘルパー ---- */
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -38,6 +60,34 @@ function timeAgo(iso: string): string {
   return `${Math.floor(days / 30)}ヶ月前`;
 }
 
+function fmtAlertDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+function getCurrentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getDaysInMonth(ym: string): number {
+  const [y, m] = ym.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+function getDayOfWeek(ym: string, day: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  return ['日', '月', '火', '水', '木', '金', '土'][new Date(y, m - 1, day).getDay()];
+}
+
+function isWeekendDay(ym: string, day: number): boolean {
+  const [y, m] = ym.split('-').map(Number);
+  const dow = new Date(y, m - 1, day).getDay();
+  return dow === 0 || dow === 6;
+}
+
+/* ---- コンポーネント ---- */
+
 export default function MyPage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
@@ -47,17 +97,93 @@ export default function MyPage() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
 
+  // アラート
+  const [alerts, setAlerts] = useState<MyAlerts | null>(null);
+
+  // シフト確認
+  const [showShiftConfirm, setShowShiftConfirm] = useState(false);
+  const [showCustomShift, setShowCustomShift] = useState(false);
+  const [customDays, setCustomDays] = useState<ShiftDay[]>([]);
+  const [shiftSaving, setShiftSaving] = useState(false);
+
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  // お知らせをAPIから取得
+  // お知らせ取得
   useEffect(() => {
     apiClient<Notice[]>('/notifications')
       .then(setNotices)
       .catch(() => setNotices([]));
   }, []);
+
+  // アラート取得
+  useEffect(() => {
+    apiClient<MyAlerts>('/attendance/alerts/my')
+      .then((data) => {
+        setAlerts(data);
+        if (data.shiftUnconfirmed) {
+          setShowShiftConfirm(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // シフト「いいえ」→ カスタム日設定の初期化
+  const initCustomDays = useCallback(() => {
+    const ym = getCurrentYearMonth();
+    const days = getDaysInMonth(ym);
+    const result: ShiftDay[] = [];
+    for (let d = 1; d <= days; d++) {
+      result.push({
+        day: d,
+        isWorkDay: !isWeekendDay(ym, d),
+        startTime: '09:00',
+      });
+    }
+    setCustomDays(result);
+    setShowCustomShift(true);
+  }, []);
+
+  // シフト確認: はい
+  async function handleShiftYes() {
+    setShiftSaving(true);
+    try {
+      await apiClient('/attendance/shift/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ yearMonth: getCurrentYearMonth(), isStandard: true }),
+      });
+      setShowShiftConfirm(false);
+      setAlerts(prev => prev ? { ...prev, shiftUnconfirmed: false } : prev);
+    } catch {
+      // エラー時は何もしない
+    } finally {
+      setShiftSaving(false);
+    }
+  }
+
+  // シフト確認: カスタム送信
+  async function handleShiftCustomSubmit() {
+    setShiftSaving(true);
+    try {
+      await apiClient('/attendance/shift/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          yearMonth: getCurrentYearMonth(),
+          isStandard: false,
+          customDays,
+        }),
+      });
+      setShowShiftConfirm(false);
+      setShowCustomShift(false);
+      setAlerts(prev => prev ? { ...prev, shiftUnconfirmed: false } : prev);
+    } catch {
+      // エラー時は何もしない
+    } finally {
+      setShiftSaving(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -67,8 +193,169 @@ export default function MyPage() {
     );
   }
 
+  const ym = getCurrentYearMonth();
+
   return (
     <div className="space-y-6">
+
+      {/* ============================================================ */}
+      {/*  アラートバナー                                                */}
+      {/* ============================================================ */}
+      {alerts && (
+        <div className="space-y-2">
+          {/* 打刻漏れ — 修正するまで消えない */}
+          {alerts.missedClocks.map(mc => (
+            <div
+              key={mc.id}
+              onClick={() => router.push('/attendance')}
+              className="bg-status-red-bg border border-status-red-text/20 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:opacity-80"
+            >
+              <span className="w-2 h-2 rounded-full bg-status-red-text flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-status-red-text">
+                  {fmtAlertDate(mc.workDate)}の退勤打刻がありません
+                </p>
+                <p className="text-xs text-status-red-text/70">タップして修正申請</p>
+              </div>
+            </div>
+          ))}
+
+          {/* 交通費未入力 */}
+          {alerts.expenseMissing && (
+            <div
+              onClick={() => router.push('/mypage/expense')}
+              className="bg-status-amber-bg border border-status-amber-text/20 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:opacity-80"
+            >
+              <span className="w-2 h-2 rounded-full bg-status-amber-text flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-status-amber-text">先月分の交通費が未入力です</p>
+                <p className="text-xs text-status-amber-text/70">タップして入力</p>
+              </div>
+            </div>
+          )}
+
+          {/* 勤怠漏れ */}
+          {alerts.attendanceGaps.length > 0 && (
+            <div
+              onClick={() => router.push('/attendance')}
+              className="bg-status-amber-bg border border-status-amber-text/20 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:opacity-80"
+            >
+              <span className="w-2 h-2 rounded-full bg-status-amber-text flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-status-amber-text">
+                  先月の勤怠に{alerts.attendanceGaps.length}日分の未入力があります
+                </p>
+                <p className="text-xs text-status-amber-text/70">タップして確認</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/*  シフト確認カード                                               */}
+      {/* ============================================================ */}
+      {showShiftConfirm && !showCustomShift && (
+        <div className="card p-5">
+          <h3 className="text-md font-bold text-primary mb-2">今月のシフト確認</h3>
+          <p className="text-sm text-secondary mb-4">今月の稼働は土日祝の休みですか？</p>
+          <div className="flex gap-3">
+            <button
+              onClick={handleShiftYes}
+              disabled={shiftSaving}
+              className="flex-1 py-3 rounded-lg bg-primary text-white text-md font-semibold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-35"
+            >
+              {shiftSaving ? '登録中...' : 'はい'}
+            </button>
+            <button
+              onClick={initCustomDays}
+              disabled={shiftSaving}
+              className="flex-1 py-3 rounded-lg border border-border text-primary text-md font-medium transition-colors hover:bg-page disabled:opacity-35"
+            >
+              いいえ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* カスタムシフト登録UI */}
+      {showCustomShift && (
+        <div className="card p-0">
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-md font-bold text-primary">シフト登録</h3>
+            <p className="text-xs text-secondary mt-0.5">稼働日と開始時間を設定してください</p>
+          </div>
+          <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border sticky top-0 bg-white z-10">
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2 bg-[#FAFAFA]">日付</th>
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2 bg-[#FAFAFA]">曜日</th>
+                  <th className="text-center text-xs text-secondary font-normal px-4 py-2 bg-[#FAFAFA]">稼働</th>
+                  <th className="text-left text-xs text-secondary font-normal px-4 py-2 bg-[#FAFAFA]">開始時間</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customDays.map((d, idx) => {
+                  const dow = getDayOfWeek(ym, d.day);
+                  const weekend = isWeekendDay(ym, d.day);
+                  const dowColor = dow === '日' ? 'text-status-red-text' : dow === '土' ? 'text-blue-500' : '';
+                  return (
+                    <tr key={d.day} className={`border-b border-border/10 ${weekend ? 'bg-gray-50/60' : ''}`}>
+                      <td className="px-4 py-1.5 text-sm tabular-nums">{now.getMonth() + 1}/{d.day}</td>
+                      <td className={`px-4 py-1.5 text-sm ${dowColor}`}>{dow}</td>
+                      <td className="px-4 py-1.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={d.isWorkDay}
+                          onChange={() => {
+                            const next = [...customDays];
+                            next[idx] = { ...next[idx], isWorkDay: !next[idx].isWorkDay };
+                            setCustomDays(next);
+                          }}
+                          className="w-4 h-4 accent-primary"
+                        />
+                      </td>
+                      <td className="px-4 py-1.5">
+                        {d.isWorkDay ? (
+                          <input
+                            type="time"
+                            value={d.startTime}
+                            onChange={(e) => {
+                              const next = [...customDays];
+                              next[idx] = { ...next[idx], startTime: e.target.value };
+                              setCustomDays(next);
+                            }}
+                            className="border border-border rounded px-2 py-0.5 text-sm"
+                          />
+                        ) : (
+                          <span className="text-xs text-secondary">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-5 py-4 border-t border-border flex gap-3">
+            <button
+              onClick={() => { setShowCustomShift(false); }}
+              className="flex-1 py-3 rounded-lg border border-border text-primary text-md font-medium transition-colors hover:bg-page"
+            >
+              戻る
+            </button>
+            <button
+              onClick={handleShiftCustomSubmit}
+              disabled={shiftSaving}
+              className="flex-1 py-3 rounded-lg bg-primary text-white text-md font-semibold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-35"
+            >
+              {shiftSaving ? '登録中...' : '確定'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 打刻エリア */}
       <div className="card p-0">
         <div className="text-center py-7 px-5">

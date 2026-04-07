@@ -1,8 +1,8 @@
 /**
  * 管理側 稼働管理
  *
- * UIモックのpage-assignmentsを再現。
- * エリア別KPIカード + フィルタ + アサインテーブル。
+ * タブベースUI: 稼働中 / 待機中 / 終了済み / 終了予定 / 新規
+ * エリア別KPIカード + フィルタ + タブ + テーブル。
  * 契約終了日が30日以内=アンバー、7日以内=赤で行を警告。
  * 行クリック→詳細パネル。
  */
@@ -13,6 +13,8 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
+
+/* ---------- 型定義 ---------- */
 
 interface Assignment {
   id: string;
@@ -27,9 +29,48 @@ interface Assignment {
   startDate: string;
   endDate: string | null;
   status: string;
+  endReason: string | null;
   employee: { id: string; lastName: string; firstName: string; employeeCode: string };
   client: { id: string; name: string };
 }
+
+interface UnassignedEmployee {
+  id: string;
+  employeeCode: string;
+  lastName: string;
+  firstName: string;
+  status: string;
+  hireDate: string;
+  departmentName: string;
+}
+
+type TabKey = 'active' | 'standby' | 'ended' | 'ending_scheduled' | 'new';
+
+/* ---------- 定数 ---------- */
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'active', label: '稼働中' },
+  { key: 'standby', label: '待機中' },
+  { key: 'ended', label: '終了済み' },
+  { key: 'ending_scheduled', label: '終了予定' },
+  { key: 'new', label: '新規' },
+];
+
+const areaLabel: Record<string, string> = {
+  tokyo: '東京',
+  osaka: '大阪',
+  nagoya: '名古屋',
+};
+
+const endReasonLabel: Record<string, string> = {
+  term_end: '期間満了',
+  client_reason: 'クライアント都合',
+  skill_shortage: '本人都合 / 技術不足',
+  attendance_issue: '本人都合 / 勤怠不良',
+  early_termination: '途中終了',
+};
+
+/* ---------- ユーティリティ ---------- */
 
 function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
 
@@ -45,28 +86,73 @@ function daysUntil(dateStr: string | null): number {
   return Math.ceil((target.getTime() - new Date().getTime()) / 86400000);
 }
 
-const statusBadge: Record<string, { label: string; cls: string }> = {
-  active: { label: '稼働中', cls: 'badge-ok' },
-  next_confirmed: { label: '次案件確定', cls: 'badge-info' },
-  ended: { label: '終了済', cls: 'badge-wait' },
-  standby: { label: '待機', cls: 'badge-warn' },
-};
+/**
+ * DB上のstatusと日付から表示用タブを算出
+ */
+function computeDisplayTab(
+  a: Assignment,
+  today: Date,
+  currentMonth: Date,
+  activeEmployeeIds: Set<string>,
+): Exclude<TabKey, 'new'> {
+  if (a.status === 'active') return 'active';
 
-const areaLabel: Record<string, string> = {
-  tokyo: '東京',
-  osaka: '大阪',
-  nagoya: '名古屋',
-};
+  if (a.status === 'ending_scheduled') {
+    // endDateを過ぎた → 待機中（ただし同一社員にactiveアサインがあれば除外）
+    if (a.endDate && new Date(a.endDate) < today && !activeEmployeeIds.has(a.employeeId)) {
+      return 'standby';
+    }
+    return 'ending_scheduled';
+  }
+
+  if (a.status === 'ended') {
+    // endDateの月 < 当月 → 待機中
+    if (a.endDate) {
+      const endMonth = new Date(new Date(a.endDate).getFullYear(), new Date(a.endDate).getMonth(), 1);
+      if (currentMonth > endMonth && !activeEmployeeIds.has(a.employeeId)) {
+        return 'standby';
+      }
+    }
+    return 'ended';
+  }
+
+  if (a.status === 'standby') return 'standby';
+
+  // next_confirmed などはactiveとして扱う
+  return 'active';
+}
+
+/* ---------- メインコンポーネント ---------- */
 
 export default function AdminAssignmentsPage() {
   const router = useRouter();
   const { toast, ToastUI } = useToast();
+
+  // データ
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [unassignedEmployees, setUnassignedEmployees] = useState<UnassignedEmployee[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+
+  // タブ・フィルタ
+  const [activeTab, setActiveTab] = useState<TabKey>('active');
   const [clientFilter, setClientFilter] = useState('');
   const [search, setSearch] = useState('');
+
+  // 詳細パネル
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // 稼働終了モーダル
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [endMode, setEndMode] = useState<'scheduled' | 'immediate'>('scheduled');
+  const [endDate, setEndDate] = useState('');
+  const [endReason, setEndReason] = useState('term_end');
+
+  // 契約延長モーダル
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const [extendDate, setExtendDate] = useState('');
+
+  /* ---------- データ取得 ---------- */
 
   const loadAssignments = useCallback(async () => {
     try {
@@ -79,27 +165,101 @@ export default function AdminAssignmentsPage() {
     }
   }, []);
 
+  const loadUnassignedEmployees = useCallback(async () => {
+    setLoadingEmployees(true);
+    try {
+      const res = await apiClient<{ data: UnassignedEmployee[]; total: number }>('/employees/unassigned');
+      setUnassignedEmployees(res.data);
+    } catch {
+      // API error
+    } finally {
+      setLoadingEmployees(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadAssignments();
-  }, [loadAssignments]);
+    loadUnassignedEmployees();
+  }, [loadAssignments, loadUnassignedEmployees]);
 
-  const filtered = useMemo(() => {
-    return assignments.filter(a => {
-      if (statusFilter && a.status !== statusFilter) return false;
+  /* ---------- タブ別データ算出 ---------- */
+
+  const tabData = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const activeEmployeeIds = new Set(
+      assignments.filter(a => a.status === 'active').map(a => a.employeeId),
+    );
+
+    const groups: Record<Exclude<TabKey, 'new'>, Assignment[]> = {
+      active: [],
+      standby: [],
+      ended: [],
+      ending_scheduled: [],
+    };
+
+    for (const a of assignments) {
+      const tab = computeDisplayTab(a, today, currentMonth, activeEmployeeIds);
+      groups[tab].push(a);
+    }
+
+    return groups;
+  }, [assignments]);
+
+  const tabCounts = useMemo(() => ({
+    active: tabData.active.length,
+    standby: tabData.standby.length,
+    ended: tabData.ended.length,
+    ending_scheduled: tabData.ending_scheduled.length,
+    new: unassignedEmployees.length,
+  }), [tabData, unassignedEmployees]);
+
+  /* ---------- フィルタ・ソート ---------- */
+
+  const filteredTabItems = useMemo(() => {
+    if (activeTab === 'new') return [];
+    const items = tabData[activeTab] || [];
+    const filtered = items.filter(a => {
       if (clientFilter && a.client.name !== clientFilter) return false;
       if (search) {
         const name = `${a.employee.lastName} ${a.employee.firstName}`;
         if (!name.includes(search)) return false;
       }
       return true;
-    }).sort((a, b) => {
-      if (a.status === 'standby') return 1;
-      if (b.status === 'standby') return -1;
-      return daysUntil(a.endDate) - daysUntil(b.endDate);
     });
-  }, [assignments, statusFilter, clientFilter, search]);
+
+    // タブ別ソート
+    return filtered.sort((a, b) => {
+      if (activeTab === 'active' || activeTab === 'ending_scheduled') {
+        // endDate昇順（終了間近が上）
+        return daysUntil(a.endDate) - daysUntil(b.endDate);
+      }
+      // standby, ended: endDate降順
+      return daysUntil(b.endDate) - daysUntil(a.endDate);
+    });
+  }, [activeTab, tabData, clientFilter, search]);
+
+  const filteredNewEmployees = useMemo(() => {
+    if (activeTab !== 'new') return [];
+    if (!search) return unassignedEmployees;
+    return unassignedEmployees.filter(e => {
+      const name = `${e.lastName} ${e.firstName}`;
+      return name.includes(search) || e.employeeCode.includes(search);
+    });
+  }, [activeTab, unassignedEmployees, search]);
 
   const selected = selectedId ? assignments.find(a => a.id === selectedId) : null;
+  const selectedDisplayTab = selected ? (() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const activeEmployeeIds = new Set(
+      assignments.filter(a => a.status === 'active').map(a => a.employeeId),
+    );
+    return computeDisplayTab(selected, today, currentMonth, activeEmployeeIds);
+  })() : null;
 
   // クライアント一覧（フィルタ用）
   const clientNames = useMemo(() => {
@@ -119,16 +279,74 @@ export default function AdminAssignmentsPage() {
     });
   }, [assignments]);
 
-  // 稼働終了
-  const handleEndAssignment = async (id: string) => {
+  /* ---------- アクション ---------- */
+
+  const openEndModal = () => {
+    setEndMode('scheduled');
+    setEndDate('');
+    setEndReason('term_end');
+    setShowEndModal(true);
+  };
+
+  const handleEndAssignment = async () => {
+    if (!selected) return;
+    if (endMode === 'immediate' && !endDate) {
+      toast('終了日を指定してください');
+      return;
+    }
+    if (!endReason) {
+      toast('終了理由を選択してください');
+      return;
+    }
     try {
-      await apiClient(`/assignments/${id}/end`, { method: 'POST' });
-      toast('稼働を終了しました');
+      await apiClient(`/assignments/${selected.id}/end`, {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: endMode,
+          endDate: endMode === 'immediate' ? endDate : undefined,
+          endReason,
+        }),
+      });
+      toast(endMode === 'scheduled' ? '終了予定に設定しました' : '稼働を終了しました');
+      setShowEndModal(false);
       setSelectedId(null);
       loadAssignments();
     } catch {
       toast('稼働終了に失敗しました');
     }
+  };
+
+  const openExtendModal = () => {
+    setExtendDate(selected?.endDate ? selected.endDate.split('T')[0] : '');
+    setShowExtendModal(true);
+  };
+
+  const handleExtendAssignment = async () => {
+    if (!selected || !extendDate) {
+      toast('新しい終了日を指定してください');
+      return;
+    }
+    try {
+      await apiClient(`/assignments/${selected.id}/extend`, {
+        method: 'PATCH',
+        body: JSON.stringify({ endDate: extendDate }),
+      });
+      toast('契約を延長しました');
+      setShowExtendModal(false);
+      setSelectedId(null);
+      loadAssignments();
+    } catch {
+      toast('契約延長に失敗しました');
+    }
+  };
+
+  /* ---------- タブ別空メッセージ ---------- */
+  const emptyMessage: Record<TabKey, string> = {
+    active: '稼働中のアサインはありません',
+    standby: '待機中の社員はいません',
+    ended: '終了済みのアサインはありません',
+    ending_scheduled: '終了予定のアサインはありません',
+    new: 'アサイン未経験の社員はいません',
   };
 
   return (
@@ -159,60 +377,107 @@ export default function AdminAssignmentsPage() {
         ))}
       </div>
 
+      {/* タブバー */}
+      <div className="flex border-b border-border/30 mb-4">
+        {TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setActiveTab(tab.key); setSelectedId(null); }}
+            className={`px-5 py-3 text-sm transition-colors relative ${
+              activeTab === tab.key ? 'text-primary' : 'text-secondary hover:text-primary/60'
+            }`}
+          >
+            {tab.label}
+            <span className="ml-1.5 text-xs text-secondary">({tabCounts[tab.key]})</span>
+            {activeTab === tab.key && (
+              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* フィルタ */}
       <div className="flex gap-2 mb-4 flex-wrap">
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none">
-          <option value="">ステータス: すべて</option>
-          <option value="active">稼働中</option>
-          <option value="next_confirmed">次案件確定</option>
-          <option value="ended">終了済</option>
-          <option value="standby">待機</option>
-        </select>
-        <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none">
-          <option value="">クライアント: すべて</option>
-          {clientNames.map(name => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
+        {activeTab !== 'new' && (
+          <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none">
+            <option value="">クライアント: すべて</option>
+            {clientNames.map(name => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        )}
         <input type="text" placeholder="氏名で検索" value={search} onChange={e => setSearch(e.target.value)} className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card min-w-[160px] focus:border-primary" />
-        <span className="text-sm text-secondary self-center">{filtered.length}件</span>
+        <span className="text-sm text-secondary self-center">
+          {activeTab === 'new' ? filteredNewEmployees.length : filteredTabItems.length}件
+        </span>
       </div>
 
       {/* テーブル */}
-      <div className="card p-0 overflow-x-auto">
-        <table className="w-full min-w-[800px]">
-          <thead>
-            <tr className="border-b border-border">
-              {['氏名', 'クライアント / 案件', '契約単価', '精算幅', '契約開始日', '契約終了日', 'アサイン状態'].map(h => (
-                <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={7}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
-            ) : filtered.map(a => {
-              const days = daysUntil(a.endDate);
-              const st = statusBadge[a.status] || { label: a.status, cls: '' };
-              const rowBg = a.status === 'active' && days <= 7 ? 'bg-status-red-bg/40' : a.status === 'active' && days <= 30 ? 'bg-status-amber-bg/40' : '';
-              const name = `${a.employee.lastName} ${a.employee.firstName}`;
-              return (
-                <tr key={a.id} onClick={() => setSelectedId(a.id)} className={`border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors ${rowBg}`}>
-                  <td className="px-4 py-2.5 text-base font-medium">{name}</td>
-                  <td className="px-4 py-2.5 text-base">{a.client.name} / {a.projectName}</td>
-                  <td className="px-4 py-2.5 text-base tabular-nums text-right">{a.contractPrice ? fmt(a.contractPrice) + '円' : '--'}</td>
-                  <td className="px-4 py-2.5 text-base text-right">{a.settlementLower ? `${a.settlementLower}〜${a.settlementUpper}h` : '--'}</td>
-                  <td className="px-4 py-2.5 text-base text-right">{formatDate(a.startDate)}</td>
-                  <td className="px-4 py-2.5 text-base text-right">{formatDate(a.endDate)}</td>
-                  <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
+      {activeTab === 'new' ? (
+        /* 新規タブ: 社員テーブル */
+        <div className="card p-0 overflow-x-auto">
+          <table className="w-full min-w-[600px]">
+            <thead>
+              <tr className="border-b border-border">
+                {['社員番号', '氏名', '入社日'].map(h => (
+                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loadingEmployees ? (
+                <tr><td colSpan={3}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+              ) : filteredNewEmployees.length === 0 ? (
+                <tr><td colSpan={3}><div className="px-4 py-8 text-center text-sm text-secondary">{emptyMessage.new}</div></td></tr>
+              ) : filteredNewEmployees.map(e => (
+                <tr
+                  key={e.id}
+                  onClick={() => router.push(`/admin/assignments/new?employeeId=${e.id}`)}
+                  className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-2.5 text-sm text-secondary">{e.employeeCode}</td>
+                  <td className="px-4 py-2.5 text-base font-medium">{e.lastName} {e.firstName}</td>
+                  <td className="px-4 py-2.5 text-base">{formatDate(e.hireDate)}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* アサインテーブル */
+        <div className="card p-0 overflow-x-auto">
+          <table className="w-full min-w-[800px]">
+            <thead>
+              <tr className="border-b border-border">
+                {['氏名', 'クライアント / 案件', '契約単価', '精算幅', '契約開始日', '契約終了日'].map(h => (
+                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+              ) : filteredTabItems.length === 0 ? (
+                <tr><td colSpan={6}><div className="px-4 py-8 text-center text-sm text-secondary">{emptyMessage[activeTab]}</div></td></tr>
+              ) : filteredTabItems.map(a => {
+                const days = daysUntil(a.endDate);
+                const rowBg = activeTab === 'active' && days <= 7 ? 'bg-status-red-bg/40' : activeTab === 'active' && days <= 30 ? 'bg-status-amber-bg/40' : '';
+                const name = `${a.employee.lastName} ${a.employee.firstName}`;
+                return (
+                  <tr key={a.id} onClick={() => setSelectedId(a.id)} className={`border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors ${rowBg}`}>
+                    <td className="px-4 py-2.5 text-base font-medium whitespace-nowrap">{name}</td>
+                    <td className="px-4 py-2.5 text-base whitespace-nowrap">{a.client.name} / {a.projectName}</td>
+                    <td className="px-4 py-2.5 text-base tabular-nums text-right whitespace-nowrap">{a.contractPrice ? fmt(a.contractPrice) + '円' : '--'}</td>
+                    <td className="px-4 py-2.5 text-base text-right whitespace-nowrap">{a.settlementLower ? `${a.settlementLower}〜${a.settlementUpper}h` : '--'}</td>
+                    <td className="px-4 py-2.5 text-base text-right whitespace-nowrap">{formatDate(a.startDate)}</td>
+                    <td className="px-4 py-2.5 text-base text-right whitespace-nowrap">{formatDate(a.endDate)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* 詳細パネル */}
       {selected && (
@@ -236,23 +501,131 @@ export default function AdminAssignmentsPage() {
                   ['契約期間', `${formatDate(selected.startDate)} 〜 ${formatDate(selected.endDate)}`],
                   ['勤務地', selected.workLocation || '未設定'],
                   ['エリア', selected.area ? areaLabel[selected.area] || selected.area : '未設定'],
+                  ...((selected.status === 'ended' || selected.status === 'ending_scheduled') && selected.endReason
+                    ? [['終了理由', endReasonLabel[selected.endReason] || selected.endReason]]
+                    : []),
                 ].map(([l, v]) => (
                   <div key={l} className="flex justify-between py-1.5 border-b border-border/20 text-base">
                     <span className="text-secondary">{l}</span><span>{v}</span>
                   </div>
                 ))}
               </div>
-              {selected.status === 'active' && (
+              {/* アクションボタン: 稼働中 or 終了予定のみ表示 */}
+              {(selectedDisplayTab === 'active' || selectedDisplayTab === 'ending_scheduled') && (
                 <div className="flex gap-2">
-                  <button className="btn-outline flex-1 text-sm py-2" onClick={() => toast('契約延長機能は今後実装予定です')}>契約延長</button>
-                  <button
-                    className="btn-outline flex-1 text-sm py-2 text-status-red-text border-status-red-text/30 hover:bg-status-red-bg"
-                    onClick={() => handleEndAssignment(selected.id)}
-                  >
-                    稼働終了
-                  </button>
+                  <button className="btn-outline flex-1 text-sm py-2" onClick={openExtendModal}>契約延長</button>
+                  {selectedDisplayTab === 'active' && (
+                    <button
+                      className="btn-outline flex-1 text-sm py-2 text-status-red-text border-status-red-text/30 hover:bg-status-red-bg"
+                      onClick={openEndModal}
+                    >
+                      稼働終了
+                    </button>
+                  )}
                 </div>
               )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 稼働終了モーダル */}
+      {showEndModal && selected && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[200]" onClick={() => setShowEndModal(false)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] bg-card border border-border rounded-xl z-[201] shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">稼働終了</h2>
+              <button onClick={() => setShowEndModal(false)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-secondary mb-2">
+                {selected.employee.lastName} {selected.employee.firstName}（{selected.client.name}）
+              </div>
+
+              <label className="flex items-start gap-3 p-3 rounded-lg border border-border/30 cursor-pointer hover:bg-page transition-colors">
+                <input type="radio" name="endMode" checked={endMode === 'scheduled'} onChange={() => setEndMode('scheduled')} className="mt-0.5" />
+                <div>
+                  <div className="text-sm font-medium">契約期間通り終了</div>
+                  <div className="text-xs text-secondary mt-0.5">
+                    終了日: {formatDate(selected.endDate)}　→ ステータスが「終了予定」になります
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 rounded-lg border border-border/30 cursor-pointer hover:bg-page transition-colors">
+                <input type="radio" name="endMode" checked={endMode === 'immediate'} onChange={() => setEndMode('immediate')} className="mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium">途中終了</div>
+                  <div className="text-xs text-secondary mt-0.5 mb-2">契約期間より前に終了します</div>
+                  {endMode === 'immediate' && (
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={e => setEndDate(e.target.value)}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary"
+                    />
+                  )}
+                </div>
+              </label>
+
+              <div>
+                <label className="block text-xs text-secondary mb-1">終了理由 <span className="text-status-red-text">*</span></label>
+                <select
+                  value={endReason}
+                  onChange={e => setEndReason(e.target.value)}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card appearance-none focus:border-primary"
+                >
+                  <option value="term_end">期間満了</option>
+                  <option value="client_reason">クライアント都合により終了</option>
+                  <option value="skill_shortage">本人都合 / 技術不足</option>
+                  <option value="attendance_issue">本人都合 / 勤怠不良</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setShowEndModal(false)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
+                <button
+                  onClick={handleEndAssignment}
+                  className="flex-1 text-sm py-2 rounded-md text-white bg-status-red-text hover:opacity-90 transition-opacity"
+                >
+                  {endMode === 'scheduled' ? '終了予定にする' : '稼働を終了する'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 契約延長モーダル */}
+      {showExtendModal && selected && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[200]" onClick={() => setShowExtendModal(false)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] bg-card border border-border rounded-xl z-[201] shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">契約延長</h2>
+              <button onClick={() => setShowExtendModal(false)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-secondary">
+                {selected.employee.lastName} {selected.employee.firstName}（{selected.client.name}）
+              </div>
+              <div className="text-sm">
+                現在の終了日: <span className="font-medium">{formatDate(selected.endDate)}</span>
+              </div>
+              <div>
+                <label className="block text-xs text-secondary mb-1">新しい終了日</label>
+                <input
+                  type="date"
+                  value={extendDate}
+                  onChange={e => setExtendDate(e.target.value)}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setShowExtendModal(false)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
+                <button onClick={handleExtendAssignment} className="btn-primary flex-1 text-sm py-2">延長する</button>
+              </div>
             </div>
           </div>
         </>

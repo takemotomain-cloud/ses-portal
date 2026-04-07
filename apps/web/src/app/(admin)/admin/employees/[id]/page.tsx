@@ -16,6 +16,41 @@ import { apiClient } from '@/lib/api-client';
 
 /* ---------- 型定義 ---------- */
 
+interface MeetingInfo {
+  id: string;
+  date: string;
+  interviewer: string;
+  content: string;
+  videoUrl: string | null;
+}
+
+interface AttendanceMonthlySummary {
+  yearMonth: string;
+  workDays: number;
+  totalWorkMinutes: number;
+  totalOvertimeMinutes: number;
+  missedClockCount: number;
+  lateCount: number;
+  absentCount: number;
+}
+
+interface LeaveBalanceInfo {
+  id: string;
+  grantedDate: string;
+  expiryDate: string;
+  grantedDays: number;
+  usedDays: number;
+  remainingDays: number;
+}
+
+interface CertificateInfo {
+  id: string;
+  certType: string;
+  status: string;
+  filePath: string | null;
+  issuedAt: string | null;
+}
+
 interface AssignmentInfo {
   id: string;
   employeeId: string;
@@ -60,8 +95,13 @@ interface EmployeeDetail {
   bankAccountHolder: string | null;
   department: { id: string; name: string; code: string } | null;
   position: { id: string; name: string; rank: number } | null;
+  qualifications?: any;
   emergencyContacts?: { id: string; name: string; relationship: string; phone: string }[];
   dependents?: { id: string; name: string; relationship: string; birthDate: string; annualIncome: number | null }[];
+  meetings?: MeetingInfo[];
+  leaveBalances?: LeaveBalanceInfo[];
+  certificates?: CertificateInfo[];
+  attendanceSummary?: AttendanceMonthlySummary[];
 }
 
 /* ---------- ラベルマップ ---------- */
@@ -81,6 +121,7 @@ const empTypeLabel: Record<string, string> = {
 const contractLabel: Record<string, string> = {
   indefinite: '無期',
   fixed: '有期',
+  fixed_term: '有期',
 };
 
 const genderLabel: Record<string, string> = {
@@ -93,6 +134,22 @@ const accountTypeLabel: Record<string, string> = {
   ordinary: '普通',
   checking: '当座',
   savings: '貯蓄',
+};
+
+const certTypeLabel: Record<string, string> = {
+  employment: '在職証明書',
+  income: '収入証明書',
+  retirement: '退職証明書',
+  withholding: '源泉徴収票',
+  salary_revision: '給与改定通知書',
+  assignment: '配属通知書',
+  offer: '内定通知書',
+};
+
+const certStatusLabel: Record<string, { label: string; cls: string }> = {
+  pending: { label: '申請中', cls: 'badge-warn' },
+  issued: { label: '発行済', cls: 'badge-ok' },
+  rejected: { label: '却下', cls: 'badge-danger' },
 };
 
 function fmtDate(iso: string | null | undefined): string {
@@ -282,7 +339,17 @@ export default function EmployeeDetailPage() {
           <InfoRow label="学校名" value={d.schoolName} />
           <InfoRow label="入社日" value={fmtDate(d.hireDate)} />
           <InfoRow label="勤続年数" value={calcTenure(d.hireDate)} />
-          <InfoRow label="保有資格" value="--" />
+          <InfoRow label="保有資格" value={(() => {
+            const quals: string[] = Array.isArray(d.qualifications) ? d.qualifications : [];
+            if (quals.length === 0) return '--';
+            return (
+              <div className="flex flex-wrap gap-1 justify-end">
+                {quals.map((q, i) => (
+                  <span key={i} className="bg-primary/8 text-primary rounded px-1.5 py-0.5 text-xs">{q}</span>
+                ))}
+              </div>
+            );
+          })()} />
         </SectionCard>
 
         <SectionCard title="連絡先">
@@ -330,33 +397,144 @@ export default function EmployeeDetailPage() {
       <div className="card p-5 mb-5">
         <div className="text-2xs text-secondary uppercase tracking-widest mb-3">勤怠履歴（月別）</div>
         <div className="overflow-x-auto">
-          <div className="text-sm text-secondary py-2">勤怠履歴はありません</div>
-          <div className="text-2xs text-secondary mt-2">※ 勤怠データから自動集計（本開発時）</div>
+          {!d.attendanceSummary || d.attendanceSummary.length === 0 ? (
+            <div className="text-sm text-secondary py-2">勤怠履歴はありません</div>
+          ) : (
+            <table className="w-full min-w-[500px]">
+              <thead>
+                <tr className="border-b border-border">
+                  {['年月', '出勤日数', '稼働時間', '残業時間', '打刻漏れ', '遅刻', '欠勤'].map(h => (
+                    <th key={h} className="text-left text-xs text-secondary font-normal px-3 py-2 bg-[#FAFAFA]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {d.attendanceSummary.map(m => (
+                  <tr key={m.yearMonth} className="border-b border-border/20">
+                    <td className="px-3 py-2 text-sm font-medium">{m.yearMonth}</td>
+                    <td className="px-3 py-2 text-sm">{m.workDays}日</td>
+                    <td className="px-3 py-2 text-sm">{Math.floor(m.totalWorkMinutes / 60)}h{m.totalWorkMinutes % 60 > 0 ? `${m.totalWorkMinutes % 60}m` : ''}</td>
+                    <td className="px-3 py-2 text-sm">{m.totalOvertimeMinutes > 0 ? `${Math.floor(m.totalOvertimeMinutes / 60)}h${m.totalOvertimeMinutes % 60 > 0 ? `${m.totalOvertimeMinutes % 60}m` : ''}` : '--'}</td>
+                    <td className={`px-3 py-2 text-sm ${m.missedClockCount > 0 ? 'text-red-600 font-medium' : ''}`}>{m.missedClockCount > 0 ? m.missedClockCount : '--'}</td>
+                    <td className={`px-3 py-2 text-sm ${m.lateCount > 0 ? 'text-amber-600 font-medium' : ''}`}>{m.lateCount > 0 ? m.lateCount : '--'}</td>
+                    <td className={`px-3 py-2 text-sm ${m.absentCount > 0 ? 'text-red-600 font-medium' : ''}`}>{m.absentCount > 0 ? m.absentCount : '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
       {/* 勤怠アラート履歴 / 面談記録 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
         <SectionCard title="勤怠アラート履歴">
-          <div className="text-sm text-secondary py-2">アラート履歴はありません</div>
+          {(() => {
+            const alerts = (d.attendanceSummary || []).filter(
+              m => m.missedClockCount > 0 || m.lateCount > 0 || m.absentCount > 0,
+            );
+            if (alerts.length === 0) {
+              return <div className="text-sm text-secondary py-2">アラート履歴はありません</div>;
+            }
+            return (
+              <div className="space-y-2">
+                {alerts.map(m => (
+                  <div key={m.yearMonth} className="border-b border-border/15 pb-2 last:border-b-0 last:pb-0">
+                    <div className="text-sm font-medium mb-1">{m.yearMonth}</div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      {m.missedClockCount > 0 && <span className="text-red-600">打刻漏れ {m.missedClockCount}回</span>}
+                      {m.lateCount > 0 && <span className="text-amber-600">遅刻 {m.lateCount}回</span>}
+                      {m.absentCount > 0 && <span className="text-red-600">欠勤 {m.absentCount}回</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </SectionCard>
 
         <SectionCard title="面談記録">
-          <div className="text-sm text-secondary py-2">面談記録はありません</div>
+          {!d.meetings || d.meetings.length === 0 ? (
+            <div className="text-sm text-secondary py-2">面談記録はありません</div>
+          ) : (
+            <div className="space-y-3">
+              {d.meetings.map(m => (
+                <div key={m.id} className="border-b border-border/15 pb-3 last:border-b-0 last:pb-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium">{fmtDate(m.date)}</span>
+                    <span className="text-xs text-secondary">面談者: {m.interviewer}</span>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</div>
+                  {m.videoUrl && (
+                    <a href={m.videoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1.5">
+                      <span>&#9654;</span><span>録画を見る</span>
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
       </div>
 
       {/* 年次有給休暇 */}
       <div className="card p-5 mb-5">
         <div className="text-2xs text-secondary uppercase tracking-widest mb-3">年次有給休暇</div>
-        <div className="text-sm text-secondary py-2">有給データがありません（入社6ヶ月未満の場合は付与前）</div>
-        <div className="text-2xs text-secondary mt-2">※ 残日数・取得日数は承認済みの有給申請から自動計算されます。付与日数は労働基準法に基づき入社日から起算。有効期限は付与日から2年間。</div>
+        {!d.leaveBalances || d.leaveBalances.length === 0 ? (
+          <div>
+            <div className="text-sm text-secondary py-2">有給データがありません（入社6ヶ月未満の場合は付与前）</div>
+            <div className="text-2xs text-secondary mt-2">※ 付与日数は労働基準法に基づき入社日から起算。有効期限は付与日から2年間。</div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[400px]">
+              <thead>
+                <tr className="border-b border-border">
+                  {['付与日', '有効期限', '付与日数', '使用日数', '残日数'].map(h => (
+                    <th key={h} className="text-left text-xs text-secondary font-normal px-3 py-2 bg-[#FAFAFA]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {d.leaveBalances.map(lb => {
+                  const isExpired = new Date(lb.expiryDate) < new Date();
+                  return (
+                    <tr key={lb.id} className={`border-b border-border/20 ${isExpired ? 'opacity-50' : ''}`}>
+                      <td className="px-3 py-2 text-sm">{fmtDate(lb.grantedDate)}</td>
+                      <td className="px-3 py-2 text-sm">{fmtDate(lb.expiryDate)}{isExpired && <span className="text-red-500 ml-1 text-xs">期限切れ</span>}</td>
+                      <td className="px-3 py-2 text-sm">{lb.grantedDays}日</td>
+                      <td className="px-3 py-2 text-sm">{lb.usedDays}日</td>
+                      <td className="px-3 py-2 text-sm font-medium">{lb.remainingDays}日</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* 発行済み通知書・書類 */}
       <div className="card p-5 mb-5">
         <div className="text-2xs text-secondary uppercase tracking-widest mb-3">発行済み通知書・書類</div>
-        <div className="text-sm text-secondary py-2">発行済みの通知書はありません</div>
+        {!d.certificates || d.certificates.length === 0 ? (
+          <div className="text-sm text-secondary py-2">発行済みの通知書はありません</div>
+        ) : (
+          <div className="space-y-2">
+            {d.certificates.map(c => {
+              const st = certStatusLabel[c.status] || { label: c.status, cls: 'badge-wait' };
+              return (
+                <div key={c.id} className="flex items-center justify-between py-2 border-b border-border/15 last:border-b-0">
+                  <div>
+                    <span className="text-sm font-medium">{certTypeLabel[c.certType] || c.certType}</span>
+                    {c.issuedAt && <span className="text-xs text-secondary ml-2">{fmtDate(c.issuedAt)}</span>}
+                  </div>
+                  <span className={`badge ${st.cls} text-2xs`}>{st.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <ToastUI />

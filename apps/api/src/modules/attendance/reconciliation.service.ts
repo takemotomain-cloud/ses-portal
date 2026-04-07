@@ -49,7 +49,7 @@ interface ReconcileSettings {
 
 const DEFAULT_SETTINGS: ReconcileSettings = {
   timeToleranceMin: 15,
-  hoursTolerance: 0.5,
+  hoursTolerance: 0.25,
   defaultStartTime: '09:00',
 };
 
@@ -113,6 +113,141 @@ export class ReconciliationService {
   /**
    * ファイルをアップロードしてClaude APIで構造化する
    */
+  /**
+   * ファイルを解析のみ行う（DB保存なし）。一括アップロード用。
+   */
+  async parseOnly(
+    file: Express.Multer.File,
+    yearMonth: string,
+  ): Promise<{ employeeName: string | null; records: any[]; summary: any; client: string | null; yearMonth: string }> {
+    this.logger.log(`parseOnly: originalname=${file.originalname}, path=${file.path}, mimetype=${file.mimetype}, size=${file.size}`);
+
+    if (!this.anthropic) {
+      throw new BadRequestException('ANTHROPIC_API_KEY が設定されていません');
+    }
+
+    const ext = file.originalname.split('.').pop()?.toLowerCase() || '';
+    let fileType: string;
+    if (['xlsx', 'xls'].includes(ext)) fileType = 'xlsx';
+    else if (ext === 'csv') fileType = 'csv';
+    else if (ext === 'pdf') fileType = 'pdf';
+    else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) fileType = 'image';
+    else throw new BadRequestException(`未対応のファイル形式: ${ext}`);
+
+    let parsed: ParsedAttendance;
+    if (fileType === 'xlsx') {
+      parsed = await this.parseExcel(file.path, yearMonth);
+    } else if (fileType === 'csv') {
+      parsed = await this.parseCsv(file.buffer || readFileSync(file.path), yearMonth);
+    } else {
+      parsed = await this.parseImage(file.path, file.mimetype, yearMonth);
+    }
+
+    return {
+      employeeName: parsed.employee_name,
+      records: parsed.records,
+      summary: parsed.summary,
+      client: parsed.client,
+      yearMonth: parsed.year_month || yearMonth,
+    };
+  }
+
+  /**
+   * 社員IDから社員情報を取得
+   */
+  async getEmployee(employeeId: string) {
+    return this.db.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, lastName: true, firstName: true, employeeCode: true },
+    });
+  }
+
+  /**
+   * 社員名からDBの社員を検索してマッチング
+   */
+  async matchEmployeeByName(name: string) {
+    if (!name) return null;
+
+    // スペース区切りで姓名分割（全角・半角スペース対応）
+    const parts = name.trim().split(/[\s　]+/);
+    const lastName = parts[0];
+    const firstName = parts.length > 1 ? parts[1] : null;
+
+    // 完全一致（姓+名）
+    if (firstName) {
+      const exact = await this.db.employee.findFirst({
+        where: { lastName, firstName, deletedAt: null },
+        select: { id: true, lastName: true, firstName: true, employeeCode: true },
+      });
+      if (exact) return exact;
+    }
+
+    // 姓のみで検索
+    const byLastName = await this.db.employee.findMany({
+      where: { lastName, deletedAt: null },
+      select: { id: true, lastName: true, firstName: true, employeeCode: true },
+    });
+    if (byLastName.length === 1) return byLastName[0];
+
+    // 名のみで検索（フルネームが1単語の場合）
+    if (!firstName) {
+      const byFirst = await this.db.employee.findMany({
+        where: { firstName: lastName, deletedAt: null },
+        select: { id: true, lastName: true, firstName: true, employeeCode: true },
+      });
+      if (byFirst.length === 1) return byFirst[0];
+    }
+
+    return null;
+  }
+
+  /**
+   * 解析済みデータをDBに保存して突合実行
+   */
+  async saveAndReconcile(
+    employeeId: string,
+    yearMonth: string,
+    parsedData: { records: any[]; summary: any; client: string | null },
+    fileName: string,
+    clientId?: string,
+  ) {
+    const upload = await this.db.clientAttendanceUpload.create({
+      data: {
+        employeeId,
+        clientId: clientId || null,
+        yearMonth,
+        fileName,
+        fileType: 'bulk',
+        status: 'uploaded',
+        rawJson: parsedData as any,
+      },
+    });
+
+    if (parsedData.records.length > 0) {
+      await this.db.clientAttendanceRecord.createMany({
+        data: parsedData.records.map(r => ({
+          uploadId: upload.id,
+          workDate: new Date(r.date),
+          startTime: r.start_time,
+          endTime: r.end_time,
+          breakMinutes: r.break_minutes,
+          workHours: r.work_hours,
+          dayType: this.mapDayType(r.type),
+          note: null,
+        })),
+      });
+    }
+
+    await this.db.clientAttendanceUpload.update({
+      where: { id: upload.id },
+      data: { status: 'parsed' },
+    });
+
+    // 突合実行
+    const reconciliation = await this.reconcile(upload.id, employeeId);
+    return { uploadId: upload.id, reconciliation };
+  }
+
   async uploadAndParse(
     file: Express.Multer.File,
     employeeId: string,
@@ -231,9 +366,18 @@ export class ReconciliationService {
     const fileBuffer = readFileSync(filePath);
     const base64 = fileBuffer.toString('base64');
 
-    const mediaType = mimeType.startsWith('image/')
-      ? mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
-      : 'image/png';
+    const isPdf = mimeType === 'application/pdf';
+
+    const contentBlock: any = isPdf
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+      : {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: (mimeType.startsWith('image/') ? mimeType : 'image/png') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: base64,
+          },
+        };
 
     const response = await this.anthropic!.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -243,10 +387,7 @@ export class ReconciliationService {
         {
           role: 'user',
           content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: base64 },
-            },
+            contentBlock,
             {
               type: 'text',
               text: `この勤怠表を読み取ってJSON形式で出力してください。対象年月は ${yearMonth} です。`,
@@ -338,8 +479,8 @@ export class ReconciliationService {
     const [yearStr, monthStr] = upload.yearMonth.split('-');
     const year = parseInt(yearStr, 10);
     const month = parseInt(monthStr, 10);
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0));
 
     const systemRecords = await this.db.attendance.findMany({
       where: {
@@ -411,18 +552,18 @@ export class ReconciliationService {
 
     // サマリー計算
     const matchCount = results.filter(r => r.matchStatus === 'match').length;
-    const mismatchCount = results.filter(r => r.matchStatus === 'mismatch').length;
+    const discrepancyCount = results.filter(r => r.matchStatus === 'discrepancy').length;
     const clientOnlyCount = results.filter(r => r.matchStatus === 'client_only').length;
     const systemOnlyCount = results.filter(r => r.matchStatus === 'system_only').length;
 
-    this.logger.log(`突合完了: upload=${uploadId}, match=${matchCount}, mismatch=${mismatchCount}`);
+    this.logger.log(`突合完了: upload=${uploadId}, match=${matchCount}, discrepancy=${discrepancyCount}`);
 
     return {
       uploadId,
       summary: {
         totalDays: results.length,
         matchCount,
-        mismatchCount,
+        discrepancyCount,
         clientOnlyCount,
         systemOnlyCount,
       },
@@ -445,7 +586,7 @@ export class ReconciliationService {
     const systemStart = systemRec?.clockIn ? this.toTimeStr(new Date(systemRec.clockIn)) : null;
     const systemEnd = systemRec?.clockOut ? this.toTimeStr(new Date(systemRec.clockOut)) : null;
     const systemBreak = systemRec?.breakMinutes ?? null;
-    const systemHours = systemRec?.workMinutes != null ? Math.round(systemRec.workMinutes / 6) / 10 : null;
+    const systemHours = systemRec?.workMinutes != null ? Math.round((systemRec.workMinutes / 60) * 100) / 100 : null;
 
     let matchStatus: string;
 
@@ -455,12 +596,16 @@ export class ReconciliationService {
       matchStatus = 'client_only';
     } else {
       // 両方存在 → 差異チェック
-      const timeMatch = this.isTimeClose(clientStart, systemStart, config.timeToleranceMin)
-                      && this.isTimeClose(clientEnd, systemEnd, config.timeToleranceMin);
+      // 現場の時刻データがない場合（工数表フォーマット）→ 稼働時間のみで比較
+      const hasClientTimes = clientStart != null || clientEnd != null;
+      const timeMatch = hasClientTimes
+        ? this.isTimeClose(clientStart, systemStart, config.timeToleranceMin)
+          && this.isTimeClose(clientEnd, systemEnd, config.timeToleranceMin)
+        : true;
       const hoursMatch = clientHours == null || systemHours == null
                        || Math.abs(clientHours - systemHours) <= config.hoursTolerance;
 
-      matchStatus = (timeMatch && hoursMatch) ? 'match' : 'mismatch';
+      matchStatus = (timeMatch && hoursMatch) ? 'match' : 'discrepancy';
     }
 
     // デフォルトで「現場を正」とする
@@ -524,7 +669,7 @@ export class ReconciliationService {
       where: { id: uploadId },
     });
     if (!upload) throw new NotFoundException('アップロードデータが見つかりません');
-    if (upload.status === 'confirmed') throw new BadRequestException('既に確定済みです');
+    // 再確定を許可（編集後の再確定フローに対応）
 
     // 管理者による修正があれば反映
     if (updates?.length) {
@@ -653,6 +798,34 @@ export class ReconciliationService {
       },
       update: data,
     });
+  }
+
+  /** 社員×年月で突合結果を取得 */
+  async getReconcileResultsByEmployee(employeeId: string, yearMonth: string) {
+    // confirmed を優先、なければ reconciled
+    const upload = await this.db.clientAttendanceUpload.findFirst({
+      where: {
+        employeeId,
+        yearMonth,
+        status: { in: ['confirmed', 'reconciled'] },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], // confirmed < reconciled (alphabetically)
+      include: {
+        results: { orderBy: { workDate: 'asc' } },
+        client: { select: { name: true } },
+      },
+    });
+
+    if (!upload) {
+      return { uploadId: null, uploadStatus: null, clientName: null, results: [] };
+    }
+
+    return {
+      uploadId: upload.id,
+      uploadStatus: upload.status,
+      clientName: upload.client?.name ?? null,
+      results: upload.results,
+    };
   }
 
   /** 突合結果を取得（画面表示用） */

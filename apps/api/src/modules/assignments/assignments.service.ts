@@ -110,14 +110,44 @@ export class AssignmentsService {
 
   /**
    * 稼働終了
+   * mode: 'scheduled' = 契約期間通り終了（endDateそのまま、ステータスending_scheduled）
+   *        'immediate' = 途中終了（endDateを指定日に上書き、ステータスended）
    */
-  async endAssignment(id: string) {
+  async endAssignment(id: string, data?: { mode?: string; endDate?: string; endReason?: string }) {
+    const mode = data?.mode || 'immediate';
+
+    if (mode === 'scheduled') {
+      // 契約期間通り終了 → 終了予定ステータスに変更（endDateはそのまま）
+      return this.db.assignment.update({
+        where: { id },
+        data: {
+          status: 'ending_scheduled',
+          endReason: data?.endReason || 'term_end',
+        },
+      });
+    }
+
+    // 途中終了 → 即終了
     return this.db.assignment.update({
       where: { id },
       data: {
         status: 'ended',
-        endDate: new Date(),
-        endReason: 'term_end',
+        endDate: data?.endDate ? new Date(data.endDate) : new Date(),
+        endReason: data?.endReason || 'early_termination',
+      },
+    });
+  }
+
+  /**
+   * 契約延長（endDateを更新）
+   */
+  async extendAssignment(id: string, newEndDate: string) {
+    return this.db.assignment.update({
+      where: { id },
+      data: {
+        endDate: new Date(newEndDate),
+        // ending_scheduledだった場合はactiveに戻す
+        status: 'active',
       },
     });
   }

@@ -110,6 +110,64 @@ export class EmployeesService {
   }
 
   /**
+   * アサイン未経験社員一覧（新規タブ用）
+   * 一度もアサインされたことがない社員を返す。
+   */
+  async findUnassigned() {
+    // SES事業部（parent_idがNULL & code='SES'）配下の社員のみ
+    const sesDept = await this.db.department.findFirst({
+      where: { code: 'SES', parentId: null },
+      select: { id: true },
+    });
+
+    const sesDeptIds: string[] = [];
+    if (sesDept) {
+      sesDeptIds.push(sesDept.id);
+      const children = await this.db.department.findMany({
+        where: { parentId: sesDept.id },
+        select: { id: true },
+      });
+      sesDeptIds.push(...children.map((c) => c.id));
+    }
+
+    const where: any = {
+      deletedAt: null,
+      assignments: { none: {} },
+      ...(sesDeptIds.length > 0 ? { departmentId: { in: sesDeptIds } } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.db.employee.findMany({
+        where,
+        select: {
+          id: true,
+          employeeCode: true,
+          lastName: true,
+          firstName: true,
+          status: true,
+          hireDate: true,
+          department: { select: { name: true } },
+        },
+        orderBy: { hireDate: 'desc' },
+      }),
+      this.db.employee.count({ where }),
+    ]);
+
+    return {
+      data: data.map((e) => ({
+        id: e.id,
+        employeeCode: e.employeeCode,
+        lastName: e.lastName,
+        firstName: e.firstName,
+        status: e.status,
+        hireDate: e.hireDate,
+        departmentName: e.department?.name || '',
+      })),
+      total,
+    };
+  }
+
+  /**
    * 社員詳細を取得
    *
    * マイナンバー・口座情報を含むフル情報を返す。
@@ -132,6 +190,24 @@ export class EmployeesService {
           where: { isActive: true },
           select: { id: true, name: true, relationship: true, birthDate: true, annualIncome: true },
         },
+        meetings: {
+          orderBy: { date: 'desc' },
+          select: { id: true, date: true, interviewer: true, content: true, videoUrl: true },
+        },
+        leaveBalances: {
+          orderBy: { grantedDate: 'desc' },
+          select: {
+            id: true, grantedDate: true, expiryDate: true,
+            grantedDays: true, usedDays: true, remainingDays: true,
+          },
+        },
+        certificates: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true, certType: true, status: true,
+            filePath: true, issuedAt: true,
+          },
+        },
       },
     });
 
@@ -142,7 +218,59 @@ export class EmployeesService {
     // マイナンバーは個別APIで取得（ここでは返さない）
     const { myNumber, ...safeEmployee } = employee;
 
-    return safeEmployee;
+    // 勤怠月別サマリー（直近6ヶ月）
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    sixMonthsAgo.setDate(1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+
+    const attendances = await this.db.attendance.findMany({
+      where: {
+        employeeId: id,
+        workDate: { gte: sixMonthsAgo },
+      },
+      orderBy: { workDate: 'asc' },
+    });
+
+    // 月ごとに集計
+    const monthlyMap = new Map<string, {
+      yearMonth: string;
+      workDays: number;
+      totalWorkMinutes: number;
+      totalOvertimeMinutes: number;
+      missedClockCount: number;
+      lateCount: number;
+      absentCount: number;
+    }>();
+
+    for (const a of attendances) {
+      const d = new Date(a.workDate);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyMap.has(ym)) {
+        monthlyMap.set(ym, {
+          yearMonth: ym,
+          workDays: 0,
+          totalWorkMinutes: 0,
+          totalOvertimeMinutes: 0,
+          missedClockCount: 0,
+          lateCount: 0,
+          absentCount: 0,
+        });
+      }
+      const m = monthlyMap.get(ym)!;
+      m.workDays++;
+      m.totalWorkMinutes += a.workMinutes || 0;
+      m.totalOvertimeMinutes += a.overtimeMinutes || 0;
+      if (a.isMissedClock) m.missedClockCount++;
+      if (a.status === 'late') m.lateCount++;
+      if (a.status === 'absent') m.absentCount++;
+    }
+
+    const attendanceSummary = Array.from(monthlyMap.values()).sort(
+      (a, b) => b.yearMonth.localeCompare(a.yearMonth),
+    );
+
+    return { ...safeEmployee, attendanceSummary };
   }
 
   /**

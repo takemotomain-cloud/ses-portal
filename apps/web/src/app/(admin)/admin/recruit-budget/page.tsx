@@ -1,57 +1,41 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
 
-function fmt(n: number | null | undefined) {
-  return (n ?? 0).toLocaleString();
+/* ------------------------------------------------------------------ */
+/*  型定義                                                              */
+/* ------------------------------------------------------------------ */
+
+interface BudgetRow {
+  id: string;
+  fiscalYear: number;
+  category: string;
+  month: number;
+  budget: number;
+  actual: number;
 }
 
 type MonthlyData = [number, number, number, number, number, number, number, number, number, number, number, number];
 
 interface BudgetGroup {
   label: string;
+  category: string;
   budget: MonthlyData;
   actual: MonthlyData;
 }
 
-const DATA_2026: BudgetGroup[] = [
-  {
-    label: 'エージェント手数料',
-    budget: [500000, 500000, 500000, 500000, 500000, 500000, 500000, 500000, 500000, 500000, 500000, 500000],
-    actual: [700000, 350000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: '媒体掲載費',
-    budget: [200000, 0, 200000, 0, 200000, 0, 200000, 0, 200000, 0, 200000, 0],
-    actual: [800000, 0, 600000, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: 'リファラル報酬',
-    budget: [50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000],
-    actual: [100000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  },
-];
-
-const DATA_2025: BudgetGroup[] = [
-  {
-    label: 'エージェント手数料',
-    budget: [400000, 400000, 400000, 400000, 400000, 400000, 400000, 400000, 400000, 400000, 400000, 400000],
-    actual: [400000, 300000, 500000, 200000, 450000, 350000, 400000, 300000, 500000, 250000, 400000, 350000],
-  },
-  {
-    label: '媒体掲載費',
-    budget: [150000, 0, 150000, 0, 150000, 0, 150000, 0, 150000, 0, 150000, 0],
-    actual: [150000, 0, 200000, 0, 100000, 0, 150000, 0, 180000, 0, 150000, 0],
-  },
-  {
-    label: 'リファラル報酬',
-    budget: [50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000, 50000],
-    actual: [0, 50000, 0, 0, 100000, 0, 50000, 0, 0, 50000, 0, 0],
-  },
-];
-
 const MONTHS = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
+const CATEGORY_LABELS: Record<string, string> = {
+  agent: 'エージェント手数料',
+  media: '媒体掲載費',
+  referral: 'リファラル報酬',
+};
+
+function fmt(n: number | null | undefined) {
+  return (n ?? 0).toLocaleString();
+}
 
 function sumRow(row: MonthlyData): number {
   return row.reduce((a, b) => a + b, 0);
@@ -80,16 +64,70 @@ function DiffCell({ value }: { value: number }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  API データ → BudgetGroup[] 変換                                     */
+/* ------------------------------------------------------------------ */
+
+function toBudgetGroups(rows: BudgetRow[]): BudgetGroup[] {
+  const catMap = new Map<string, BudgetGroup>();
+
+  for (const r of rows) {
+    if (!catMap.has(r.category)) {
+      catMap.set(r.category, {
+        label: CATEGORY_LABELS[r.category] || r.category,
+        category: r.category,
+        budget: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        actual: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      });
+    }
+    const g = catMap.get(r.category)!;
+    // month 1-12 → index: month 4→0, 5→1, ..., 3→11
+    const idx = r.month >= 4 ? r.month - 4 : r.month + 8;
+    g.budget[idx] = r.budget;
+    g.actual[idx] = r.actual;
+  }
+
+  // 固定順序
+  const order = ['agent', 'media', 'referral'];
+  const sorted: BudgetGroup[] = [];
+  for (const cat of order) {
+    if (catMap.has(cat)) sorted.push(catMap.get(cat)!);
+  }
+  // その他のカテゴリ
+  for (const [cat, g] of catMap) {
+    if (!order.includes(cat)) sorted.push(g);
+  }
+  return sorted;
+}
+
+/* ------------------------------------------------------------------ */
+/*  コンポーネント                                                      */
+/* ------------------------------------------------------------------ */
+
 export default function RecruitBudgetPage() {
   const [year, setYear] = useState<number>(2026);
   const { toast, ToastUI } = useToast();
+  const [groups, setGroups] = useState<BudgetGroup[]>([]);
+  const [loading, setLoading] = useState(true);
   const [newItem, setNewItem] = useState('');
 
-  const groups = year === 2026 ? DATA_2026 : DATA_2025;
+  const fetchBudgets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient<BudgetRow[]>(`/candidates/budgets?year=${year}`);
+      setGroups(toBudgetGroups(data));
+    } catch {
+      toast('データの取得に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  }, [year]);
+
+  useEffect(() => { fetchBudgets(); }, [fetchBudgets]);
 
   const totalBudget = totalRow(groups, 'budget');
   const totalActual = totalRow(groups, 'actual');
-  const totalDiff = diffRow(totalBudget, totalActual);
+  const totalDiffArr = diffRow(totalBudget, totalActual);
 
   function renderValueRow(label: string, row: MonthlyData) {
     return (
@@ -134,33 +172,39 @@ export default function RecruitBudgetPage() {
         </select>
       </div>
 
-      {/* 12-month table */}
-      <div className="card p-0 overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="text-left text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] sticky left-0 z-10 min-w-[180px]" style={{ whiteSpace: 'nowrap' }}>項目</th>
-              {MONTHS.map((m) => (
-                <th key={m} className="text-right text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] min-w-[100px]" style={{ whiteSpace: 'nowrap' }}>{m}</th>
+      {loading ? (
+        <div className="flex justify-center py-20"><div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" /></div>
+      ) : (
+        <div className="card p-0 overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] sticky left-0 z-10 min-w-[180px]" style={{ whiteSpace: 'nowrap' }}>項目</th>
+                {MONTHS.map((m) => (
+                  <th key={m} className="text-right text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] min-w-[100px]" style={{ whiteSpace: 'nowrap' }}>{m}</th>
+                ))}
+                <th className="text-right text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] min-w-[100px]" style={{ whiteSpace: 'nowrap' }}>合計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((group) => (
+                <GroupRows key={group.category} group={group} renderValueRow={renderValueRow} renderDiffRow={renderDiffRow} />
               ))}
-              <th className="text-right text-xs text-secondary font-normal px-3 py-2.5 bg-[#FAFAFA] min-w-[100px]" style={{ whiteSpace: 'nowrap' }}>合計</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map((group) => (
-              <GroupRows key={group.label} group={group} renderValueRow={renderValueRow} renderDiffRow={renderDiffRow} />
-            ))}
 
-            {/* 合計 group */}
-            <tr className="bg-page/50">
-              <td className="px-3 py-2 font-semibold sticky left-0 bg-page/50 z-10 min-w-[180px]" style={{ whiteSpace: 'nowrap' }} colSpan={14}>合計</td>
-            </tr>
-            {renderValueRow('予算', totalBudget)}
-            {renderValueRow('実績', totalActual)}
-            {renderDiffRow(totalBudget, totalActual)}
-          </tbody>
-        </table>
-      </div>
+              {groups.length > 0 && (
+                <>
+                  <tr className="bg-page/50">
+                    <td className="px-3 py-2 font-semibold sticky left-0 bg-page/50 z-10 min-w-[180px]" style={{ whiteSpace: 'nowrap' }} colSpan={14}>合計</td>
+                  </tr>
+                  {renderValueRow('予算', totalBudget)}
+                  {renderValueRow('実績', totalActual)}
+                  {renderDiffRow(totalBudget, totalActual)}
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Add item */}
       <div className="flex items-center gap-3 mt-5">
@@ -173,10 +217,22 @@ export default function RecruitBudgetPage() {
         />
         <button
           className="btn-outline text-sm py-1.5 px-4"
-          onClick={() => {
+          onClick={async () => {
             if (newItem.trim()) {
-              toast(`「${newItem.trim()}」を追加しました`);
-              setNewItem('');
+              try {
+                // 新規カテゴリの12ヶ月分を作成
+                for (let m = 1; m <= 12; m++) {
+                  await apiClient('/candidates/budgets', {
+                    method: 'POST',
+                    body: JSON.stringify({ fiscalYear: year, category: newItem.trim(), month: m, budget: 0, actual: 0 }),
+                  });
+                }
+                toast(`「${newItem.trim()}」を追加しました`);
+                setNewItem('');
+                fetchBudgets();
+              } catch {
+                toast('追加に失敗しました');
+              }
             }
           }}
         >

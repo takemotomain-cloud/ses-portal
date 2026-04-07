@@ -8,7 +8,7 @@
  *   GET  /api/assignments/history  — 稼働ヒストリー
  */
 
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AssignmentsService } from './assignments.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -67,8 +67,21 @@ export class AssignmentsController {
   @Post(':id/end')
   @Roles('admin', 'sales')
   @ApiOperation({ summary: '稼働終了' })
-  async endAssignment(@Param('id') id: string) {
-    return this.assignmentsService.endAssignment(id);
+  async endAssignment(
+    @Param('id') id: string,
+    @Body() body?: { mode?: string; endDate?: string; endReason?: string },
+  ) {
+    return this.assignmentsService.endAssignment(id, body);
+  }
+
+  @Patch(':id/extend')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '契約延長' })
+  async extendAssignment(
+    @Param('id') id: string,
+    @Body() body: { endDate: string },
+  ) {
+    return this.assignmentsService.extendAssignment(id, body.endDate);
   }
 
   @Get('current')

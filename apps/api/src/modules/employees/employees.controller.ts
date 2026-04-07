@@ -52,6 +52,17 @@ export class EmployeesController {
   }
 
   /**
+   * アサイン未経験社員一覧（稼働管理の「新規」タブ用）
+   * 注意: /unassigned は /:id より先に定義
+   */
+  @Get('unassigned')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'アサイン未経験社員一覧' })
+  async findUnassigned() {
+    return this.employeesService.findUnassigned();
+  }
+
+  /**
    * 社員一覧を取得
    *
    * admin/sales: 全社員を検索・一覧表示可能

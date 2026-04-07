@@ -83,6 +83,36 @@ function formatDate(dateStr: string | null): string {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
+/* ---------- 月キー ---------- */
+function getMonthKey(d: Date = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function monthLabel(key: string) {
+  const [y, m] = key.split('-');
+  return `${y}年${Number(m)}月`;
+}
+function prevMonth(key: string) {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return getMonthKey(d);
+}
+function nextMonth(key: string) {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  return getMonthKey(d);
+}
+
+/* ---------- 確定履歴 ---------- */
+interface ConfirmedRecord {
+  engineerId: string;
+  engineerName: string;
+  engineerCode?: string;
+  client: string;
+  project?: string;
+  confirmedAt: string; // ISO string
+  month: string; // YYYY-MM
+}
+
 /* ---------- localStorage 永続化 ---------- */
 const STORAGE_KEY = 'ses_sales_data';
 
@@ -94,6 +124,8 @@ interface SavedSalesData {
   }>;
   /** 手動追加されたエンジニアID一覧 */
   manuallyAdded: string[];
+  /** 月別確定履歴 */
+  confirmedHistory: ConfirmedRecord[];
 }
 
 function loadSavedData(): SavedSalesData {
@@ -101,13 +133,12 @@ function loadSavedData(): SavedSalesData {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { engineers: {}, manuallyAdded: [] };
+  return { engineers: {}, manuallyAdded: [], confirmedHistory: [] };
 }
 
-function saveSalesData(engineers: Engineer[], manualIds: string[]) {
-  const data: SavedSalesData = { engineers: {}, manuallyAdded: manualIds };
+function saveSalesData(engineers: Engineer[], manualIds: string[], confirmedHistory: ConfirmedRecord[]) {
+  const data: SavedSalesData = { engineers: {}, manuallyAdded: manualIds, confirmedHistory };
   for (const e of engineers) {
-    // 提案がある or ステータスが変わっているものだけ保存
     if (e.proposals.length > 0 || e.salesStatus !== 'undecided') {
       data.engineers[e.id] = {
         salesStatus: e.salesStatus,
@@ -127,6 +158,8 @@ export default function AdminSalesPage() {
   const [allEmployees, setAllEmployees] = useState<EmployeeData[]>([]);
   const [allClients, setAllClients] = useState<ClientData[]>([]);
   const [manuallyAddedIds, setManuallyAddedIds] = useState<string[]>([]);
+  const [confirmedHistory, setConfirmedHistory] = useState<ConfirmedRecord[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState(getMonthKey());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -231,6 +264,7 @@ export default function AdminSalesPage() {
         }
       }
       setManuallyAddedIds(saved.manuallyAdded);
+      setConfirmedHistory(saved.confirmedHistory || []);
 
       // 保存済みの提案データをマージ
       for (const [id, data] of Object.entries(saved.engineers)) {
@@ -256,9 +290,9 @@ export default function AdminSalesPage() {
   // engineersが更新されたらlocalStorageに自動保存
   useEffect(() => {
     if (!loading && engineers.length > 0) {
-      saveSalesData(engineers, manuallyAddedIds);
+      saveSalesData(engineers, manuallyAddedIds, confirmedHistory);
     }
-  }, [engineers, manuallyAddedIds, loading]);
+  }, [engineers, manuallyAddedIds, confirmedHistory, loading]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
@@ -268,11 +302,15 @@ export default function AdminSalesPage() {
     });
   };
 
+  const currentMonthKey = getMonthKey();
+  const isCurrentMonth = selectedMonth === currentMonthKey;
+  const monthConfirmed = useMemo(() => confirmedHistory.filter(r => r.month === selectedMonth), [confirmedHistory, selectedMonth]);
+
   const kpis = useMemo(() => ({
     proposing: engineers.filter(e => e.salesStatus === 'proposing').length,
-    confirmed: engineers.filter(e => e.salesStatus === 'confirmed').length,
+    confirmed: monthConfirmed.length,
     undecided: engineers.filter(e => e.salesStatus === 'undecided').length,
-  }), [engineers]);
+  }), [engineers, monthConfirmed]);
 
   const filtered = useMemo(() => {
     return engineers.filter(e => {
@@ -455,7 +493,23 @@ export default function AdminSalesPage() {
   };
 
   const handleCreateAssignment = (eng: Engineer, prop: Proposal) => {
-    // クライアントIDを逆引き
+    // 確定履歴に記録
+    const record: ConfirmedRecord = {
+      engineerId: eng.id,
+      engineerName: eng.name,
+      engineerCode: eng.code,
+      client: prop.client,
+      project: prop.project,
+      confirmedAt: new Date().toISOString(),
+      month: getMonthKey(),
+    };
+    setConfirmedHistory(prev => [...prev, record]);
+
+    // 一覧から除外
+    setEngineers(prev => prev.filter(e => e.id !== eng.id));
+    setManuallyAddedIds(prev => prev.filter(id => id !== eng.id));
+
+    // アサイン登録画面へ
     const client = allClients.find(c => c.name === prop.client);
     const params = new URLSearchParams();
     params.set('employeeName', eng.name);
@@ -472,21 +526,54 @@ export default function AdminSalesPage() {
         <button onClick={() => setShowAddModal(true)} className="btn-outline text-sm py-2">エンジニアを追加</button>
       </div>
 
+      {/* 月ナビ */}
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={() => setSelectedMonth(prevMonth(selectedMonth))} className="text-secondary hover:text-primary text-sm px-2 py-1">◀</button>
+        <span className="text-base font-medium min-w-[100px] text-center">{monthLabel(selectedMonth)}</span>
+        <button onClick={() => setSelectedMonth(nextMonth(selectedMonth))} disabled={selectedMonth >= currentMonthKey} className="text-secondary hover:text-primary text-sm px-2 py-1 disabled:opacity-30 disabled:cursor-not-allowed">▶</button>
+        {!isCurrentMonth && (
+          <button onClick={() => setSelectedMonth(currentMonthKey)} className="text-xs text-primary hover:underline ml-2">今月に戻る</button>
+        )}
+      </div>
+
       {/* KPI */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <div className="card p-4">
-          <div className="text-xs text-secondary">営業中</div>
-          <div className="text-3xl font-medium text-status-blue-text">{kpis.proposing}<span className="text-base font-normal ml-1">名</span></div>
+          <div className="text-xs text-secondary">{isCurrentMonth ? '営業中' : `${monthLabel(selectedMonth)} 営業中`}</div>
+          <div className="text-3xl font-medium text-status-blue-text">{isCurrentMonth ? kpis.proposing : '--'}<span className="text-base font-normal ml-1">名</span></div>
         </div>
         <div className="card p-4">
-          <div className="text-xs text-secondary">案件確定</div>
+          <div className="text-xs text-secondary">{monthLabel(selectedMonth)} 確定</div>
           <div className="text-3xl font-medium text-status-green-text">{kpis.confirmed}<span className="text-base font-normal ml-1">名</span></div>
         </div>
         <div className="card p-4">
-          <div className="text-xs text-secondary">未決定</div>
-          <div className="text-3xl font-medium text-status-amber-text">{kpis.undecided}<span className="text-base font-normal ml-1">名</span></div>
+          <div className="text-xs text-secondary">{isCurrentMonth ? '未決定' : `${monthLabel(selectedMonth)} 未決定`}</div>
+          <div className="text-3xl font-medium text-status-amber-text">{isCurrentMonth ? kpis.undecided : '--'}<span className="text-base font-normal ml-1">名</span></div>
         </div>
       </div>
+
+      {/* 今月確定一覧 */}
+      {monthConfirmed.length > 0 && (
+        <div className="card p-4 mb-4">
+          <div className="text-xs text-secondary mb-2">{monthLabel(selectedMonth)} 確定済みエンジニア</div>
+          <div className="space-y-0">
+            {monthConfirmed.map((r, i) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b border-border/20 last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className="badge badge-ok">確定</span>
+                  <span className="text-[15px] font-medium">{r.engineerName}</span>
+                  {r.engineerCode && <span className="text-xs text-secondary">{r.engineerCode}</span>}
+                </div>
+                <div className="flex items-center gap-3 text-[13px] text-secondary">
+                  <span>{r.client}</span>
+                  {r.project && <span className="text-xs">/ {r.project}</span>}
+                  <span className="text-xs">{(() => { const d = new Date(r.confirmedAt); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; })()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* フィルタ */}
       <div className="flex gap-2 mb-4 items-center flex-wrap">

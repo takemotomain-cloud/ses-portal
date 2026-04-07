@@ -39,6 +39,7 @@ const empTypeLabel: Record<string, string> = {
 const contractLabel: Record<string, string> = {
   indefinite: '無期',
   fixed: '有期',
+  fixed_term: '有期',
 };
 
 function fmtDate(iso: string): string {

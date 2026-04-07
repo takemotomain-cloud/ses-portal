@@ -1,8 +1,8 @@
 /**
  * 管理側 勤怠管理
  *
- * UIモックのpage-attendanceを再現。
  * 月切替 + KPI + 精算幅ベースの超過/不足アラート + 全社員テーブル。
+ * 行クリックで社員ごとの月次勤怠ページへ遷移。
  *
  * データソース:
  *   - GET /assignments?limit=200 → アクティブなアサイン（社員名・稼働先・精算幅）
@@ -36,6 +36,7 @@ interface PayrollRow {
 }
 
 interface AttendanceRow {
+  employeeId: string;
   name: string;
   client: string;
   lower: number;
@@ -58,6 +59,7 @@ export default function AdminAttendancePage() {
   const [month, setMonth] = useState(4);
   const [attendanceData, setAttendanceData] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [monthlyStatus, setMonthlyStatus] = useState<Record<string, { attendanceConfirmed: boolean; clientConfirmed: boolean; clientImported: boolean }>>({});
 
   function changeMonth(delta: number) {
     let m = month + delta;
@@ -76,10 +78,10 @@ export default function AdminAttendancePage() {
 
     async function fetchData() {
       try {
-        // アサインデータと給与データを並列取得
-        const [assignRes, payrollRes] = await Promise.all([
+        const [assignRes, payrollRes, statusRes] = await Promise.all([
           apiClient<{ data: AssignmentRow[] }>('/assignments?limit=200').catch(() => ({ data: [] as AssignmentRow[] })),
           apiClient<PayrollRow[]>(`/payroll/${year}/${month}`).catch(() => [] as PayrollRow[]),
+          apiClient<Record<string, { attendanceConfirmed: boolean; clientConfirmed: boolean; clientImported: boolean }>>(`/attendance/admin/status/${year}/${month}`).catch(() => ({})),
         ]);
 
         if (cancelled) return;
@@ -87,58 +89,52 @@ export default function AdminAttendancePage() {
         const assignments = assignRes.data ?? [];
         const payrollList = Array.isArray(payrollRes) ? payrollRes : [];
 
-        // 給与データをemployeeIdでマップ化
         const payrollMap = new Map<string, PayrollRow>();
         for (const p of payrollList) {
           payrollMap.set(p.employeeId, p);
         }
 
-        // アクティブなアサインのみ対象
         const activeAssignments = assignments.filter(a => a.status === 'active');
 
         const rows: AttendanceRow[] = activeAssignments.map(a => {
           const payroll = payrollMap.get(a.employeeId);
-
-          // 実績時間: 給与データからの推定（baseSalary / hourlyRate から逆算は困難なので、
-          // 精算幅の中間値をデフォルト表示し、残業がある場合は上限+残業時間を加算）
           const lower = a.settlementLower || 140;
           const upper = a.settlementUpper || 180;
           const midpoint = Math.round((lower + upper) / 2);
 
-          // 残業時間（給与データの overtimePay から概算。hourlyRate が不明なので簡易的に時間数を推定）
           let otHours = 0;
           let actualHours = midpoint;
           if (payroll) {
-            // overtimePay / (baseSalary/160 * 1.25) で残業時間を逆算
             const hourlyRate = payroll.baseSalary > 0 ? Math.round(payroll.baseSalary / 160) : 0;
             if (hourlyRate > 0 && payroll.overtimePay > 0) {
               otHours = Math.round(payroll.overtimePay / (hourlyRate * 1.25));
             }
-            actualHours = upper + otHours; // 残業があれば上限超え
+            actualHours = upper + otHours;
             if (otHours === 0) {
-              actualHours = midpoint; // 残業なしなら中間値
+              actualHours = midpoint;
             }
           }
 
-          // ステータス判定
           let status: 'ok' | 'over' | 'under' = 'ok';
           if (actualHours > upper) status = 'over';
           else if (actualHours < lower) status = 'under';
 
           return {
+            employeeId: a.employeeId,
             name: `${a.employee.lastName} ${a.employee.firstName}`,
             client: a.client.name,
             lower,
             upper,
             actual: actualHours,
             ot: otHours,
-            leave: 0, // 有給データは別APIのため現状0
+            leave: 0,
             status,
           };
         });
 
         if (!cancelled) {
           setAttendanceData(rows);
+          setMonthlyStatus(statusRes);
         }
       } catch {
         if (!cancelled) {
@@ -166,10 +162,10 @@ export default function AdminAttendancePage() {
   const { toast, ToastUI } = useToast();
 
   const handleCsvExport = useCallback(() => {
-    const headers = ['社員番号', '氏名', '出勤日数', '総労働時間', '残業時間', '有給取得', '欠勤', 'ステータス'];
+    const headers = ['氏名', '稼働先', '精算幅', '実績', '残業', '有給', 'ステータス'];
     const rows = attendanceData.map(d => {
       const st = statusBadge[d.status];
-      return ['', d.name, '', String(d.actual), String(d.ot), String(d.leave), '', st?.label ?? d.status];
+      return [d.name, d.client, `${d.lower}〜${d.upper}h`, `${d.actual}h`, `${d.ot}h`, `${d.leave}日`, st?.label ?? d.status];
     });
     const bom = '\uFEFF';
     const csv = bom + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -231,78 +227,64 @@ export default function AdminAttendancePage() {
         </div>
       </div>
 
-      {/* アラート表示 */}
-      {(kpis.overCount > 0 || kpis.underCount > 0) && (
-        <div className="space-y-2 mb-4">
-          {attendanceData.filter(d => d.status === 'over').map(d => (
-            <div key={d.name} className="card p-3 flex justify-between items-center border-l-4 border-l-status-red-text">
-              <div>
-                <span className="text-base font-medium">{d.name}</span>
-                <span className="text-sm text-secondary ml-2">{d.client}</span>
-              </div>
-              <div className="text-sm text-status-red-text font-medium">精算幅超過 {d.actual}h / {d.upper}h</div>
-            </div>
-          ))}
-          {attendanceData.filter(d => d.status === 'under').map(d => (
-            <div key={d.name} className="card p-3 flex justify-between items-center border-l-4 border-l-status-amber-text">
-              <div>
-                <span className="text-base font-medium">{d.name}</span>
-                <span className="text-sm text-secondary ml-2">{d.client}</span>
-              </div>
-              <div className="text-sm text-status-amber-text font-medium">精算幅不足 {d.actual}h / {d.lower}h</div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* テーブル */}
       <div className="card p-0 overflow-x-auto">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-[700px]">
           <thead>
             <tr className="border-b border-border">
               <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">氏名</th>
               <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">稼働先</th>
               <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">精算幅</th>
               <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">実績</th>
-              <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">達成</th>
               <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">残業</th>
               <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">有給</th>
-              <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">ステータス</th>
+              <th className="text-center text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">打刻入力</th>
+              <th className="text-center text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">交通費入力</th>
+              <th className="text-center text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">本人勤怠確定</th>
+              <th className="text-center text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">現場勤怠確定</th>
+              <th className="text-center text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">現場勤怠取込</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
+              <tr><td colSpan={11}><div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div></td></tr>
             ) : attendanceData.length === 0 ? (
-              <tr><td colSpan={8}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
+              <tr><td colSpan={11}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
             ) : attendanceData.map(d => {
-              const pct = d.upper ? Math.round(d.actual / d.upper * 100) : 0;
-              const barColor = d.status === 'over' ? 'bg-status-red-text' : d.status === 'under' ? 'bg-status-amber-text' : 'bg-status-green-text';
-              const actualColor = d.status === 'over' ? 'text-status-red-text' : d.status === 'under' ? 'text-status-amber-text' : '';
               const st = statusBadge[d.status] || { label: d.status, cls: 'badge-wait' };
+              const actualColor = d.actual < 140 ? 'text-status-red-text' : '';
               return (
-                <tr key={d.name} className="border-b border-border/20 hover:bg-[#FAFAF8] transition-colors">
+                <tr
+                  key={d.employeeId}
+                  className="border-b border-border/20 hover:bg-[#FAFAF8] transition-colors cursor-pointer"
+                  onClick={() => router.push(`/admin/attendance/${d.employeeId}?year=${year}&month=${month}`)}
+                >
                   <td className="px-4 py-2.5 text-base font-medium">{d.name}</td>
                   <td className="px-4 py-2.5 text-base text-secondary">{d.client}</td>
                   <td className="px-4 py-2.5 text-base text-right">{d.lower}〜{d.upper}h</td>
-                  <td className={`px-4 py-2.5 text-base text-right tabular-nums ${actualColor}`}>{d.actual}h</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-14 h-[3px] bg-border/40 rounded overflow-hidden">
-                        <div className={`h-full rounded ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                      </div>
-                      <span className="text-xs text-secondary">{pct}%</span>
-                    </div>
-                  </td>
+                  <td className={`px-4 py-2.5 text-base text-right tabular-nums font-medium ${actualColor}`}>{d.actual}h</td>
                   <td className="px-4 py-2.5 text-base text-right tabular-nums">{d.ot}h</td>
                   <td className="px-4 py-2.5 text-base text-right">{d.leave}日</td>
-                  <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
+                  <td className="px-4 py-2.5 text-center text-sm font-medium text-status-red-text">未完了</td>
+                  <td className="px-4 py-2.5 text-center text-sm font-medium text-status-red-text">未完了</td>
+                  {(() => {
+                    const s = monthlyStatus[d.employeeId];
+                    const attOk = s?.attendanceConfirmed;
+                    const cliOk = s?.clientConfirmed;
+                    const cliImp = s?.clientImported;
+                    return (<>
+                      <td className={`px-4 py-2.5 text-center text-sm font-medium ${attOk ? '' : 'text-status-red-text'}`}>{attOk ? '確定' : '未確定'}</td>
+                      <td className={`px-4 py-2.5 text-center text-sm font-medium ${cliOk ? '' : 'text-status-red-text'}`}>{cliOk ? '確定' : '未確定'}</td>
+                      <td className={`px-4 py-2.5 text-center text-sm font-medium ${cliImp ? '' : 'text-status-red-text'}`}>{cliImp ? '取込済' : '未取込'}</td>
+                    </>);
+                  })()}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+
       <ToastUI />
     </div>
   );

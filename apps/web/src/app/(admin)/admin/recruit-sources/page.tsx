@@ -1,79 +1,153 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { apiClient } from '@/lib/api-client';
+import { useToast } from '@/components/ui/toast';
 
-function toast(message: string) {
-  const el = document.createElement('div');
-  el.textContent = message;
-  el.style.cssText =
-    'position:fixed;bottom:24px;right:24px;background:#333;color:#fff;padding:12px 20px;border-radius:8px;font-size:14px;z-index:9999;transition:opacity .3s';
-  document.body.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0';
-    setTimeout(() => el.remove(), 300);
-  }, 2000);
+/* ------------------------------------------------------------------ */
+/*  型定義                                                              */
+/* ------------------------------------------------------------------ */
+
+interface RecruitSource {
+  id: string;
+  name: string;
+  category: string; // agent | media | referral | homepage
+  fee: string | null;
+  memo: string | null;
 }
 
-type AgentSource = { name: string; fee: string; memo: string };
-type MediaSource = { name: string; cost: string; memo: string };
-type OtherSource = { name: string; typeName: string; typeBadge: string; cost: string; memo: string };
+const categoryLabel: Record<string, string> = {
+  agent: '紹介',
+  media: '媒体',
+  referral: 'リファラル',
+  homepage: '自社',
+};
 
-const agentSources: AgentSource[] = [
-  { name: 'テックエージェント', fee: '理論年収の35%', memo: '主力エージェント' },
-  { name: 'ITキャリア', fee: '理論年収の30%', memo: 'インフラ系に強い' },
-  { name: 'エンジニアパートナーズ', fee: '理論年収の35%', memo: '' },
-];
+const categoryBadge: Record<string, string> = {
+  agent: 'badge-info',
+  media: 'badge-warn',
+  referral: 'badge-ok',
+  homepage: 'badge-wait',
+};
 
-const mediaSources: MediaSource[] = [
-  { name: 'Green', cost: '1,200,000円', memo: 'エンジニア向け' },
-  { name: 'Wantedly', cost: '600,000円', memo: 'カジュアル面談経由' },
-];
-
-const otherSources: OtherSource[] = [
-  { name: '社員紹介', typeName: 'リファラル', typeBadge: 'badge-ok', cost: '1名あたり100,000円', memo: '入社時支給' },
-  { name: '自社HP', typeName: '自社', typeBadge: 'badge-wait', cost: '0円', memo: '' },
-];
+/* ------------------------------------------------------------------ */
+/*  コンポーネント                                                      */
+/* ------------------------------------------------------------------ */
 
 export default function RecruitSourcesPage() {
-  return (
-    <div>
-      {/* Header */}
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
-        <h1 className="text-2xl font-medium">応募経路管理</h1>
-        <button
-          className="btn-primary text-sm py-2"
-          onClick={() => toast('応募経路の追加は採用設定から行ってください')}
-        >
-          経路を追加
-        </button>
-      </div>
+  const { toast, ToastUI } = useToast();
+  const [sources, setSources] = useState<RecruitSource[]>([]);
+  const [loading, setLoading] = useState(true);
 
-      {/* エージェント（紹介） */}
+  // 追加モーダル
+  const [showAdd, setShowAdd] = useState(false);
+  const [addForm, setAddForm] = useState({ name: '', category: 'agent', fee: '', memo: '' });
+  const [saving, setSaving] = useState(false);
+
+  // 編集モーダル
+  const [editTarget, setEditTarget] = useState<RecruitSource | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', category: '', fee: '', memo: '' });
+
+  const fetchSources = useCallback(async () => {
+    try {
+      const data = await apiClient<RecruitSource[]>('/candidates/sources');
+      setSources(data);
+    } catch {
+      toast('データの取得に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchSources(); }, [fetchSources]);
+
+  const agents = sources.filter(s => s.category === 'agent');
+  const medias = sources.filter(s => s.category === 'media');
+  const others = sources.filter(s => s.category !== 'agent' && s.category !== 'media');
+
+  // 追加
+  async function handleAdd() {
+    if (!addForm.name.trim()) return;
+    setSaving(true);
+    try {
+      await apiClient('/candidates/sources', {
+        method: 'POST',
+        body: JSON.stringify({ name: addForm.name.trim(), category: addForm.category, fee: addForm.fee || null, memo: addForm.memo || null }),
+      });
+      toast('経路を追加しました');
+      setShowAdd(false);
+      setAddForm({ name: '', category: 'agent', fee: '', memo: '' });
+      fetchSources();
+    } catch {
+      toast('追加に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 編集
+  function openEdit(s: RecruitSource) {
+    setEditTarget(s);
+    setEditForm({ name: s.name, category: s.category, fee: s.fee || '', memo: s.memo || '' });
+  }
+
+  async function handleEdit() {
+    if (!editTarget || !editForm.name.trim()) return;
+    setSaving(true);
+    try {
+      await apiClient(`/candidates/sources/${editTarget.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: editForm.name.trim(), category: editForm.category, fee: editForm.fee || null, memo: editForm.memo || null }),
+      });
+      toast('更新しました');
+      setEditTarget(null);
+      fetchSources();
+    } catch {
+      toast('更新に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 削除
+  async function handleDelete(id: string) {
+    if (!confirm('この経路を削除しますか？')) return;
+    try {
+      await apiClient(`/candidates/sources/${id}`, { method: 'DELETE' });
+      toast('削除しました');
+      fetchSources();
+    } catch {
+      toast('削除に失敗しました');
+    }
+  }
+
+  function renderTable(title: string, items: RecruitSource[], columns: { label: string; render: (s: RecruitSource) => React.ReactNode }[]) {
+    return (
       <div className="mb-8">
-        <h2 className="text-lg font-medium mb-3">エージェント（紹介）</h2>
+        <h2 className="text-lg font-medium mb-3">{title}</h2>
         <div className="card p-0 overflow-x-auto">
           <table className="w-full min-w-[700px]" style={{ whiteSpace: 'nowrap' }}>
             <thead>
               <tr className="border-b border-border">
-                {['経路名', 'タイプ', '手数料', 'メモ', '編集'].map((h) => (
-                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
+                {columns.map(c => (
+                  <th key={c.label} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{c.label}</th>
                 ))}
+                <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">操作</th>
               </tr>
             </thead>
             <tbody>
-              {agentSources.map((s) => (
-                <tr key={s.name} className="border-b border-border/20 hover:bg-[#FAFAF8]">
-                  <td className="px-4 py-2.5 text-base font-medium">{s.name}</td>
-                  <td className="px-4 py-2.5"><span className="badge badge-info">紹介</span></td>
-                  <td className="px-4 py-2.5 text-sm">{s.fee}</td>
-                  <td className="px-4 py-2.5 text-sm text-secondary">{s.memo || '—'}</td>
+              {items.length === 0 ? (
+                <tr><td colSpan={columns.length + 1} className="px-4 py-6 text-center text-sm text-secondary">データはありません</td></tr>
+              ) : items.map(s => (
+                <tr key={s.id} className="border-b border-border/20 hover:bg-[#FAFAF8]">
+                  {columns.map(c => (
+                    <td key={c.label} className="px-4 py-2.5">{c.render(s)}</td>
+                  ))}
                   <td className="px-4 py-2.5">
-                    <button
-                      className="btn-outline text-xs py-1 px-3"
-                      onClick={() => toast('応募経路の編集は採用設定から行ってください')}
-                    >
-                      編集
-                    </button>
+                    <div className="flex gap-1">
+                      <button className="btn-outline text-xs py-1 px-3" onClick={() => openEdit(s)}>編集</button>
+                      <button className="btn-outline text-xs py-1 px-3 text-status-red-text" onClick={() => handleDelete(s.id)}>削除</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -81,58 +155,122 @@ export default function RecruitSourcesPage() {
           </table>
         </div>
       </div>
+    );
+  }
+
+  if (loading) {
+    return <div className="flex justify-center py-20"><div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" /></div>;
+  }
+
+  return (
+    <div>
+      <ToastUI />
+
+      {/* Header */}
+      <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
+        <h1 className="text-2xl font-medium">応募経路管理</h1>
+        <button className="btn-primary text-sm py-2" onClick={() => setShowAdd(true)}>経路を追加</button>
+      </div>
+
+      {/* エージェント（紹介） */}
+      {renderTable('エージェント（紹介）', agents, [
+        { label: '経路名', render: s => <span className="text-base font-medium">{s.name}</span> },
+        { label: 'タイプ', render: s => <span className={`badge ${categoryBadge[s.category] || ''}`}>{categoryLabel[s.category] || s.category}</span> },
+        { label: '手数料', render: s => <span className="text-sm">{s.fee || '—'}</span> },
+        { label: 'メモ', render: s => <span className="text-sm text-secondary">{s.memo || '—'}</span> },
+      ])}
 
       {/* 媒体 */}
-      <div className="mb-8">
-        <h2 className="text-lg font-medium mb-3">媒体</h2>
-        <div className="card p-0 overflow-x-auto">
-          <table className="w-full min-w-[600px]" style={{ whiteSpace: 'nowrap' }}>
-            <thead>
-              <tr className="border-b border-border">
-                {['経路名', 'タイプ', '掲載費合計', 'メモ'].map((h) => (
-                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {mediaSources.map((s) => (
-                <tr key={s.name} className="border-b border-border/20 hover:bg-[#FAFAF8]">
-                  <td className="px-4 py-2.5 text-base font-medium">{s.name}</td>
-                  <td className="px-4 py-2.5"><span className="badge badge-warn">媒体</span></td>
-                  <td className="px-4 py-2.5 text-sm tabular-nums">{s.cost}</td>
-                  <td className="px-4 py-2.5 text-sm text-secondary">{s.memo || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {renderTable('媒体', medias, [
+        { label: '経路名', render: s => <span className="text-base font-medium">{s.name}</span> },
+        { label: 'タイプ', render: s => <span className={`badge ${categoryBadge[s.category] || ''}`}>{categoryLabel[s.category] || s.category}</span> },
+        { label: '掲載費', render: s => <span className="text-sm tabular-nums">{s.fee || '—'}</span> },
+        { label: 'メモ', render: s => <span className="text-sm text-secondary">{s.memo || '—'}</span> },
+      ])}
 
       {/* その他 */}
-      <div className="mb-8">
-        <h2 className="text-lg font-medium mb-3">その他</h2>
-        <div className="card p-0 overflow-x-auto">
-          <table className="w-full min-w-[600px]" style={{ whiteSpace: 'nowrap' }}>
-            <thead>
-              <tr className="border-b border-border">
-                {['経路名', 'タイプ', 'コスト', 'メモ'].map((h) => (
-                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {otherSources.map((s) => (
-                <tr key={s.name} className="border-b border-border/20 hover:bg-[#FAFAF8]">
-                  <td className="px-4 py-2.5 text-base font-medium">{s.name}</td>
-                  <td className="px-4 py-2.5"><span className={`badge ${s.typeBadge}`}>{s.typeName}</span></td>
-                  <td className="px-4 py-2.5 text-sm tabular-nums">{s.cost}</td>
-                  <td className="px-4 py-2.5 text-sm text-secondary">{s.memo || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {renderTable('その他', others, [
+        { label: '経路名', render: s => <span className="text-base font-medium">{s.name}</span> },
+        { label: 'タイプ', render: s => <span className={`badge ${categoryBadge[s.category] || ''}`}>{categoryLabel[s.category] || s.category}</span> },
+        { label: 'コスト', render: s => <span className="text-sm tabular-nums">{s.fee || '—'}</span> },
+        { label: 'メモ', render: s => <span className="text-sm text-secondary">{s.memo || '—'}</span> },
+      ])}
+
+      {/* 追加モーダル */}
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowAdd(false)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-medium mb-4">経路を追加</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-secondary block mb-1">経路名</label>
+                <input className="border border-border rounded-md px-3 py-1.5 text-sm w-full" value={addForm.name} onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">カテゴリ</label>
+                <select className="border border-border rounded-md px-3 py-1.5 text-sm w-full bg-white" value={addForm.category} onChange={e => setAddForm(f => ({ ...f, category: e.target.value }))}>
+                  <option value="agent">エージェント（紹介）</option>
+                  <option value="media">媒体</option>
+                  <option value="referral">リファラル</option>
+                  <option value="homepage">自社HP</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">手数料 / コスト</label>
+                <input className="border border-border rounded-md px-3 py-1.5 text-sm w-full" placeholder="例: 理論年収の35%" value={addForm.fee} onChange={e => setAddForm(f => ({ ...f, fee: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">メモ</label>
+                <input className="border border-border rounded-md px-3 py-1.5 text-sm w-full" value={addForm.memo} onChange={e => setAddForm(f => ({ ...f, memo: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button className="btn-outline text-sm py-2 px-4" onClick={() => setShowAdd(false)}>キャンセル</button>
+              <button className="btn-primary text-sm py-2 px-4" disabled={saving || !addForm.name.trim()} onClick={handleAdd}>
+                {saving ? '保存中…' : '追加'}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 編集モーダル */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setEditTarget(null)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-medium mb-4">経路を編集</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-secondary block mb-1">経路名</label>
+                <input className="border border-border rounded-md px-3 py-1.5 text-sm w-full" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">カテゴリ</label>
+                <select className="border border-border rounded-md px-3 py-1.5 text-sm w-full bg-white" value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}>
+                  <option value="agent">エージェント（紹介）</option>
+                  <option value="media">媒体</option>
+                  <option value="referral">リファラル</option>
+                  <option value="homepage">自社HP</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">手数料 / コスト</label>
+                <input className="border border-border rounded-md px-3 py-1.5 text-sm w-full" value={editForm.fee} onChange={e => setEditForm(f => ({ ...f, fee: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">メモ</label>
+                <input className="border border-border rounded-md px-3 py-1.5 text-sm w-full" value={editForm.memo} onChange={e => setEditForm(f => ({ ...f, memo: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button className="btn-outline text-sm py-2 px-4" onClick={() => setEditTarget(null)}>キャンセル</button>
+              <button className="btn-primary text-sm py-2 px-4" disabled={saving || !editForm.name.trim()} onClick={handleEdit}>
+                {saving ? '保存中…' : '更新'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

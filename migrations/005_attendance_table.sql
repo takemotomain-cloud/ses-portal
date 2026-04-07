@@ -26,7 +26,7 @@ CREATE TABLE attendances (
   CONSTRAINT uq_attendance_emp_date UNIQUE (employee_id, work_date),
 
   CONSTRAINT chk_attendance_status
-    CHECK (status IN ('normal', 'absent', 'paid_leave', 'special_leave', 'missed')),
+    CHECK (status IN ('normal', 'absent', 'paid_leave', 'special_leave', 'missed', 'confirmed')),
   CONSTRAINT chk_attendance_break
     CHECK (break_minutes >= 0 AND break_minutes <= 480),
   CONSTRAINT chk_attendance_clock_order
