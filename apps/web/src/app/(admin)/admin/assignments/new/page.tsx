@@ -18,10 +18,17 @@ import { apiClient } from '@/lib/api-client';
 interface ProjectOption {
   id: string;
   name: string;
+  contractPrice: number | null;
+  rewardRate: string | null;
+  settlementLower: number | null;
+  settlementUpper: number | null;
+  startDate: string | null;
+  endDate: string | null;
   workLocation: string | null;
   area: string | null;
   defaultStartTime: string | null;
   attendanceFormat: string;
+  supplyChain: string | null;
 }
 
 interface AssignForm {
@@ -174,10 +181,17 @@ export default function NewAssignmentPage() {
           ...prev,
           projectId,
           projectName: proj.name,
-          workLocation: proj.workLocation || '',
-          area: proj.area || '',
+          contractPrice: proj.contractPrice ? String(proj.contractPrice) : prev.contractPrice,
+          rewardRate: proj.rewardRate || prev.rewardRate,
+          settlementLower: proj.settlementLower ? String(proj.settlementLower) : prev.settlementLower,
+          settlementUpper: proj.settlementUpper ? String(proj.settlementUpper) : prev.settlementUpper,
+          contractStartDate: proj.startDate ? proj.startDate.slice(0, 10) : prev.contractStartDate,
+          contractEndDate: proj.endDate ? proj.endDate.slice(0, 10) : prev.contractEndDate,
+          workLocation: proj.workLocation || prev.workLocation,
+          area: proj.area || prev.area,
           workStartTime: proj.defaultStartTime || '9:00',
           attendanceFormat: proj.attendanceFormat || 'none',
+          supplyChain: proj.supplyChain || prev.supplyChain,
         }));
       }
     } else if (projectId === 'new') {
@@ -195,20 +209,36 @@ export default function NewAssignmentPage() {
     try {
       let projectId = form.projectId;
 
-      // 新規案件の場合、先に案件を作成
+      // 案件に保存する契約情報
+      const projectPayload = {
+        clientId: form.clientId,
+        name: form.projectName,
+        contractPrice: parseInt(form.contractPrice.replace(/,/g, ''), 10) || undefined,
+        rewardRate: form.rewardRate || undefined,
+        settlementLower: parseInt(form.settlementLower, 10) || undefined,
+        settlementUpper: parseInt(form.settlementUpper, 10) || undefined,
+        startDate: form.contractStartDate || undefined,
+        endDate: form.contractEndDate || undefined,
+        workLocation: form.workLocation || undefined,
+        area: form.area || undefined,
+        defaultStartTime: form.workStartTime || undefined,
+        attendanceFormat: form.attendanceFormat,
+        supplyChain: form.supplyChain || undefined,
+      };
+
       if (projectId === 'new' && form.projectName) {
+        // 新規案件作成（契約情報含む）
         const newProject = await apiClient<{ id: string }>('/projects', {
           method: 'POST',
-          body: JSON.stringify({
-            clientId: form.clientId,
-            name: form.projectName,
-            workLocation: form.workLocation || undefined,
-            area: form.area || undefined,
-            defaultStartTime: form.workStartTime || undefined,
-            attendanceFormat: form.attendanceFormat,
-          }),
+          body: JSON.stringify(projectPayload),
         });
         projectId = newProject.id;
+      } else if (projectId && projectId !== 'new') {
+        // 既存案件を契約情報で更新
+        await apiClient(`/projects/${projectId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(projectPayload),
+        });
       }
 
       await apiClient('/assignments', {

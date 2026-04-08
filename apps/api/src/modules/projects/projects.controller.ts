@@ -33,12 +33,17 @@ export class ProjectsController {
   async create(@Body() body: {
     clientId: string;
     name: string;
+    contractPrice?: number;
+    rewardRate?: string;
+    settlementLower?: number;
+    settlementUpper?: number;
     startDate?: string;
     endDate?: string;
     workLocation?: string;
     area?: string;
     defaultStartTime?: string;
     attendanceFormat?: string;
+    supplyChain?: string;
     note?: string;
   }) {
     return this.projectsService.create(body);
@@ -50,12 +55,17 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: {
       name?: string;
+      contractPrice?: number | null;
+      rewardRate?: string | null;
+      settlementLower?: number | null;
+      settlementUpper?: number | null;
       startDate?: string | null;
       endDate?: string | null;
       workLocation?: string | null;
       area?: string | null;
       defaultStartTime?: string | null;
       attendanceFormat?: string;
+      supplyChain?: string | null;
       note?: string | null;
     },
   ) {

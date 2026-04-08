@@ -532,14 +532,4 @@ export class EmployeesService {
 
     return { id: contact.id };
   }
-
-  /**
-   * 社員の存在確認（他モジュールから呼ばれる）
-   */
-  async exists(id: string): Promise<boolean> {
-    const count = await this.db.employee.count({
-      where: { id, deletedAt: null },
-    });
-    return count > 0;
-  }
 }

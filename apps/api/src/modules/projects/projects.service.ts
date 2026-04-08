@@ -72,24 +72,34 @@ export class ProjectsService {
   async create(data: {
     clientId: string;
     name: string;
+    contractPrice?: number;
+    rewardRate?: string;
+    settlementLower?: number;
+    settlementUpper?: number;
     startDate?: string;
     endDate?: string;
     workLocation?: string;
     area?: string;
     defaultStartTime?: string;
     attendanceFormat?: string;
+    supplyChain?: string;
     note?: string;
   }) {
     const project = await this.db.project.create({
       data: {
         clientId: data.clientId,
         name: data.name,
+        contractPrice: data.contractPrice || null,
+        rewardRate: data.rewardRate || null,
+        settlementLower: data.settlementLower || null,
+        settlementUpper: data.settlementUpper || null,
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
         workLocation: data.workLocation || null,
         area: data.area || null,
         defaultStartTime: data.defaultStartTime || null,
         attendanceFormat: data.attendanceFormat || 'none',
+        supplyChain: data.supplyChain || null,
         note: data.note || null,
       },
     });
@@ -100,24 +110,34 @@ export class ProjectsService {
   /** 案件更新 */
   async update(id: string, data: {
     name?: string;
+    contractPrice?: number | null;
+    rewardRate?: string | null;
+    settlementLower?: number | null;
+    settlementUpper?: number | null;
     startDate?: string | null;
     endDate?: string | null;
     workLocation?: string | null;
     area?: string | null;
     defaultStartTime?: string | null;
     attendanceFormat?: string;
+    supplyChain?: string | null;
     note?: string | null;
   }) {
     await this.findOne(id);
 
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
+    if (data.contractPrice !== undefined) updateData.contractPrice = data.contractPrice;
+    if (data.rewardRate !== undefined) updateData.rewardRate = data.rewardRate;
+    if (data.settlementLower !== undefined) updateData.settlementLower = data.settlementLower;
+    if (data.settlementUpper !== undefined) updateData.settlementUpper = data.settlementUpper;
     if (data.startDate !== undefined) updateData.startDate = data.startDate ? new Date(data.startDate) : null;
     if (data.endDate !== undefined) updateData.endDate = data.endDate ? new Date(data.endDate) : null;
     if (data.workLocation !== undefined) updateData.workLocation = data.workLocation;
     if (data.area !== undefined) updateData.area = data.area;
     if (data.defaultStartTime !== undefined) updateData.defaultStartTime = data.defaultStartTime;
     if (data.attendanceFormat !== undefined) updateData.attendanceFormat = data.attendanceFormat;
+    if (data.supplyChain !== undefined) updateData.supplyChain = data.supplyChain;
     if (data.note !== undefined) updateData.note = data.note;
 
     return this.db.project.update({

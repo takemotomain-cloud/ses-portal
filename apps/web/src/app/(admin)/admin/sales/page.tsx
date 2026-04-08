@@ -22,6 +22,8 @@ interface Proposal {
   project?: string;
   status: 'proposing' | 'interview' | 'waiting' | 'confirmed';
   interviewDate?: string;
+  proposalId?: string;
+  emailStatus?: 'draft' | 'sent' | 'failed';
 }
 
 interface Engineer {
@@ -177,12 +179,18 @@ export default function AdminSalesPage() {
   const [proposalExtraEmpIds, setProposalExtraEmpIds] = useState<string[]>([]);
   const [proposalCustomMessage, setProposalCustomMessage] = useState('');
   const [proposalSending, setProposalSending] = useState(false);
+  const [showMailSection, setShowMailSection] = useState(false);
   const [proposalEmpSearch, setProposalEmpSearch] = useState('');
   const [allSkillsheetEmps, setAllSkillsheetEmps] = useState<SkillsheetEmp[]>([]);
   const [proposalPreviewBody, setProposalPreviewBody] = useState('');
   const [proposalPreviewSubject, setProposalPreviewSubject] = useState('');
   const [proposalPreviewLoading, setProposalPreviewLoading] = useState(false);
   const [showEmpSearchDropdown, setShowEmpSearchDropdown] = useState(false);
+
+  // メール送信モーダル（既存draft提案用）
+  const [sendMailTarget, setSendMailTarget] = useState<{ engineerId: string; proposalIdx: number; proposalId: string; clientName: string } | null>(null);
+  const [sendMailForm, setSendMailForm] = useState({ toEmail: '', contactPerson: '', customMessage: '' });
+  const [sendMailLoading, setSendMailLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -366,18 +374,11 @@ export default function AdminSalesPage() {
     setProposalEmpSearch('');
     setProposalPreviewBody('');
     setProposalPreviewSubject('');
+    setShowMailSection(false);
     setShowEmpSearchDropdown(false);
   };
 
-  // クライアント選択時にメール・担当者名を自動入力
   const proposalSelectedClient = useMemo(() => allClients.find(c => c.id === proposalClientId), [allClients, proposalClientId]);
-
-  useEffect(() => {
-    if (proposalSelectedClient) {
-      setProposalToEmail(proposalSelectedClient.contactEmail || '');
-      setProposalContactPerson(proposalSelectedClient.contactPerson || '');
-    }
-  }, [proposalSelectedClient]);
 
   // 提案対象社員（メイン＋追加）
   const proposalAllEmpIds = useMemo(() => {
@@ -423,6 +424,7 @@ export default function AdminSalesPage() {
   // メール送信
   const handleSendProposal = async () => {
     if (!proposalClientId || proposalAllEmpIds.length === 0 || !proposalToEmail) return;
+    if (!proposalTarget) return;
     setProposalSending(true);
     try {
       const res = await apiClient<any>('/proposals/send', {
@@ -435,20 +437,37 @@ export default function AdminSalesPage() {
           customMessage: proposalCustomMessage,
         }),
       });
+      const emailSt = res.status === 'sent' ? 'sent' : 'failed';
       if (res.status === 'sent') {
         toast('提案メールを送信しました');
       } else {
         toast('送信に失敗しましたが、履歴は保存されました');
       }
-      // 提案も追加
-      handleAddProposal();
+      // 提案をローカルstateに追加（メール送信済み）
+      const selectedClient = allClients.find(c => c.id === proposalClientId);
+      const clientName = selectedClient?.name || proposalClientId;
+      setEngineers(prev => prev.map(e => {
+        if (e.id !== proposalTarget) return e;
+        return {
+          ...e,
+          salesStatus: 'proposing',
+          proposals: [...e.proposals, {
+            client: clientName,
+            project: proposalProject || undefined,
+            status: 'proposing' as const,
+            proposalId: res.id,
+            emailStatus: emailSt as 'sent' | 'failed',
+          }],
+        };
+      }));
+      setProposalTarget(null);
     } catch (err: any) {
       toast(err?.message || '送信に失敗しました');
       setProposalSending(false);
     }
   };
 
-  const handleAddProposal = () => {
+  const handleAddProposal = async () => {
     if (!proposalTarget || !proposalClientId) {
       toast('クライアントを選択してください');
       return;
@@ -456,16 +475,36 @@ export default function AdminSalesPage() {
     const selectedClient = allClients.find(c => c.id === proposalClientId);
     const clientName = selectedClient?.name || proposalClientId;
 
-    setEngineers(prev => prev.map(e => {
-      if (e.id !== proposalTarget) return e;
-      return {
-        ...e,
-        salesStatus: 'proposing',
-        proposals: [...e.proposals, { client: clientName, project: proposalProject || undefined, status: 'proposing' as const }],
-      };
-    }));
-    toast('提案を追加しました');
-    setProposalTarget(null);
+    try {
+      // DB保存（メールなし）
+      const res = await apiClient<any>('/proposals', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: proposalClientId,
+          employeeIds: proposalAllEmpIds,
+          projectName: proposalProject || undefined,
+        }),
+      });
+
+      setEngineers(prev => prev.map(e => {
+        if (e.id !== proposalTarget) return e;
+        return {
+          ...e,
+          salesStatus: 'proposing',
+          proposals: [...e.proposals, {
+            client: clientName,
+            project: proposalProject || undefined,
+            status: 'proposing' as const,
+            proposalId: res.id,
+            emailStatus: 'draft' as const,
+          }],
+        };
+      }));
+      toast('提案を追加しました');
+      setProposalTarget(null);
+    } catch (err: any) {
+      toast(err?.message || '提案の追加に失敗しました');
+    }
   };
 
   const handleProposalStatusChange = (engineerId: string, proposalIdx: number, newStatus: string) => {
@@ -490,6 +529,54 @@ export default function AdminSalesPage() {
       newProposals[proposalIdx] = { ...newProposals[proposalIdx], interviewDate: date };
       return { ...e, proposals: newProposals };
     }));
+  };
+
+  // 既存draft提案にメール送信
+  const openSendMailModal = (engineerId: string, proposalIdx: number, prop: Proposal) => {
+    if (!prop.proposalId) return;
+    // クライアント名からcontactEmail/contactPersonを取得
+    const client = allClients.find(c => c.name === prop.client);
+    setSendMailTarget({ engineerId, proposalIdx, proposalId: prop.proposalId, clientName: prop.client });
+    setSendMailForm({
+      toEmail: client?.contactEmail || '',
+      contactPerson: client?.contactPerson || '',
+      customMessage: '',
+    });
+  };
+
+  const handleSendMailForDraft = async () => {
+    if (!sendMailTarget || !sendMailForm.toEmail) return;
+    setSendMailLoading(true);
+    try {
+      const res = await apiClient<any>(`/proposals/${sendMailTarget.proposalId}/send`, {
+        method: 'POST',
+        body: JSON.stringify({
+          toEmail: sendMailForm.toEmail,
+          contactPerson: sendMailForm.contactPerson || undefined,
+          customMessage: sendMailForm.customMessage || undefined,
+        }),
+      });
+      if (res.status === 'sent') {
+        // ローカルstateのemailStatusを更新
+        setEngineers(prev => prev.map(e => {
+          if (e.id !== sendMailTarget.engineerId) return e;
+          const newProposals = [...e.proposals];
+          newProposals[sendMailTarget.proposalIdx] = {
+            ...newProposals[sendMailTarget.proposalIdx],
+            emailStatus: 'sent',
+          };
+          return { ...e, proposals: newProposals };
+        }));
+        toast('提案メールを送信しました');
+      } else {
+        toast('送信に失敗しました');
+      }
+      setSendMailTarget(null);
+    } catch (err: any) {
+      toast(err?.message || 'メール送信に失敗しました');
+    } finally {
+      setSendMailLoading(false);
+    }
   };
 
   const handleCreateAssignment = (eng: Engineer, prop: Proposal) => {
@@ -638,6 +725,24 @@ export default function AdminSalesPage() {
                                 </select>
                                 <span className={`badge ${st.cls}`}>{st.label}</span>
 
+                                {/* メール送信状態バッジ */}
+                                {prop.emailStatus === 'draft' && (
+                                  <span className="badge" style={{ background: '#fff3e0', color: '#e65100', border: '1px solid #ffcc80' }}>メール未送信</span>
+                                )}
+                                {prop.emailStatus === 'sent' && (
+                                  <span className="badge badge-ok">メール送信済</span>
+                                )}
+
+                                {/* draft提案：メール送信ボタン */}
+                                {prop.emailStatus === 'draft' && prop.proposalId && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openSendMailModal(eng.id, idx, prop); }}
+                                    className="btn-outline text-[11px] py-0.5 px-2.5"
+                                  >
+                                    メール送信
+                                  </button>
+                                )}
+
                                 {/* 確定時：アサイン登録ボタン */}
                                 {prop.status === 'confirmed' && (
                                   <button
@@ -762,8 +867,8 @@ export default function AdminSalesPage() {
                   <input type="text" value={proposalProject} onChange={e => setProposalProject(e.target.value)} placeholder="案件名を入力" className={inputCls} />
                 </div>
 
-                {/* クライアント選択後に送信先情報を表示 */}
-                {proposalClientId && (
+                {/* メールあり選択時のみ送信先情報を表示 */}
+                {proposalClientId && showMailSection && (
                   <>
                     <hr className="border-border/30" />
                     <div className="text-sm font-medium text-[#2c3e6b]">提案メール送信</div>
@@ -893,23 +998,40 @@ export default function AdminSalesPage() {
 
                 {/* ボタン */}
                 <div className="flex gap-2 pt-2">
-                  <button onClick={() => setProposalTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
-                  {proposalClientId && proposalToEmail ? (
-                    <button
-                      onClick={handleSendProposal}
-                      disabled={proposalSending}
-                      className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
-                    >
-                      {proposalSending ? '送信中...' : '提案を追加＆メール送信'}
-                    </button>
+                  {showMailSection ? (
+                    <>
+                      <button onClick={() => setShowMailSection(false)} className="btn-outline flex-1 text-sm py-2">戻る</button>
+                      <button
+                        onClick={handleSendProposal}
+                        disabled={proposalSending || !proposalToEmail}
+                        className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
+                      >
+                        {proposalSending ? '送信中...' : '提案を追加＆メール送信'}
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      onClick={handleAddProposal}
-                      className="btn-primary flex-1 text-sm py-2"
-                      disabled={!proposalClientId}
-                    >
-                      提案を追加（メールなし）
-                    </button>
+                    <>
+                      <button
+                        onClick={handleAddProposal}
+                        className="btn-outline flex-1 text-sm py-2"
+                        disabled={!proposalClientId}
+                      >
+                        提案を追加（メールなし）
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!proposalClientId) { toast('クライアントを選択してください'); return; }
+                          const cl = allClients.find(c => c.id === proposalClientId) as any;
+                          setProposalToEmail(cl?.contactEmail || '');
+                          setProposalContactPerson(cl?.contactPerson || '');
+                          setShowMailSection(true);
+                        }}
+                        className="btn-primary flex-1 text-sm py-2"
+                        disabled={!proposalClientId}
+                      >
+                        提案を追加（メールあり）
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -917,6 +1039,63 @@ export default function AdminSalesPage() {
           </>
         );
       })()}
+
+      {/* メール送信モーダル（draft提案用） */}
+      {sendMailTarget && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[99]" onClick={() => setSendMailTarget(null)} />
+          <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none">
+            <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-md pointer-events-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-base font-medium">メール送信 — {sendMailTarget.clientName}</h3>
+                <button onClick={() => setSendMailTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-secondary block mb-1">送信先メールアドレス *</label>
+                  <input
+                    type="email"
+                    value={sendMailForm.toEmail}
+                    onChange={e => setSendMailForm(f => ({ ...f, toEmail: e.target.value }))}
+                    placeholder="client@example.com"
+                    className="w-full border border-border rounded px-3 py-2 text-sm bg-card outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-secondary block mb-1">担当者名</label>
+                  <input
+                    type="text"
+                    value={sendMailForm.contactPerson}
+                    onChange={e => setSendMailForm(f => ({ ...f, contactPerson: e.target.value }))}
+                    placeholder="山田太郎"
+                    className="w-full border border-border rounded px-3 py-2 text-sm bg-card outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-secondary block mb-1">追加メッセージ</label>
+                  <textarea
+                    value={sendMailForm.customMessage}
+                    onChange={e => setSendMailForm(f => ({ ...f, customMessage: e.target.value }))}
+                    placeholder="追加で伝えたい内容があれば入力"
+                    rows={3}
+                    className="w-full border border-border rounded px-3 py-2 text-sm bg-card outline-none focus:border-primary resize-none"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 mt-5">
+                <button onClick={() => setSendMailTarget(null)} className="btn-outline text-sm py-2 px-4">キャンセル</button>
+                <button
+                  onClick={handleSendMailForDraft}
+                  disabled={!sendMailForm.toEmail || sendMailLoading}
+                  className="btn-primary text-sm py-2 px-4 disabled:opacity-50"
+                >
+                  {sendMailLoading ? '送信中...' : 'メール送信'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       <ToastUI />
     </div>

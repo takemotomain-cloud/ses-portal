@@ -375,19 +375,4 @@ describe('EmployeesService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
-
-  /* ============================
-   * exists
-   * ============================ */
-  describe('exists', () => {
-    it('存在する社員ならtrueを返す', async () => {
-      db.employee.count.mockResolvedValue(1);
-      expect(await service.exists(mockEmployee.id)).toBe(true);
-    });
-
-    it('存在しない社員ならfalseを返す', async () => {
-      db.employee.count.mockResolvedValue(0);
-      expect(await service.exists('nonexistent')).toBe(false);
-    });
-  });
 });

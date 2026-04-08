@@ -56,12 +56,17 @@ interface ProjectItem {
   id: string;
   clientId: string;
   name: string;
+  contractPrice: number | null;
+  rewardRate: string | null;
+  settlementLower: number | null;
+  settlementUpper: number | null;
   startDate: string | null;
   endDate: string | null;
   workLocation: string | null;
   area: string | null;
   defaultStartTime: string | null;
   attendanceFormat: string;
+  supplyChain: string | null;
   note: string | null;
   assignments: Assignment[];
 }
@@ -131,11 +136,17 @@ export default function ClientDetailPage() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectItem | null>(null);
   const [projectForm, setProjectForm] = useState({
-    name: '', startDate: '', endDate: '',
-    workLocation: '', area: '', defaultStartTime: '', attendanceFormat: 'none', note: '',
+    name: '', contractPrice: '', rewardRate: '', settlementLower: '', settlementUpper: '',
+    startDate: '', endDate: '', defaultStartTime: '', attendanceFormat: 'none',
+    workLocation: '', area: '', supplyChain: '一次請け', note: '',
   });
   const [savingProject, setSavingProject] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
+
+  // 提案メール送信モーダル
+  const [sendMailTarget, setSendMailTarget] = useState<ProposalHistory | null>(null);
+  const [sendMailForm, setSendMailForm] = useState({ toEmail: '', contactPerson: '', customMessage: '' });
+  const [sendingMail, setSendingMail] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -362,17 +373,19 @@ export default function ClientDetailPage() {
                               <button
                                 onClick={() => {
                                   setEditingProject(proj);
-                                  // defaultStartTime を HH:MM にゼロ埋め（"9:00" → "09:00"）
-                                  const rawTime = proj.defaultStartTime || '';
-                                  const paddedTime = rawTime && /^\d:\d{2}$/.test(rawTime) ? '0' + rawTime : rawTime;
                                   setProjectForm({
                                     name: proj.name,
-                                    startDate: proj.startDate?.split('T')[0] || '',
-                                    endDate: proj.endDate?.split('T')[0] || '',
+                                    contractPrice: proj.contractPrice ? String(proj.contractPrice) : '',
+                                    rewardRate: proj.rewardRate || '',
+                                    settlementLower: proj.settlementLower ? String(proj.settlementLower) : '',
+                                    settlementUpper: proj.settlementUpper ? String(proj.settlementUpper) : '',
+                                    startDate: proj.startDate ? proj.startDate.slice(0, 10) : '',
+                                    endDate: proj.endDate ? proj.endDate.slice(0, 10) : '',
+                                    defaultStartTime: proj.defaultStartTime || '',
+                                    attendanceFormat: proj.attendanceFormat || 'none',
                                     workLocation: proj.workLocation || '',
                                     area: proj.area || '',
-                                    defaultStartTime: paddedTime,
-                                    attendanceFormat: proj.attendanceFormat || 'none',
+                                    supplyChain: proj.supplyChain || '一次請け',
                                     note: proj.note || '',
                                   });
                                   setShowProjectForm(true);
@@ -408,10 +421,10 @@ export default function ClientDetailPage() {
                   {/* 案件作成/編集フォーム（モーダル） */}
                   {showProjectForm && (
                     <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowProjectForm(false); }}>
-                      <div className="bg-card rounded-xl w-full max-w-lg overflow-hidden shadow-lg">
-                        <div className="px-5 pt-5 pb-3 flex justify-between items-center">
-                          <h3 className="text-lg font-bold">{editingProject ? '案件編集' : '案件追加'}</h3>
-                          <button onClick={() => setShowProjectForm(false)} className="text-secondary hover:text-primary">&#10005;</button>
+                      <div className="bg-card rounded-xl w-full max-w-[680px] max-h-[90vh] overflow-y-auto shadow-lg">
+                        <div className="flex justify-between items-center p-5 border-b border-border/30">
+                          <h3 className="text-lg font-medium">{editingProject ? '案件編集' : '案件追加'}</h3>
+                          <button onClick={() => setShowProjectForm(false)} className="text-secondary hover:text-primary text-xl">&#10005;</button>
                         </div>
                         <form
                           onSubmit={async (e) => {
@@ -420,13 +433,19 @@ export default function ClientDetailPage() {
                             setSavingProject(true);
                             try {
                               const payload = {
-                                ...projectForm,
                                 clientId: clientId,
+                                name: projectForm.name,
+                                contractPrice: projectForm.contractPrice ? parseInt(projectForm.contractPrice.replace(/,/g, ''), 10) : undefined,
+                                rewardRate: projectForm.rewardRate || undefined,
+                                settlementLower: projectForm.settlementLower ? parseInt(projectForm.settlementLower, 10) : undefined,
+                                settlementUpper: projectForm.settlementUpper ? parseInt(projectForm.settlementUpper, 10) : undefined,
                                 startDate: projectForm.startDate || undefined,
                                 endDate: projectForm.endDate || undefined,
+                                defaultStartTime: projectForm.defaultStartTime || undefined,
+                                attendanceFormat: projectForm.attendanceFormat,
                                 workLocation: projectForm.workLocation || undefined,
                                 area: projectForm.area || undefined,
-                                defaultStartTime: projectForm.defaultStartTime || undefined,
+                                supplyChain: projectForm.supplyChain || undefined,
                                 note: projectForm.note || undefined,
                               };
                               if (editingProject) {
@@ -441,53 +460,112 @@ export default function ClientDetailPage() {
                             } catch { toast('保存に失敗しました'); }
                             finally { setSavingProject(false); }
                           }}
-                          className="px-5 pb-5 space-y-3"
+                          className="p-5 space-y-4"
                         >
-                          <div>
-                            <label className="block text-sm text-secondary mb-1">案件名 <span className="text-red-500">*</span></label>
-                            <input type="text" value={projectForm.name} onChange={e => setProjectForm(f => ({ ...f, name: e.target.value }))} maxLength={200} className="input w-full" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-secondary mb-1">エリア</label>
-                            <select value={projectForm.area} onChange={e => setProjectForm(f => ({ ...f, area: e.target.value }))} className="input w-full">
-                              <option value="">--</option>
-                              <option value="tokyo">東京</option>
-                              <option value="osaka">大阪</option>
-                              <option value="nagoya">名古屋</option>
-                            </select>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-sm text-secondary mb-1">開始日</label>
-                              <input type="date" value={projectForm.startDate} onChange={e => setProjectForm(f => ({ ...f, startDate: e.target.value }))} className="input w-full" />
-                            </div>
-                            <div>
-                              <label className="block text-sm text-secondary mb-1">終了日</label>
-                              <input type="date" value={projectForm.endDate} onChange={e => setProjectForm(f => ({ ...f, endDate: e.target.value }))} className="input w-full" />
+                          {/* クライアント情報（読み取り専用） */}
+                          <div className="card p-4 bg-page">
+                            <div className="text-sm font-medium mb-2">クライアント情報</div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><span className="text-secondary">クライアント:</span> {client?.name}</div>
                             </div>
                           </div>
-                          <div>
-                            <label className="block text-sm text-secondary mb-1">勤務地</label>
-                            <input type="text" value={projectForm.workLocation} onChange={e => setProjectForm(f => ({ ...f, workLocation: e.target.value }))} className="input w-full" placeholder="例: 東京都千代田区" />
+
+                          {/* 契約情報 */}
+                          <div className="card p-4">
+                            <div className="text-sm font-medium mb-3">契約情報</div>
+                            <div className="mb-2">
+                              <label className="block text-2xs text-secondary mb-1">案件名 <span className="text-red-600">*</span></label>
+                              <input type="text" value={projectForm.name} onChange={e => setProjectForm(f => ({ ...f, name: e.target.value }))} maxLength={200} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">契約単価（月額） <span className="text-red-600">*</span></label>
+                                <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="650,000" value={projectForm.contractPrice} onChange={e => setProjectForm(f => ({ ...f, contractPrice: e.target.value }))} />
+                              </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">還元率</label>
+                                <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="72%" value={projectForm.rewardRate} onChange={e => setProjectForm(f => ({ ...f, rewardRate: e.target.value }))} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">精算幅（下限）</label>
+                                <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="140" value={projectForm.settlementLower} onChange={e => setProjectForm(f => ({ ...f, settlementLower: e.target.value }))} />
+                              </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">精算幅（上限）</label>
+                                <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="180" value={projectForm.settlementUpper} onChange={e => setProjectForm(f => ({ ...f, settlementUpper: e.target.value }))} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">契約開始日 <span className="text-red-600">*</span></label>
+                                <input type="date" value={projectForm.startDate} onChange={e => setProjectForm(f => ({ ...f, startDate: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" />
+                              </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">契約終了日 <span className="text-red-600">*</span></label>
+                                <input type="date" value={projectForm.endDate} onChange={e => setProjectForm(f => ({ ...f, endDate: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">稼働開始時刻</label>
+                                <select value={projectForm.defaultStartTime} onChange={e => setProjectForm(f => ({ ...f, defaultStartTime: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
+                                  <option value="">--</option>
+                                  <option value="8:00">8時00分</option>
+                                  <option value="8:30">8時30分</option>
+                                  <option value="9:00">9時00分</option>
+                                  <option value="9:30">9時30分</option>
+                                  <option value="10:00">10時00分</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">請求時の勤怠表添付</label>
+                                <select value={projectForm.attendanceFormat} onChange={e => setProjectForm(f => ({ ...f, attendanceFormat: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
+                                  <option value="none">不要</option>
+                                  <option value="company">自社フォーマット</option>
+                                  <option value="client_original">現場データそのまま</option>
+                                </select>
+                              </div>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-sm text-secondary mb-1">稼働開始時刻</label>
-                              <input type="time" value={projectForm.defaultStartTime} onChange={e => setProjectForm(f => ({ ...f, defaultStartTime: e.target.value }))} className="input w-full" />
+
+                          {/* 勤務情報 */}
+                          <div className="card p-4">
+                            <div className="text-sm font-medium mb-3">勤務情報</div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">勤務地</label>
+                                <input type="text" value={projectForm.workLocation} onChange={e => setProjectForm(f => ({ ...f, workLocation: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="大阪市中央区（常駐）" />
+                              </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">エリア</label>
+                                <select value={projectForm.area} onChange={e => setProjectForm(f => ({ ...f, area: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
+                                  <option value="">選択してください</option>
+                                  <option value="tokyo">東京</option>
+                                  <option value="osaka">大阪</option>
+                                  <option value="nagoya">名古屋</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">商流（自分たちが何次かを選択）</label>
+                                <select value={projectForm.supplyChain} onChange={e => setProjectForm(f => ({ ...f, supplyChain: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
+                                  <option>一次請け</option>
+                                  <option>二次請け</option>
+                                  <option>三次請け</option>
+                                  <option>四次請け</option>
+                                  <option>それ以下</option>
+                                </select>
+                              </div>
                             </div>
                             <div>
-                              <label className="block text-sm text-secondary mb-1">勤怠表添付</label>
-                              <select value={projectForm.attendanceFormat} onChange={e => setProjectForm(f => ({ ...f, attendanceFormat: e.target.value }))} className="input w-full">
-                                <option value="none">なし</option>
-                                <option value="company">自社フォーマット</option>
-                                <option value="client_original">クライアント原本</option>
-                              </select>
+                              <label className="block text-2xs text-secondary mb-1">備考</label>
+                              <textarea value={projectForm.note} onChange={e => setProjectForm(f => ({ ...f, note: e.target.value }))} rows={2} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none resize-y focus:ring-1 focus:ring-primary/30" placeholder="特記事項があれば入力" />
                             </div>
                           </div>
-                          <div>
-                            <label className="block text-sm text-secondary mb-1">メモ</label>
-                            <textarea value={projectForm.note} onChange={e => setProjectForm(f => ({ ...f, note: e.target.value }))} rows={2} className="input w-full" />
-                          </div>
+
                           <div className="flex gap-3 pt-1">
                             <button type="submit" disabled={savingProject} className="btn-primary flex-1">{savingProject ? '保存中...' : editingProject ? '更新' : '追加'}</button>
                             <button type="button" onClick={() => setShowProjectForm(false)} className="btn-outline flex-1">キャンセル</button>
@@ -578,12 +656,23 @@ export default function ClientDetailPage() {
                       <div key={p.id} className="py-3 border-b border-border/20">
                         <div className="flex items-center justify-between">
                           <div className="text-sm font-medium">{p.subject}</div>
-                          <span className={`badge ${p.status === 'sent' ? 'badge-ok' : 'badge-warn'}`}>
-                            {p.status === 'sent' ? '送信済' : p.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {p.status === 'draft' && (
+                              <button
+                                onClick={() => {
+                                  setSendMailTarget(p);
+                                  setSendMailForm({ toEmail: client?.contactEmail || '', contactPerson: client?.contactPerson || '', customMessage: '' });
+                                }}
+                                className="text-xs text-primary hover:underline"
+                              >メール送信</button>
+                            )}
+                            <span className={`badge ${p.status === 'sent' ? 'badge-ok' : p.status === 'draft' ? 'badge-neutral' : 'badge-warn'}`}>
+                              {p.status === 'sent' ? '送信済' : p.status === 'draft' ? 'メール未送信' : p.status}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex items-center gap-4 mt-1 text-xs text-secondary">
-                          <span>To: {p.toEmail}</span>
+                          {p.toEmail && <span>To: {p.toEmail}</span>}
                           <span>{fmtDateTime(p.sentAt)}</span>
                         </div>
                         {p.employees.length > 0 && (
@@ -685,6 +774,65 @@ export default function ClientDetailPage() {
                 &#10005;
               </button>
               <img src={lightboxImage} alt="名刺（拡大）" className="max-w-full max-h-[85vh] rounded-lg shadow-2xl" />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 提案メール送信モーダル */}
+      {sendMailTarget && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[200]" onClick={() => setSendMailTarget(null)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[480px] bg-card border border-border rounded-xl z-[201] shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">提案メール送信</h2>
+              <button onClick={() => setSendMailTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-secondary">
+                対象社員: {sendMailTarget.employees.map(e => e.name).join('、')}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-secondary mb-1">送信先メールアドレス <span className="text-red-600">*</span></label>
+                  <input type="email" value={sendMailForm.toEmail} onChange={e => setSendMailForm(f => ({ ...f, toEmail: e.target.value }))} placeholder="client@example.com" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="block text-xs text-secondary mb-1">担当者名</label>
+                  <input type="text" value={sendMailForm.contactPerson} onChange={e => setSendMailForm(f => ({ ...f, contactPerson: e.target.value }))} placeholder="山田太郎" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-secondary mb-1">追加メッセージ（任意）</label>
+                <textarea value={sendMailForm.customMessage} onChange={e => setSendMailForm(f => ({ ...f, customMessage: e.target.value }))} rows={3} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none resize-y focus:border-primary" placeholder="挨拶文と署名の間に追記" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setSendMailTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
+                <button
+                  onClick={async () => {
+                    if (!sendMailForm.toEmail) { toast('メールアドレスを入力してください'); return; }
+                    setSendingMail(true);
+                    try {
+                      const res = await apiClient<{ status: string }>(`/proposals/${sendMailTarget.id}/send`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          toEmail: sendMailForm.toEmail,
+                          contactPerson: sendMailForm.contactPerson || undefined,
+                          customMessage: sendMailForm.customMessage || undefined,
+                        }),
+                      });
+                      toast(res.status === 'sent' ? 'メールを送信しました' : '送信に失敗しましたが履歴は更新されました');
+                      setSendMailTarget(null);
+                      fetchData();
+                    } catch { toast('送信に失敗しました'); }
+                    finally { setSendingMail(false); }
+                  }}
+                  disabled={sendingMail || !sendMailForm.toEmail}
+                  className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
+                >
+                  {sendingMail ? '送信中...' : 'メール送信'}
+                </button>
+              </div>
             </div>
           </div>
         </>

@@ -298,6 +298,74 @@ export class ProposalsService {
   }
 
   /**
+   * メール送信なしで提案をDB保存（draft状態）
+   */
+  async createWithoutEmail(data: {
+    clientId: string;
+    employeeIds: string[];
+    projectName?: string;
+  }) {
+    const client = await this.db.client.findUnique({ where: { id: data.clientId } });
+    if (!client) throw new NotFoundException('クライアントが見つかりません');
+
+    const record = await this.db.proposalEmail.create({
+      data: {
+        clientId: data.clientId,
+        toEmail: '',
+        subject: data.projectName ? `提案: ${data.projectName}` : '（メール未送信）',
+        bodyText: '',
+        employeeIds: data.employeeIds,
+        status: 'draft',
+      },
+    });
+
+    this.logger.log(`提案追加（メールなし）: ${client.name} (${data.employeeIds.length}名)`);
+    return { id: record.id, status: 'draft' };
+  }
+
+  /**
+   * 既存の提案（draft）に対してメールを送信
+   */
+  async sendExisting(id: string, data: {
+    toEmail: string;
+    contactPerson?: string;
+    customMessage?: string;
+  }) {
+    const proposal = await this.db.proposalEmail.findUnique({ where: { id } });
+    if (!proposal) throw new NotFoundException('提案が見つかりません');
+
+    const employeeIds = Array.isArray(proposal.employeeIds) ? proposal.employeeIds as string[] : [];
+
+    // 既存のsendロジックを再利用
+    const result = await this.send({
+      clientId: proposal.clientId,
+      employeeIds,
+      toEmail: data.toEmail,
+      contactPerson: data.contactPerson,
+      customMessage: data.customMessage,
+    });
+
+    // 元のdraftレコードを更新（sent/failedに変更）
+    await this.db.proposalEmail.update({
+      where: { id },
+      data: {
+        toEmail: data.toEmail,
+        subject: result.subject,
+        bodyText: result.bodyText,
+        status: result.status,
+        sentAt: new Date(),
+      },
+    });
+
+    // sendが別レコードを作成するので、重複を削除
+    if (result.id !== id) {
+      await this.db.proposalEmail.delete({ where: { id: result.id } });
+    }
+
+    return { id, status: result.status, subject: result.subject };
+  }
+
+  /**
    * クライアント別の送信履歴
    */
   async findByClient(clientId: string) {

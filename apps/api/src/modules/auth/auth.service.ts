@@ -157,25 +157,4 @@ export class AuthService {
 
     return { accessToken, user: authUser };
   }
-
-  /**
-   * パスワードハッシュ生成（新規ユーザー作成・パスワード変更時に使用）
-   */
-  async hashPassword(password: string): Promise<string> {
-    return bcrypt.hash(password, BCRYPT_ROUNDS);
-  }
-
-  /**
-   * アカウントロック解除（管理者用）
-   */
-  async unlockAccount(userId: string): Promise<void> {
-    await this.db.user.update({
-      where: { id: userId },
-      data: {
-        isLocked: false,
-        failedLoginCount: 0,
-      },
-    });
-    this.logger.log(`Account unlocked: ${userId}`);
-  }
 }

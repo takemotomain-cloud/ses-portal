@@ -204,23 +204,4 @@ describe('AuthService', () => {
       ).rejects.toThrow('このアカウントは無効です');
     });
   });
-
-  /* ============================
-   * unlockAccount
-   * ============================ */
-  describe('unlockAccount', () => {
-    it('アカウントのロックを解除する', async () => {
-      db.user.update.mockResolvedValue({});
-
-      await service.unlockAccount('user-1');
-
-      expect(db.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: {
-          isLocked: false,
-          failedLoginCount: 0,
-        },
-      });
-    });
-  });
 });
