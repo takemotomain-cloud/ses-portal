@@ -15,9 +15,19 @@ import { apiClient } from '@/lib/api-client';
 
 /* ---------- フォーム状態型 ---------- */
 
+interface ProjectOption {
+  id: string;
+  name: string;
+  workLocation: string | null;
+  area: string | null;
+  defaultStartTime: string | null;
+  attendanceFormat: string;
+}
+
 interface AssignForm {
   employeeId: string;
   clientId: string;
+  projectId: string; // '' = 未選択, 'new' = 新規作成
   projectName: string;
   contractPrice: string;
   rewardRate: string;
@@ -36,6 +46,7 @@ interface AssignForm {
 const initialForm: AssignForm = {
   employeeId: '',
   clientId: '',
+  projectId: '',
   projectName: '',
   contractPrice: '',
   rewardRate: '',
@@ -47,7 +58,7 @@ const initialForm: AssignForm = {
   attendanceFormat: 'none',
   workLocation: '',
   area: '',
-  supplyChain: 'エンド → 自社',
+  supplyChain: '一次請け',
   remarks: '',
 };
 
@@ -70,6 +81,7 @@ export default function NewAssignmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [employees, setEmployees] = useState<{ id: string; label: string }[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
 
   // URLパラメータから引き継ぎ値を取得
   const prefillClientId = searchParams.get('clientId') || '';
@@ -82,7 +94,7 @@ export default function NewAssignmentPage() {
     Promise.all([
       apiClient<{ data: any[] }>('/employees?limit=200').catch(() => ({ data: [] })),
       apiClient<{ data: any[] }>('/clients?limit=200').catch(() => ({ data: [] })),
-    ]).then(([empRes, clientRes]) => {
+    ]).then(async ([empRes, clientRes]) => {
       const empList = empRes.data.map((e: any) => ({
         id: e.id,
         label: `${e.lastName} ${e.firstName}`,
@@ -111,9 +123,28 @@ export default function NewAssignmentPage() {
         if (matched) updates.clientId = matched.id;
       }
 
-      // 案件名
+      // 案件名 — 既存案件をマッチングし、なければ新規作成モード
       if (prefillProjectName) {
         updates.projectName = prefillProjectName;
+        // クライアントが選択されている場合、案件一覧を取得してマッチング
+        if (updates.clientId) {
+          try {
+            const projectList = await apiClient<ProjectOption[]>(`/projects?clientId=${updates.clientId}`);
+            setProjects(projectList);
+            const matchedProj = projectList.find(p => p.name === prefillProjectName);
+            if (matchedProj) {
+              updates.projectId = matchedProj.id;
+              updates.workLocation = matchedProj.workLocation || '';
+              updates.area = matchedProj.area || '';
+              updates.workStartTime = matchedProj.defaultStartTime || '9:00';
+              updates.attendanceFormat = matchedProj.attendanceFormat || 'none';
+            } else {
+              updates.projectId = 'new';
+            }
+          } catch {
+            updates.projectId = 'new';
+          }
+        }
       }
 
       if (Object.keys(updates).length > 0) {
@@ -122,23 +153,70 @@ export default function NewAssignmentPage() {
     });
   }, [prefillClientId, prefillEmployeeName, prefillEmployeeCode, prefillProjectName]);
 
+  // クライアント変更時に案件一覧を取得
+  useEffect(() => {
+    if (!form.clientId) { setProjects([]); return; }
+    apiClient<ProjectOption[]>(`/projects?clientId=${form.clientId}`)
+      .then(setProjects)
+      .catch(() => setProjects([]));
+  }, [form.clientId]);
+
   function update(field: keyof AssignForm, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function handleProjectChange(projectId: string) {
+    setForm(prev => ({ ...prev, projectId }));
+    if (projectId && projectId !== 'new') {
+      const proj = projects.find(p => p.id === projectId);
+      if (proj) {
+        setForm(prev => ({
+          ...prev,
+          projectId,
+          projectName: proj.name,
+          workLocation: proj.workLocation || '',
+          area: proj.area || '',
+          workStartTime: proj.defaultStartTime || '9:00',
+          attendanceFormat: proj.attendanceFormat || 'none',
+        }));
+      }
+    } else if (projectId === 'new') {
+      setForm(prev => ({ ...prev, projectId, projectName: '' }));
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.employeeId || !form.clientId || !form.projectName || !form.contractPrice || !form.contractStartDate) {
+    if (!form.employeeId || !form.clientId || !form.projectId || !form.contractPrice || !form.contractStartDate || (form.projectId === 'new' && !form.projectName)) {
       toast('必須項目を入力してください');
       return;
     }
     setSubmitting(true);
     try {
+      let projectId = form.projectId;
+
+      // 新規案件の場合、先に案件を作成
+      if (projectId === 'new' && form.projectName) {
+        const newProject = await apiClient<{ id: string }>('/projects', {
+          method: 'POST',
+          body: JSON.stringify({
+            clientId: form.clientId,
+            name: form.projectName,
+            workLocation: form.workLocation || undefined,
+            area: form.area || undefined,
+            defaultStartTime: form.workStartTime || undefined,
+            attendanceFormat: form.attendanceFormat,
+          }),
+        });
+        projectId = newProject.id;
+      }
+
       await apiClient('/assignments', {
         method: 'POST',
         body: JSON.stringify({
           employeeId: form.employeeId,
           clientId: form.clientId,
+          projectId: projectId && projectId !== 'new' ? projectId : undefined,
           projectName: form.projectName,
           contractPrice: parseInt(form.contractPrice.replace(/,/g, ''), 10) || 0,
           settlementLower: parseInt(form.settlementLower, 10) || 140,
@@ -219,15 +297,35 @@ export default function NewAssignmentPage() {
           </div>
 
           <div className="mb-2">
-            <label className={labelCls}>案件名 {requiredMark}</label>
-            <input
-              type="text"
-              className={inputCls}
-              placeholder="例: 基幹システムリプレース"
-              value={form.projectName}
-              onChange={(e) => update('projectName', e.target.value)}
-            />
+            <label className={labelCls}>案件 {requiredMark}</label>
+            {form.clientId ? (
+              <select
+                className={selectCls}
+                value={form.projectId}
+                onChange={(e) => handleProjectChange(e.target.value)}
+              >
+                <option value="">選択してください</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+                <option value="new">＋ 新規案件を作成</option>
+              </select>
+            ) : (
+              <div className="text-sm text-secondary py-2">先にクライアントを選択してください</div>
+            )}
           </div>
+          {form.projectId === 'new' && (
+            <div className="mb-2">
+              <label className={labelCls}>案件名 {requiredMark}</label>
+              <input
+                type="text"
+                className={inputCls}
+                placeholder="例: 基幹システムリプレース"
+                value={form.projectName}
+                onChange={(e) => update('projectName', e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── 契約情報 ── */}
@@ -362,15 +460,17 @@ export default function NewAssignmentPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
             <div>
-              <label className={labelCls}>商流</label>
+              <label className={labelCls}>商流（自分たちが何次かを選択）</label>
               <select
                 className={selectCls}
                 value={form.supplyChain}
                 onChange={(e) => update('supplyChain', e.target.value)}
               >
-                <option>エンド → 自社</option>
-                <option>エンド → 1社 → 自社</option>
-                <option>エンド → 2社 → 自社</option>
+                <option>一次請け</option>
+                <option>二次請け</option>
+                <option>三次請け</option>
+                <option>四次請け</option>
+                <option>それ以下</option>
               </select>
             </div>
           </div>

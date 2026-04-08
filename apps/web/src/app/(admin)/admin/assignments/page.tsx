@@ -20,12 +20,15 @@ interface Assignment {
   id: string;
   employeeId: string;
   clientId: string;
+  projectId: string | null;
   projectName: string;
   contractPrice: number;
   settlementLower: number;
   settlementUpper: number;
   workLocation: string | null;
   area: string | null;
+  defaultStartTime: string | null;
+  attendanceFormat: string;
   startDate: string;
   endDate: string | null;
   status: string;
@@ -151,6 +154,25 @@ export default function AdminAssignmentsPage() {
   // 契約延長モーダル
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [extendDate, setExtendDate] = useState('');
+
+  // 編集モーダル
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    projectName: '',
+    contractPrice: '',
+    rewardRate: '',
+    settlementLower: '',
+    settlementUpper: '',
+    contractStartDate: '',
+    contractEndDate: '',
+    workStartTime: '',
+    attendanceFormat: 'none',
+    workLocation: '',
+    area: '',
+    supplyChain: '一次請け',
+    remarks: '',
+  });
+  const [editSaving, setEditSaving] = useState(false);
 
   /* ---------- データ取得 ---------- */
 
@@ -340,6 +362,58 @@ export default function AdminAssignmentsPage() {
     }
   };
 
+  /* ---------- 編集モーダル ---------- */
+
+  const openEditModal = () => {
+    if (!selected) return;
+    setEditForm({
+      projectName: selected.projectName || '',
+      contractPrice: selected.contractPrice ? String(selected.contractPrice) : '',
+      rewardRate: '',
+      settlementLower: selected.settlementLower ? String(selected.settlementLower) : '',
+      settlementUpper: selected.settlementUpper ? String(selected.settlementUpper) : '',
+      contractStartDate: selected.startDate?.split('T')[0] || '',
+      contractEndDate: selected.endDate?.split('T')[0] || '',
+      workStartTime: selected.defaultStartTime || '9:00',
+      attendanceFormat: selected.attendanceFormat || 'none',
+      workLocation: selected.workLocation || '',
+      area: selected.area || '',
+      supplyChain: '一次請け',
+      remarks: '',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!selected) return;
+    setEditSaving(true);
+    try {
+      await apiClient(`/assignments/${selected.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          projectName: editForm.projectName || undefined,
+          contractPrice: editForm.contractPrice ? parseInt(editForm.contractPrice.replace(/,/g, ''), 10) : undefined,
+          settlementLower: editForm.settlementLower ? parseInt(editForm.settlementLower, 10) : undefined,
+          settlementUpper: editForm.settlementUpper ? parseInt(editForm.settlementUpper, 10) : undefined,
+          startDate: editForm.contractStartDate || undefined,
+          endDate: editForm.contractEndDate || undefined,
+          defaultStartTime: editForm.workStartTime || undefined,
+          attendanceFormat: editForm.attendanceFormat,
+          workLocation: editForm.workLocation || undefined,
+          area: editForm.area || undefined,
+        }),
+      });
+      toast('アサイン情報を更新しました');
+      setShowEditModal(false);
+      setSelectedId(null);
+      loadAssignments();
+    } catch {
+      toast('更新に失敗しました');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   /* ---------- タブ別空メッセージ ---------- */
   const emptyMessage: Record<TabKey, string> = {
     active: '稼働中のアサインはありません',
@@ -492,13 +566,26 @@ export default function AdminAssignmentsPage() {
               <button onClick={() => setSelectedId(null)} className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page">✕</button>
             </div>
             <div className="p-5 space-y-5">
+              {/* 契約情報 */}
               <div>
-                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">現在の稼働</div>
+                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">契約情報</div>
                 {[
                   ['案件名', selected.projectName || '--'],
-                  ['契約単価', selected.contractPrice ? fmt(selected.contractPrice) + '円' : '--'],
+                  ['契約単価（月額）', selected.contractPrice ? fmt(selected.contractPrice) + '円' : '--'],
                   ['精算幅', selected.settlementLower ? `${selected.settlementLower}〜${selected.settlementUpper}h` : '--'],
                   ['契約期間', `${formatDate(selected.startDate)} 〜 ${formatDate(selected.endDate)}`],
+                  ['稼働開始時刻', selected.defaultStartTime || '--'],
+                  ['請求時の勤怠表添付', selected.attendanceFormat === 'company' ? '自社フォーマット' : selected.attendanceFormat === 'client_original' ? '現場データそのまま' : '不要'],
+                ].map(([l, v]) => (
+                  <div key={l} className="flex justify-between py-1.5 border-b border-border/20 text-base">
+                    <span className="text-secondary">{l}</span><span>{v}</span>
+                  </div>
+                ))}
+              </div>
+              {/* 勤務情報 */}
+              <div>
+                <div className="text-2xs text-secondary uppercase tracking-widest mb-2">勤務情報</div>
+                {[
                   ['勤務地', selected.workLocation || '未設定'],
                   ['エリア', selected.area ? areaLabel[selected.area] || selected.area : '未設定'],
                   ...((selected.status === 'ended' || selected.status === 'ending_scheduled') && selected.endReason
@@ -510,20 +597,21 @@ export default function AdminAssignmentsPage() {
                   </div>
                 ))}
               </div>
-              {/* アクションボタン: 稼働中 or 終了予定のみ表示 */}
-              {(selectedDisplayTab === 'active' || selectedDisplayTab === 'ending_scheduled') && (
-                <div className="flex gap-2">
+              {/* アクションボタン */}
+              <div className="flex gap-2 flex-wrap">
+                <button className="btn-outline flex-1 text-sm py-2" onClick={openEditModal}>編集</button>
+                {(selectedDisplayTab === 'active' || selectedDisplayTab === 'ending_scheduled') && (
                   <button className="btn-outline flex-1 text-sm py-2" onClick={openExtendModal}>契約延長</button>
-                  {selectedDisplayTab === 'active' && (
-                    <button
-                      className="btn-outline flex-1 text-sm py-2 text-status-red-text border-status-red-text/30 hover:bg-status-red-bg"
-                      onClick={openEndModal}
-                    >
-                      稼働終了
-                    </button>
-                  )}
-                </div>
-              )}
+                )}
+                {selectedDisplayTab === 'active' && (
+                  <button
+                    className="btn-outline flex-1 text-sm py-2 text-status-red-text border-status-red-text/30 hover:bg-status-red-bg"
+                    onClick={openEndModal}
+                  >
+                    稼働終了
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </>
@@ -625,6 +713,125 @@ export default function AdminAssignmentsPage() {
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setShowExtendModal(false)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
                 <button onClick={handleExtendAssignment} className="btn-primary flex-1 text-sm py-2">延長する</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 編集モーダル */}
+      {showEditModal && selected && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-[200]" onClick={() => setShowEditModal(false)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[680px] max-h-[90vh] overflow-y-auto bg-card border border-border rounded-xl z-[201] shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">アサイン編集</h2>
+              <button onClick={() => setShowEditModal(false)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* 社員情報（読み取り専用） */}
+              <div className="card p-4 bg-page">
+                <div className="text-sm font-medium mb-2">社員情報</div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="text-secondary">社員:</span> {selected.employee.lastName} {selected.employee.firstName}</div>
+                  <div><span className="text-secondary">クライアント:</span> {selected.client.name}</div>
+                </div>
+              </div>
+
+              {/* 契約情報 */}
+              <div className="card p-4">
+                <div className="text-sm font-medium mb-3">契約情報</div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">契約単価（月額） <span className="text-red-600">*</span></label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="650,000" value={editForm.contractPrice} onChange={e => setEditForm(f => ({ ...f, contractPrice: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">還元率</label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="72%" value={editForm.rewardRate} onChange={e => setEditForm(f => ({ ...f, rewardRate: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">精算幅（下限）</label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="140" value={editForm.settlementLower} onChange={e => setEditForm(f => ({ ...f, settlementLower: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">精算幅（上限）</label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="180" value={editForm.settlementUpper} onChange={e => setEditForm(f => ({ ...f, settlementUpper: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">契約開始日 <span className="text-red-600">*</span></label>
+                    <input type="date" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" value={editForm.contractStartDate} onChange={e => setEditForm(f => ({ ...f, contractStartDate: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">契約終了日 <span className="text-red-600">*</span></label>
+                    <input type="date" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" value={editForm.contractEndDate} onChange={e => setEditForm(f => ({ ...f, contractEndDate: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">稼働開始時刻</label>
+                    <select className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30" value={editForm.workStartTime} onChange={e => setEditForm(f => ({ ...f, workStartTime: e.target.value }))}>
+                      <option value="8:00">8時00分</option>
+                      <option value="8:30">8時30分</option>
+                      <option value="9:00">9時00分</option>
+                      <option value="9:30">9時30分</option>
+                      <option value="10:00">10時00分</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">請求時の勤怠表添付</label>
+                    <select className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30" value={editForm.attendanceFormat} onChange={e => setEditForm(f => ({ ...f, attendanceFormat: e.target.value }))}>
+                      <option value="none">不要</option>
+                      <option value="company">自社フォーマット</option>
+                      <option value="client_original">現場データそのまま</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* 勤務情報 */}
+              <div className="card p-4">
+                <div className="text-sm font-medium mb-3">勤務情報</div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">勤務地</label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="大阪市中央区（常駐）" value={editForm.workLocation} onChange={e => setEditForm(f => ({ ...f, workLocation: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">エリア</label>
+                    <select className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30" value={editForm.area} onChange={e => setEditForm(f => ({ ...f, area: e.target.value }))}>
+                      <option value="">選択してください</option>
+                      <option value="tokyo">東京</option>
+                      <option value="osaka">大阪</option>
+                      <option value="nagoya">名古屋</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">商流（自分たちが何次かを選択）</label>
+                    <select className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30" value={editForm.supplyChain} onChange={e => setEditForm(f => ({ ...f, supplyChain: e.target.value }))}>
+                      <option>一次請け</option>
+                      <option>二次請け</option>
+                      <option>三次請け</option>
+                      <option>四次請け</option>
+                      <option>それ以下</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-2xs text-secondary mb-1">備考</label>
+                  <textarea className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none resize-y focus:ring-1 focus:ring-primary/30" style={{ height: 60 }} placeholder="特記事項があれば入力" value={editForm.remarks} onChange={e => setEditForm(f => ({ ...f, remarks: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button onClick={handleEditSave} disabled={editSaving} className="btn-primary flex-1 text-sm py-2 disabled:opacity-50">{editSaving ? '保存中...' : '更新'}</button>
+                <button onClick={() => setShowEditModal(false)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
               </div>
             </div>
           </div>

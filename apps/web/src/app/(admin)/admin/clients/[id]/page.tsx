@@ -52,6 +52,20 @@ interface ProposalHistory {
   employees: { id: string; name: string; initial: string }[];
 }
 
+interface ProjectItem {
+  id: string;
+  clientId: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  workLocation: string | null;
+  area: string | null;
+  defaultStartTime: string | null;
+  attendanceFormat: string;
+  note: string | null;
+  assignments: Assignment[];
+}
+
 interface DealLogEntry {
   id: string;
   date: string;
@@ -108,21 +122,34 @@ export default function ClientDetailPage() {
   const [pastAssignments, setPastAssignments] = useState<Assignment[]>([]);
   const [proposals, setProposals] = useState<ProposalHistory[]>([]);
   const [dealLogs, setDealLogs] = useState<DealLogEntry[]>([]);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'members' | 'history' | 'proposals' | 'deals'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'history' | 'proposals' | 'deals' | 'projects'>('projects');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  // 案件フォーム
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [editingProject, setEditingProject] = useState<ProjectItem | null>(null);
+  const [projectForm, setProjectForm] = useState({
+    name: '', startDate: '', endDate: '',
+    workLocation: '', area: '', defaultStartTime: '', attendanceFormat: 'none', note: '',
+  });
+  const [savingProject, setSavingProject] = useState(false);
+  const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [clientRes, assignRes, proposalRes] = await Promise.all([
+      const [clientRes, assignRes, proposalRes, projectsRes] = await Promise.all([
         apiClient<ClientDetail>(`/clients/${clientId}`),
         apiClient<{ data: Assignment[] }>('/assignments?limit=200').catch(() => ({ data: [] as Assignment[] })),
         apiClient<ProposalHistory[]>(`/proposals/history?clientId=${clientId}`).catch(() => [] as ProposalHistory[]),
+        apiClient<ProjectItem[]>(`/projects?clientId=${clientId}`).catch(() => [] as ProjectItem[]),
       ]);
 
       setClient(clientRes);
       setProposals(proposalRes);
+      setProjects(projectsRes);
 
       // 商談ログを会社名で取得
       if (clientRes?.name) {
@@ -273,6 +300,7 @@ export default function ClientDetailPage() {
             {/* Tab Bar */}
             <div className="flex border-b border-border/30">
               {([
+                { key: 'projects', label: `案件 (${projects.length})` },
                 { key: 'members', label: `稼働メンバー (${assignments.length})` },
                 { key: 'history', label: `取引履歴 (${pastAssignments.length})` },
                 { key: 'proposals', label: `提案履歴 (${proposals.length})` },
@@ -297,6 +325,204 @@ export default function ClientDetailPage() {
 
             {/* Tab Content */}
             <div className="p-5">
+              {/* 案件 */}
+              {activeTab === 'projects' && (
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <div className="text-sm text-secondary">{projects.length}件の案件</div>
+                  </div>
+
+                  {projects.length === 0 && !showProjectForm ? (
+                    <div className="text-sm text-secondary py-4 text-center">案件がありません</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {projects.map(proj => (
+                        <div key={proj.id} className="border border-border/20 rounded-lg p-4">
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-base font-medium">{proj.name}</span>
+                              </div>
+                              <div className="text-xs text-secondary mt-1 space-x-3">
+                                {proj.startDate && <span>{fmtDate(proj.startDate)}〜{proj.endDate ? fmtDate(proj.endDate) : ''}</span>}
+                                {proj.workLocation && <span>{proj.workLocation}</span>}
+                                {proj.area && <span>{proj.area}</span>}
+                              </div>
+                              {proj.defaultStartTime && (
+                                <div className="text-xs text-secondary mt-0.5">開始時刻: {proj.defaultStartTime}</div>
+                              )}
+                              {proj.attendanceFormat !== 'none' && (
+                                <div className="text-xs text-secondary mt-0.5">
+                                  勤怠表: {proj.attendanceFormat === 'company' ? '自社フォーマット' : 'クライアント原本'}
+                                </div>
+                              )}
+                              {proj.note && <div className="text-xs text-secondary mt-1">{proj.note}</div>}
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button
+                                onClick={() => {
+                                  setEditingProject(proj);
+                                  // defaultStartTime を HH:MM にゼロ埋め（"9:00" → "09:00"）
+                                  const rawTime = proj.defaultStartTime || '';
+                                  const paddedTime = rawTime && /^\d:\d{2}$/.test(rawTime) ? '0' + rawTime : rawTime;
+                                  setProjectForm({
+                                    name: proj.name,
+                                    startDate: proj.startDate?.split('T')[0] || '',
+                                    endDate: proj.endDate?.split('T')[0] || '',
+                                    workLocation: proj.workLocation || '',
+                                    area: proj.area || '',
+                                    defaultStartTime: paddedTime,
+                                    attendanceFormat: proj.attendanceFormat || 'none',
+                                    note: proj.note || '',
+                                  });
+                                  setShowProjectForm(true);
+                                }}
+                                className="text-sm text-primary hover:underline"
+                              >編集</button>
+                              <button
+                                onClick={() => setDeleteProjectId(proj.id)}
+                                className="text-sm text-primary hover:underline"
+                              >削除</button>
+                            </div>
+                          </div>
+
+                          {/* アサインメンバー */}
+                          {proj.assignments.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-border/15">
+                              <div className="text-2xs text-secondary mb-1.5">アサインメンバー ({proj.assignments.length}名)</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {proj.assignments.map(a => (
+                                  <span key={a.id} className="inline-flex items-center px-2 py-0.5 bg-page rounded text-xs border border-border/15">
+                                    <span className="font-medium">{a.employee.lastName} {a.employee.firstName}</span>
+                                    <span className="text-secondary ml-1">{a.employee.employeeCode}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 案件作成/編集フォーム（モーダル） */}
+                  {showProjectForm && (
+                    <div className="fixed inset-0 bg-black/40 z-[200] flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowProjectForm(false); }}>
+                      <div className="bg-card rounded-xl w-full max-w-lg overflow-hidden shadow-lg">
+                        <div className="px-5 pt-5 pb-3 flex justify-between items-center">
+                          <h3 className="text-lg font-bold">{editingProject ? '案件編集' : '案件追加'}</h3>
+                          <button onClick={() => setShowProjectForm(false)} className="text-secondary hover:text-primary">&#10005;</button>
+                        </div>
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!projectForm.name.trim()) { toast('案件名を入力してください'); return; }
+                            setSavingProject(true);
+                            try {
+                              const payload = {
+                                ...projectForm,
+                                clientId: clientId,
+                                startDate: projectForm.startDate || undefined,
+                                endDate: projectForm.endDate || undefined,
+                                workLocation: projectForm.workLocation || undefined,
+                                area: projectForm.area || undefined,
+                                defaultStartTime: projectForm.defaultStartTime || undefined,
+                                note: projectForm.note || undefined,
+                              };
+                              if (editingProject) {
+                                await apiClient(`/projects/${editingProject.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+                                toast('案件を更新しました');
+                              } else {
+                                await apiClient('/projects', { method: 'POST', body: JSON.stringify(payload) });
+                                toast('案件を追加しました');
+                              }
+                              setShowProjectForm(false);
+                              fetchData();
+                            } catch { toast('保存に失敗しました'); }
+                            finally { setSavingProject(false); }
+                          }}
+                          className="px-5 pb-5 space-y-3"
+                        >
+                          <div>
+                            <label className="block text-sm text-secondary mb-1">案件名 <span className="text-red-500">*</span></label>
+                            <input type="text" value={projectForm.name} onChange={e => setProjectForm(f => ({ ...f, name: e.target.value }))} maxLength={200} className="input w-full" />
+                          </div>
+                          <div>
+                            <label className="block text-sm text-secondary mb-1">エリア</label>
+                            <select value={projectForm.area} onChange={e => setProjectForm(f => ({ ...f, area: e.target.value }))} className="input w-full">
+                              <option value="">--</option>
+                              <option value="tokyo">東京</option>
+                              <option value="osaka">大阪</option>
+                              <option value="nagoya">名古屋</option>
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm text-secondary mb-1">開始日</label>
+                              <input type="date" value={projectForm.startDate} onChange={e => setProjectForm(f => ({ ...f, startDate: e.target.value }))} className="input w-full" />
+                            </div>
+                            <div>
+                              <label className="block text-sm text-secondary mb-1">終了日</label>
+                              <input type="date" value={projectForm.endDate} onChange={e => setProjectForm(f => ({ ...f, endDate: e.target.value }))} className="input w-full" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm text-secondary mb-1">勤務地</label>
+                            <input type="text" value={projectForm.workLocation} onChange={e => setProjectForm(f => ({ ...f, workLocation: e.target.value }))} className="input w-full" placeholder="例: 東京都千代田区" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm text-secondary mb-1">稼働開始時刻</label>
+                              <input type="time" value={projectForm.defaultStartTime} onChange={e => setProjectForm(f => ({ ...f, defaultStartTime: e.target.value }))} className="input w-full" />
+                            </div>
+                            <div>
+                              <label className="block text-sm text-secondary mb-1">勤怠表添付</label>
+                              <select value={projectForm.attendanceFormat} onChange={e => setProjectForm(f => ({ ...f, attendanceFormat: e.target.value }))} className="input w-full">
+                                <option value="none">なし</option>
+                                <option value="company">自社フォーマット</option>
+                                <option value="client_original">クライアント原本</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm text-secondary mb-1">メモ</label>
+                            <textarea value={projectForm.note} onChange={e => setProjectForm(f => ({ ...f, note: e.target.value }))} rows={2} className="input w-full" />
+                          </div>
+                          <div className="flex gap-3 pt-1">
+                            <button type="submit" disabled={savingProject} className="btn-primary flex-1">{savingProject ? '保存中...' : editingProject ? '更新' : '追加'}</button>
+                            <button type="button" onClick={() => setShowProjectForm(false)} className="btn-outline flex-1">キャンセル</button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 削除確認ダイアログ */}
+                  {deleteProjectId && (
+                    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[200] p-4">
+                      <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-lg">
+                        <h3 className="text-md font-bold mb-2">案件を削除しますか？</h3>
+                        <p className="text-sm text-secondary mb-4">この操作は取り消せません。</p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await apiClient(`/projects/${deleteProjectId}`, { method: 'DELETE' });
+                                toast('案件を削除しました');
+                                setDeleteProjectId(null);
+                                fetchData();
+                              } catch { toast('削除に失敗しました'); }
+                            }}
+                            className="flex-1 bg-red-500 text-white py-2 rounded-lg font-medium text-sm hover:bg-red-600"
+                          >削除する</button>
+                          <button onClick={() => setDeleteProjectId(null)} className="flex-1 btn-outline">キャンセル</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* 稼働メンバー */}
               {activeTab === 'members' && (
                 assignments.length === 0 ? (

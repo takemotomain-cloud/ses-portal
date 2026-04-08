@@ -246,10 +246,11 @@ export class ReconciliationService {
           { endDate: { gte: monthStart } },
         ],
       },
-      select: { defaultStartTime: true },
+      select: { defaultStartTime: true, project: { select: { defaultStartTime: true } } },
     });
 
-    return assignment?.defaultStartTime || null;
+    // 案件（Project）の開始時刻を優先、なければAssignment自体の値
+    return assignment?.project?.defaultStartTime || assignment?.defaultStartTime || null;
   }
 
   /**

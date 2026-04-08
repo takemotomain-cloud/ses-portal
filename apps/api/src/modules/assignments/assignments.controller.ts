@@ -42,6 +42,7 @@ export class AssignmentsController {
       area?: string;
       defaultStartTime?: string;
       attendanceFormat?: string;
+      projectId?: string;
       startDate: string;
       endDate?: string;
     },
@@ -61,6 +62,32 @@ export class AssignmentsController {
     @Query('status') status?: string,
   ) {
     return this.assignmentsService.findAll({ page, limit, status });
+  }
+
+  /**
+   * アサイン更新（admin/salesのみ）
+   */
+  @Patch(':id')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: 'アサイン更新' })
+  async update(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      projectName?: string;
+      contractPrice?: number;
+      settlementLower?: number;
+      settlementUpper?: number;
+      workLocation?: string;
+      area?: string;
+      defaultStartTime?: string;
+      attendanceFormat?: string;
+      projectId?: string;
+      startDate?: string;
+      endDate?: string;
+    },
+  ) {
+    return this.assignmentsService.update(id, body);
   }
 
   /**

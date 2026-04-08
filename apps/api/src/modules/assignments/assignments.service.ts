@@ -35,6 +35,7 @@ export class AssignmentsService {
     area?: string;
     defaultStartTime?: string;
     attendanceFormat?: string;
+    projectId?: string;
     startDate: string;
     endDate?: string;
   }) {
@@ -42,6 +43,7 @@ export class AssignmentsService {
       data: {
         employeeId: data.employeeId,
         clientId: data.clientId,
+        projectId: data.projectId || null,
         projectName: data.projectName,
         contractPrice: data.contractPrice,
         settlementLower: data.settlementLower,
@@ -110,6 +112,50 @@ export class AssignmentsService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * アサイン更新
+   */
+  async update(id: string, data: {
+    projectName?: string;
+    contractPrice?: number;
+    settlementLower?: number;
+    settlementUpper?: number;
+    workLocation?: string | null;
+    area?: string | null;
+    defaultStartTime?: string | null;
+    attendanceFormat?: string;
+    projectId?: string | null;
+    startDate?: string;
+    endDate?: string | null;
+    supplyChain?: string | null;
+  }) {
+    const updateData: Record<string, any> = {};
+    if (data.projectName !== undefined) updateData.projectName = data.projectName;
+    if (data.contractPrice !== undefined) updateData.contractPrice = data.contractPrice;
+    if (data.settlementLower !== undefined) updateData.settlementLower = data.settlementLower;
+    if (data.settlementUpper !== undefined) updateData.settlementUpper = data.settlementUpper;
+    if (data.workLocation !== undefined) updateData.workLocation = data.workLocation;
+    if (data.area !== undefined) updateData.area = data.area;
+    if (data.defaultStartTime !== undefined) updateData.defaultStartTime = data.defaultStartTime;
+    if (data.attendanceFormat !== undefined) updateData.attendanceFormat = data.attendanceFormat;
+    if (data.projectId !== undefined) updateData.projectId = data.projectId;
+    if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
+    if (data.endDate !== undefined) updateData.endDate = data.endDate ? new Date(data.endDate) : null;
+
+    return this.db.assignment.update({
+      where: { id },
+      data: updateData,
+      include: {
+        employee: {
+          select: { id: true, lastName: true, firstName: true, employeeCode: true },
+        },
+        client: {
+          select: { id: true, name: true },
+        },
+      },
+    });
   }
 
   /**

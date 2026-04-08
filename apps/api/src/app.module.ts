@@ -37,6 +37,7 @@ import { SkillsheetsModule } from './modules/skillsheets/skillsheets.module';
 import { ProposalsModule } from './modules/proposals/proposals.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { FreeeModule } from './modules/freee/freee.module';
+import { ProjectsModule } from './modules/projects/projects.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { FreeeModule } from './modules/freee/freee.module';
     ProposalsModule,
     InvoicesModule,
     FreeeModule,
+    ProjectsModule,
   ],
   controllers: [HealthController],
 })

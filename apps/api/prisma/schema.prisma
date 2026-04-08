@@ -233,12 +233,37 @@ model Client {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   assignments             Assignment[]
+  projects                Project[]
   clientAttendanceUploads ClientAttendanceUpload[]
   reconciliationSettings  ReconciliationSettings?
   proposalEmails          ProposalEmail[]
   invoices                Invoice[]
 
   @@map("clients")
+}
+
+// ----------------------------------------
+// 案件
+// ----------------------------------------
+model Project {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId          String    @map("client_id") @db.Uuid
+  name              String    @db.VarChar(200)
+  startDate         DateTime? @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  workLocation      String?   @map("work_location") @db.VarChar(200)
+  area              String?   @db.VarChar(20)
+  defaultStartTime  String?   @map("default_start_time") @db.VarChar(5)
+  attendanceFormat  String    @default("none") @map("attendance_format") @db.VarChar(20)
+  note              String?
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  client      Client       @relation(fields: [clientId], references: [id])
+  assignments Assignment[]
+
+  @@map("projects")
 }
 
 // ----------------------------------------
@@ -289,6 +314,7 @@ model Assignment {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId      String    @map("employee_id") @db.Uuid
   clientId        String    @map("client_id") @db.Uuid
+  projectId       String?   @map("project_id") @db.Uuid
   projectName     String    @map("project_name") @db.VarChar(200)
   contractPrice   Int       @map("contract_price")
   settlementLower Int       @map("settlement_lower")
@@ -307,6 +333,7 @@ model Assignment {
 
   employee Employee @relation(fields: [employeeId], references: [id])
   client   Client   @relation(fields: [clientId], references: [id])
+  project  Project?  @relation(fields: [projectId], references: [id])
 
   @@map("assignments")
 }
