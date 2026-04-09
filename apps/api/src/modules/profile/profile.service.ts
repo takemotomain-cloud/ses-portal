@@ -18,13 +18,17 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { DatabaseService } from '../../database/database.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { BCRYPT_ROUNDS } from '@ses-portal/shared';
 
 @Injectable()
 export class ProfileService {
   private readonly logger = new Logger(ProfileService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * 個人情報を取得（社員自身が閲覧する用）
@@ -63,7 +67,7 @@ export class ProfileService {
       select: { postalCode: true, address: true },
     });
 
-    return this.db.changeRequest.create({
+    const result = await this.db.changeRequest.create({
       data: {
         employeeId,
         changeType: 'address',
@@ -72,6 +76,9 @@ export class ProfileService {
         status: 'pending',
       },
     });
+
+    this.notifications.notifyAdmins('個人情報変更', '住所変更申請が提出されました。').catch(() => {});
+    return result;
   }
 
   /**
@@ -95,7 +102,7 @@ export class ProfileService {
       },
     });
 
-    return this.db.changeRequest.create({
+    const result = await this.db.changeRequest.create({
       data: {
         employeeId,
         changeType: 'bank',
@@ -104,6 +111,9 @@ export class ProfileService {
         status: 'pending',
       },
     });
+
+    this.notifications.notifyAdmins('個人情報変更', '口座変更申請が提出されました。').catch(() => {});
+    return result;
   }
 
   /**
@@ -159,6 +169,7 @@ export class ProfileService {
     });
 
     this.logger.log(`Change request ${requestId} approved by ${approverId}`);
+    this.notifications.create({ employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が承認されました。' }).catch(() => {});
   }
 
   /**
@@ -182,6 +193,7 @@ export class ProfileService {
     });
 
     this.logger.log(`Change request ${requestId} rejected by ${approverId}`);
+    this.notifications.create({ employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が却下されました。' }).catch(() => {});
   }
 
   /**

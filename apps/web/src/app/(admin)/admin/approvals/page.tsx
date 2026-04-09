@@ -86,9 +86,18 @@ interface DelayCertItem {
   employee: { lastName: string; firstName: string; employeeCode: string };
 }
 
+interface YearendItem {
+  id: string;
+  fiscalYear: number;
+  status: string;
+  submittedAt: string;
+  createdAt: string;
+  employee: { lastName: string; firstName: string; employeeCode: string };
+}
+
 interface DoneItem {
   id: string;
-  type: 'leave' | 'expense' | 'change' | 'attendance' | 'delay' | 'loa';
+  type: 'leave' | 'expense' | 'change' | 'attendance' | 'delay' | 'loa' | 'yearend';
   name: string;
   detail: string;
   approved: boolean;
@@ -146,6 +155,9 @@ export default function AdminApprovalsPage() {
   const [correctionItems, setCorrectionItems] = useState<AttendanceCorrectionItem[]>([]);
   const [delayCertItems, setDelayCertItems] = useState<DelayCertItem[]>([]);
   const [loaItems, setLoaItems] = useState<LoaItem[]>([]);
+  const [yearendItems, setYearendItems] = useState<YearendItem[]>([]);
+  const [yearendRejectModal, setYearendRejectModal] = useState<YearendItem | null>(null);
+  const [yearendRejectReason, setYearendRejectReason] = useState('');
   const [done, setDone] = useState<DoneItem[]>([]);
   const [activeTab, setActiveTab] = useState<0 | 1>(0);
   const [loading, setLoading] = useState(true);
@@ -154,13 +166,15 @@ export default function AdminApprovalsPage() {
   /* データ取得 */
   const fetchData = useCallback(async () => {
     try {
-      const [leaves, expenses, changes, corrections, delayCerts, loas] = await Promise.all([
+      const currentYear = new Date().getFullYear();
+      const [leaves, expenses, changes, corrections, delayCerts, loas, yearends] = await Promise.all([
         apiClient<LeaveItem[]>('/leave/pending'),
         apiClient<ExpenseItem[]>('/expense/pending'),
         apiClient<ChangeItem[]>('/profile/change-requests/pending'),
         apiClient<AttendanceCorrectionItem[]>('/attendance/corrections/pending'),
         apiClient<DelayCertItem[]>('/delay-certificates/pending'),
         apiClient<LoaItem[]>('/leave-of-absence/pending'),
+        apiClient<YearendItem[]>(`/yearend/pending/${currentYear}`),
       ]);
       setLeaveItems(leaves);
       setExpenseItems(expenses);
@@ -168,6 +182,7 @@ export default function AdminApprovalsPage() {
       setCorrectionItems(corrections);
       setDelayCertItems(delayCerts);
       setLoaItems(loas);
+      setYearendItems(yearends);
     } catch (e: any) {
       console.error('Failed to fetch approvals:', e);
     } finally {
@@ -375,6 +390,60 @@ export default function AdminApprovalsPage() {
     }
   }
 
+  /* 年末調整 承認 */
+  async function handleYearendApprove(item: YearendItem) {
+    setProcessing(item.id);
+    try {
+      await apiClient(`/yearend/${item.id}/approve`, { method: 'POST' });
+      setYearendItems(prev => prev.filter(i => i.id !== item.id));
+      setDone(prev => [{
+        id: item.id,
+        type: 'yearend',
+        name: `${item.employee.lastName} ${item.employee.firstName}`,
+        detail: `${item.fiscalYear}年 年末調整`,
+        approved: true,
+        processedDate: fmtDate(new Date().toISOString()),
+      }, ...prev]);
+      toast('承認しました');
+    } catch (e: any) {
+      toast(e.message || 'エラーが発生しました');
+    } finally {
+      setProcessing(null);
+    }
+  }
+
+  /* 年末調整 差し戻し */
+  async function handleYearendReject() {
+    if (!yearendRejectModal || !yearendRejectReason.trim()) {
+      toast('差し戻し理由を入力してください');
+      return;
+    }
+    const item = yearendRejectModal;
+    setProcessing(item.id);
+    try {
+      await apiClient(`/yearend/${item.id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: yearendRejectReason.trim() }),
+      });
+      setYearendItems(prev => prev.filter(i => i.id !== item.id));
+      setDone(prev => [{
+        id: item.id,
+        type: 'yearend',
+        name: `${item.employee.lastName} ${item.employee.firstName}`,
+        detail: `${item.fiscalYear}年 年末調整（差し戻し）`,
+        approved: false,
+        processedDate: fmtDate(new Date().toISOString()),
+      }, ...prev]);
+      setYearendRejectModal(null);
+      setYearendRejectReason('');
+      toast('差し戻しました');
+    } catch (e: any) {
+      toast(e.message || 'エラーが発生しました');
+    } finally {
+      setProcessing(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -388,7 +457,7 @@ export default function AdminApprovalsPage() {
       <h1 className="text-2xl font-medium mb-5">承認待ち</h1>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-7 gap-3 mb-4">
         <div className="card p-4">
           <div className="text-xs text-secondary">有給申請</div>
           <div className="text-3xl font-medium">{leaveItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
@@ -412,6 +481,10 @@ export default function AdminApprovalsPage() {
         <div className="card p-4">
           <div className="text-xs text-secondary">休職届</div>
           <div className="text-3xl font-medium">{loaItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">年末調整</div>
+          <div className="text-3xl font-medium">{yearendItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
         </div>
       </div>
 
@@ -678,6 +751,33 @@ export default function AdminApprovalsPage() {
               )}
             </div>
           </div>
+
+          {/* 年末調整 */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-md font-medium">年末調整</h3>
+              <span className="text-sm text-secondary">{yearendItems.length}件</span>
+            </div>
+            <div className="card p-0">
+              {yearendItems.length === 0 ? (
+                <div className="px-5 py-4 text-base text-secondary">未処理の年末調整はありません</div>
+              ) : (
+                yearendItems.map((item, idx) => (
+                  <div key={item.id} className={`flex items-center gap-3 px-5 py-3.5 flex-wrap ${idx < yearendItems.length - 1 ? 'border-b border-border/20' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-base font-medium">{item.employee.lastName} {item.employee.firstName}</div>
+                      <div className="text-sm text-secondary">{item.fiscalYear}年 年末調整</div>
+                    </div>
+                    <div className="text-sm text-secondary flex-shrink-0 mr-2">{fmtDate(item.submittedAt)}</div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button onClick={() => handleYearendApprove(item)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-green-bg text-status-green-text hover:bg-[#C8EDDA] transition-colors disabled:opacity-50">承認</button>
+                      <button onClick={() => { setYearendRejectModal(item); setYearendRejectReason(''); }} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-red-bg text-status-red-text hover:bg-[#FAD4D4] transition-colors disabled:opacity-50">差し戻し</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -704,6 +804,43 @@ export default function AdminApprovalsPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* 年末調整 差し戻しモーダル */}
+      {yearendRejectModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setYearendRejectModal(null)}>
+          <div className="bg-white rounded-xl w-full max-w-sm p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-primary">年末調整を差し戻し</h3>
+            <div className="text-sm text-secondary">
+              {yearendRejectModal.employee.lastName} {yearendRejectModal.employee.firstName}（{yearendRejectModal.fiscalYear}年）
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-primary mb-1.5">差し戻し理由</label>
+              <textarea
+                rows={3}
+                value={yearendRejectReason}
+                onChange={(e) => setYearendRejectReason(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2.5 text-sm bg-white outline-none focus:border-primary resize-none"
+                placeholder="修正が必要な箇所を入力してください"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setYearendRejectModal(null)}
+                className="flex-1 py-2.5 rounded-lg border border-border text-sm font-medium text-secondary hover:bg-page transition-all"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleYearendReject}
+                disabled={processing === yearendRejectModal.id || !yearendRejectReason.trim()}
+                className="flex-1 py-2.5 rounded-lg bg-status-red-bg text-status-red-text text-sm font-semibold hover:bg-[#FAD4D4] transition-all disabled:opacity-50"
+              >
+                差し戻す
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -16,6 +16,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface ExpenseItemInput {
   expenseDate: string;
@@ -28,7 +29,10 @@ interface ExpenseItemInput {
 export class ExpenseService {
   private readonly logger = new Logger(ExpenseService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * 経費申請を作成（明細行を含む）
@@ -48,7 +52,7 @@ export class ExpenseService {
 
     const totalAmount = data.items.reduce((sum, item) => sum + item.amount, 0);
 
-    return this.db.$transaction(async (tx) => {
+    const result = await this.db.$transaction(async (tx) => {
       const request = await tx.expenseRequest.create({
         data: {
           employeeId,
@@ -72,6 +76,10 @@ export class ExpenseService {
       this.logger.log(`Expense request created: ${request.id} (${data.items.length} items, ${totalAmount}円)`);
       return request;
     });
+
+    this.notifications.notifyAdmins('交通費申請', '交通費申請が提出されました。').catch(() => {});
+
+    return result;
   }
 
   /**
@@ -113,6 +121,8 @@ export class ExpenseService {
     });
 
     this.logger.log(`Expense request ${requestId} approved by ${approverId}`);
+
+    this.notifications.create({ employeeId: request.employeeId, title: '交通費', body: '交通費申請が承認されました。' }).catch(() => {});
   }
 
   /**
@@ -129,5 +139,7 @@ export class ExpenseService {
     });
 
     this.logger.log(`Expense request ${requestId} rejected by ${approverId}`);
+
+    this.notifications.create({ employeeId: request.employeeId, title: '交通費', body: '交通費申請が却下されました。' }).catch(() => {});
   }
 }

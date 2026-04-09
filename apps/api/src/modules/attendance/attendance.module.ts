@@ -9,13 +9,14 @@
 
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AttendanceController } from './attendance.controller';
 import { AttendanceService } from './attendance.service';
 import { ReconciliationController } from './reconciliation.controller';
 import { ReconciliationService } from './reconciliation.service';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, NotificationsModule],
   controllers: [ReconciliationController, AttendanceController],
   providers: [AttendanceService, ReconciliationService],
   exports: [AttendanceService, ReconciliationService],

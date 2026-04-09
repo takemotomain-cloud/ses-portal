@@ -109,7 +109,8 @@ model Employee {
   payrolls           Payroll[]
   notifications      Notification[]
   certificates       Certificate[]
-  yearendAdjustments YearendAdjustment[]
+  yearendAdjustments      YearendAdjustment[]
+  approvedYearends        YearendAdjustment[] @relation("YearendApprover")
   meetings                Meeting[]
   attendanceCorrections   AttendanceCorrection[]
   approvedCorrections     AttendanceCorrection[] @relation("CorrectionApprover")
@@ -608,12 +609,16 @@ model YearendAdjustment {
   employeeId  String    @map("employee_id") @db.Uuid
   fiscalYear  Int       @map("fiscal_year")
   formData    Json      @map("form_data")
-  status      String    @default("open") @db.VarChar(20)
-  submittedAt DateTime? @map("submitted_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  status       String    @default("open") @db.VarChar(20)
+  submittedAt  DateTime? @map("submitted_at") @db.Timestamptz
+  approvedBy   String?   @map("approved_by") @db.Uuid
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  rejectReason String?   @map("reject_reason")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee Employee  @relation(fields: [employeeId], references: [id])
+  approver Employee? @relation("YearendApprover", fields: [approvedBy], references: [id])
 
   @@unique([employeeId, fiscalYear])
   @@map("yearend_adjustments")

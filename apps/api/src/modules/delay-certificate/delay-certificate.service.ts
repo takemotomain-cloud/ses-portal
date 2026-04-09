@@ -11,12 +11,16 @@ import {
   Logger,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class DelayCertificateService {
   private readonly logger = new Logger(DelayCertificateService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /** 遅延証明書を提出 */
   async submit(
@@ -42,6 +46,7 @@ export class DelayCertificateService {
     });
 
     this.logger.log(`遅延証明書提出: employee=${employeeId}, date=${data.targetDate}`);
+    this.notifications.notifyAdmins('遅延証明書', '遅延証明書が提出されました。').catch(() => {});
     return cert;
   }
 
@@ -96,6 +101,7 @@ export class DelayCertificateService {
     });
 
     this.logger.log(`遅延証明書確認: id=${id}, confirmedBy=${confirmerId}`);
+    this.notifications.create({ employeeId: cert.employeeId, title: '遅延証明書', body: '遅延証明書が確認されました。' }).catch(() => {});
     return updated;
   }
 }

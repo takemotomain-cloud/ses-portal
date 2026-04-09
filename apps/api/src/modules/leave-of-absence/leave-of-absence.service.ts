@@ -16,6 +16,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /** 休職種別ごとの最大日数 */
 const MAX_DAYS: Record<string, number> = {
@@ -29,7 +30,10 @@ const MAX_DAYS: Record<string, number> = {
 export class LeaveOfAbsenceService {
   private readonly logger = new Logger(LeaveOfAbsenceService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * 休職届を提出
@@ -84,6 +88,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`休職届を提出: employee=${employeeId}, type=${data.absenceType}`);
+    this.notifications.notifyAdmins('休職届', '休職届が提出されました。').catch(() => {});
     return { id: record.id };
   }
 
@@ -115,6 +120,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`休職届を承認: id=${id}, approver=${approverId}`);
+    this.notifications.create({ employeeId: record.employeeId, title: '休職届', body: '休職届が承認されました。' }).catch(() => {});
     return { id };
   }
 
@@ -140,6 +146,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`休職届を却下: id=${id}`);
+    this.notifications.create({ employeeId: record.employeeId, title: '休職届', body: '休職届が却下されました。' }).catch(() => {});
     return { id };
   }
 
@@ -164,6 +171,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`復職届を提出: id=${id}, employee=${employeeId}`);
+    this.notifications.notifyAdmins('復職届', '復職届が提出されました。').catch(() => {});
     return { id };
   }
 
@@ -195,6 +203,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`復職を承認: id=${id}, approver=${approverId}`);
+    this.notifications.create({ employeeId: record.employeeId, title: '休職届', body: '復職が承認されました。' }).catch(() => {});
     return { id };
   }
 

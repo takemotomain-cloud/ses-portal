@@ -418,30 +418,6 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* クイックアクション */}
-      <div className="card p-0">
-        <div className="grid grid-cols-2 sm:grid-cols-4">
-          {[
-            { label: '有給申請', color: 'bg-status-green-bg text-status-green-text', href: '/mypage/leave' },
-            { label: '交通費', color: 'bg-status-blue-bg text-status-blue-text', href: '/mypage/expense' },
-            { label: '給与明細', color: 'bg-accent text-accent-text', href: '/mypage/salary' },
-            { label: '届出', color: 'bg-status-amber-bg text-status-amber-text', href: '/more/profile' },
-          ].map((action) => (
-            <button
-              key={action.label}
-              onClick={() => router.push(action.href)}
-              className="flex flex-col items-center gap-2 py-5 px-3 border-b border-r border-border-light
-                         last:border-r-0 hover:bg-page transition-colors"
-            >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${action.color}`}>
-                <span className="text-lg">●</span>
-              </div>
-              <span className="text-sm text-primary">{action.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* お知らせ */}
       <div>
         <div className="flex items-center justify-between mb-3">

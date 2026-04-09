@@ -20,12 +20,16 @@ import {
   Logger,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class LeaveService {
   private readonly logger = new Logger(LeaveService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * 有給残日数を取得（消滅日が未来のロットのみ）
@@ -79,7 +83,7 @@ export class LeaveService {
       );
     }
 
-    return this.db.leaveRequest.create({
+    const result = await this.db.leaveRequest.create({
       data: {
         employeeId,
         leaveType: data.leaveType,
@@ -90,6 +94,10 @@ export class LeaveService {
         status: 'pending',
       },
     });
+
+    this.notifications.notifyAdmins('有給休暇申請', '有給休暇申請が提出されました。').catch(() => {});
+
+    return result;
   }
 
   /**
@@ -170,6 +178,8 @@ export class LeaveService {
     });
 
     this.logger.log(`Leave request ${requestId} approved by ${approverId}`);
+
+    this.notifications.create({ employeeId: request.employeeId, title: '有給休暇', body: '有給休暇申請が承認されました。' }).catch(() => {});
   }
 
   /**
@@ -199,6 +209,8 @@ export class LeaveService {
     });
 
     this.logger.log(`Leave request ${requestId} rejected by ${approverId}`);
+
+    this.notifications.create({ employeeId: request.employeeId, title: '有給休暇', body: '有給休暇申請が却下されました。' }).catch(() => {});
   }
 
   /**

@@ -32,4 +32,28 @@ export class YearendController {
   async getAllStatus(@Param('year', ParseIntPipe) year: number) {
     return this.yearendService.getAllStatus(year);
   }
+
+  @Get('pending/:year')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'accounting')
+  @ApiOperation({ summary: '承認待ち年末調整一覧' })
+  async getPendingList(@Param('year', ParseIntPipe) year: number) {
+    return this.yearendService.getPendingList(year);
+  }
+
+  @Post(':id/approve')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'accounting')
+  @ApiOperation({ summary: '年末調整を承認' })
+  async approve(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.yearendService.approve(id, user.employeeId);
+  }
+
+  @Post(':id/reject')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'accounting')
+  @ApiOperation({ summary: '年末調整を差し戻し' })
+  async reject(@Param('id') id: string, @CurrentUser() user: RequestUser, @Body() body: { reason: string }) {
+    return this.yearendService.reject(id, user.employeeId, body.reason);
+  }
 }

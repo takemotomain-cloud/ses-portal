@@ -67,6 +67,26 @@ export class NotificationsService {
     return notification;
   }
 
+  /**
+   * 管理者全員に通知を送信する（申請が来た時など）
+   */
+  async notifyAdmins(title: string, body: string) {
+    const admins = await this.db.user.findMany({
+      where: { role: 'admin' },
+      select: { employeeId: true },
+    });
+    if (!admins.length) return;
+    await this.db.notification.createMany({
+      data: admins.map(a => ({
+        employeeId: a.employeeId,
+        title,
+        body,
+        category: 'system',
+      })),
+    });
+    this.logger.log(`Admin notification: "${title}" → ${admins.length}名`);
+  }
+
   /* ==============================================
    * 管理者向け: お知らせ一括送信
    * ============================================== */

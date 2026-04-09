@@ -21,13 +21,17 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../database/database.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { STANDARD_WORK_MINUTES } from '@ses-portal/shared';
 
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * 出勤打刻
@@ -384,6 +388,8 @@ export class AttendanceService {
 
     this.logger.log(`勤怠修正申請を作成: employee=${employeeId}, attendance=${attendanceId}, correction=${correction.id}`);
 
+    this.notifications.notifyAdmins('勤怠修正申請', '勤怠修正申請が提出されました。').catch(() => {});
+
     return { id: correction.id };
   }
 
@@ -438,7 +444,7 @@ export class AttendanceService {
       throw new NotFoundException('未処理の修正申請が見つかりません');
     }
 
-    return this.db.$transaction(async (tx) => {
+    const result = await this.db.$transaction(async (tx) => {
       // 1. 申請ステータス更新
       await tx.attendanceCorrection.update({
         where: { id: correctionId },
@@ -481,6 +487,10 @@ export class AttendanceService {
 
       return { id: correctionId };
     });
+
+    this.notifications.create({ employeeId: correction.employeeId, title: '勤怠修正', body: '勤怠修正申請が承認されました。' }).catch(() => {});
+
+    return result;
   }
 
   /**
@@ -506,6 +516,8 @@ export class AttendanceService {
     });
 
     this.logger.log(`勤怠修正を却下: correction=${correctionId}, approver=${approverId}`);
+
+    this.notifications.create({ employeeId: correction.employeeId, title: '勤怠修正', body: '勤怠修正申請が却下されました。' }).catch(() => {});
 
     return { id: correctionId };
   }
