@@ -53,6 +53,21 @@ export class AttendanceController {
     return this.attendanceService.clockOut(user.employeeId);
   }
 
+  @Post('absent')
+  @ApiOperation({ summary: '欠勤登録（当日）' })
+  async markAbsent(@CurrentUser() user: RequestUser) {
+    return this.attendanceService.markAbsent(user.employeeId);
+  }
+
+  @Post('absent-date')
+  @ApiOperation({ summary: '日付指定の欠勤登録' })
+  async markAbsentForDate(
+    @CurrentUser() user: RequestUser,
+    @Body() body: { date: string; reason?: string },
+  ) {
+    return this.attendanceService.markAbsentForDate(user.employeeId, body.date, body.reason);
+  }
+
   /* --- 修正申請（固定パスを :year/:month より先に配置） --- */
 
   @Get('corrections/my')

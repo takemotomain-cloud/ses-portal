@@ -203,20 +203,18 @@ export default function MyPage() {
       {/* ============================================================ */}
       {alerts && (
         <div className="space-y-2">
-          {/* 打刻漏れ — 修正するまで消えない */}
+          {/* 打刻漏れ */}
           {alerts.missedClocks.map(mc => (
             <div
               key={mc.id}
               onClick={() => router.push('/attendance')}
-              className="bg-status-red-bg border border-status-red-text/20 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:opacity-80"
+              className="bg-card border border-border/40 rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-page transition-colors active:opacity-80"
             >
-              <span className="w-2 h-2 rounded-full bg-status-red-text flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-status-red-text">
-                  {fmtAlertDate(mc.workDate)}の退勤打刻がありません
-                </p>
-                <p className="text-xs text-status-red-text/70">タップして修正申請</p>
-              </div>
+              <span className="text-[11px] font-bold text-white rounded px-2 py-0.5 flex-shrink-0" style={{ background: '#e8380d' }}>未打刻</span>
+              <p className="flex-1 text-[13px] text-primary min-w-0">
+                {fmtAlertDate(mc.workDate)}の退勤打刻がありません
+              </p>
+              <span className="text-xs text-secondary flex-shrink-0">修正申請 ›</span>
             </div>
           ))}
 
@@ -224,13 +222,11 @@ export default function MyPage() {
           {alerts.expenseMissing && (
             <div
               onClick={() => router.push('/mypage/expense')}
-              className="bg-status-amber-bg border border-status-amber-text/20 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:opacity-80"
+              className="bg-card border border-border/40 rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-page transition-colors active:opacity-80"
             >
-              <span className="w-2 h-2 rounded-full bg-status-amber-text flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-status-amber-text">先月分の交通費が未入力です</p>
-                <p className="text-xs text-status-amber-text/70">タップして入力</p>
-              </div>
+              <span className="text-[11px] font-bold text-white rounded px-2 py-0.5 flex-shrink-0" style={{ background: '#e8380d' }}>未入力</span>
+              <p className="flex-1 text-[13px] text-primary min-w-0">先月分の交通費が未入力です</p>
+              <span className="text-xs text-secondary flex-shrink-0">入力する ›</span>
             </div>
           )}
 
@@ -238,15 +234,13 @@ export default function MyPage() {
           {alerts.attendanceGaps.length > 0 && (
             <div
               onClick={() => router.push('/attendance')}
-              className="bg-status-amber-bg border border-status-amber-text/20 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:opacity-80"
+              className="bg-card border border-border/40 rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-page transition-colors active:opacity-80"
             >
-              <span className="w-2 h-2 rounded-full bg-status-amber-text flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-status-amber-text">
-                  先月の勤怠に{alerts.attendanceGaps.length}日分の未入力があります
-                </p>
-                <p className="text-xs text-status-amber-text/70">タップして確認</p>
-              </div>
+              <span className="text-[11px] font-bold text-white rounded px-2 py-0.5 flex-shrink-0" style={{ background: '#e8380d' }}>未入力</span>
+              <p className="flex-1 text-[13px] text-primary min-w-0">
+                先月の勤怠に{alerts.attendanceGaps.length}日分の未入力があります
+              </p>
+              <span className="text-xs text-secondary flex-shrink-0">確認する ›</span>
             </div>
           )}
         </div>
@@ -431,7 +425,7 @@ export default function MyPage() {
             { label: '有給申請', color: 'bg-status-green-bg text-status-green-text', href: '/mypage/leave' },
             { label: '交通費', color: 'bg-status-blue-bg text-status-blue-text', href: '/mypage/expense' },
             { label: '給与明細', color: 'bg-accent text-accent-text', href: '/mypage/salary' },
-            { label: '届出', color: 'bg-status-amber-bg text-status-amber-text', href: '/more/documents' },
+            { label: '届出', color: 'bg-status-amber-bg text-status-amber-text', href: '/more/profile' },
           ].map((action) => (
             <button
               key={action.label}

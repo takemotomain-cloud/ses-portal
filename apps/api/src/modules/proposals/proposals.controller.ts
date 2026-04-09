@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   Body,
   Query,
@@ -45,9 +46,21 @@ export class ProposalsController {
       toEmail: string;
       contactPerson?: string;
       customMessage?: string;
+      projectName?: string;
     },
   ) {
     return this.service.send(body);
+  }
+
+  /** 提案結果を更新（案件確定/不採用） */
+  @Patch(':id/result')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '提案結果更新' })
+  async updateResult(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { result: string },
+  ) {
+    return this.service.updateResult(id, body.result);
   }
 
   /** 既存の提案（draft）に対してメール送信 */

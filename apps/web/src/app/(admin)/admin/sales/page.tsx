@@ -20,7 +20,7 @@ import { useToast } from '@/components/ui/toast';
 interface Proposal {
   client: string;
   project?: string;
-  status: 'proposing' | 'interview' | 'waiting' | 'confirmed';
+  status: 'proposing' | 'interview' | 'waiting' | 'confirmed' | 'rejected';
   interviewDate?: string;
   proposalId?: string;
   emailStatus?: 'draft' | 'sent' | 'failed';
@@ -76,7 +76,8 @@ const statusLabels: Record<string, { label: string; cls: string }> = {
   proposing: { label: '提案中', cls: 'badge-info' },
   interview: { label: '面談予定', cls: 'badge-warn' },
   waiting: { label: '結果待ち', cls: 'badge-wait' },
-  confirmed: { label: '確定', cls: 'badge-ok' },
+  confirmed: { label: '案件確定', cls: 'badge-ok' },
+  rejected: { label: '不採用', cls: 'badge-danger' },
 };
 
 function formatDate(dateStr: string | null): string {
@@ -172,6 +173,8 @@ export default function AdminSalesPage() {
   const [proposalTarget, setProposalTarget] = useState<string | null>(null); // engineerId
   const [proposalClientId, setProposalClientId] = useState('');
   const [proposalProject, setProposalProject] = useState('');
+  const [proposalProjects, setProposalProjects] = useState<{ id: string; name: string }[]>([]);
+  const [proposalProjectId, setProposalProjectId] = useState('');
   // メール送信フロー
   const [proposalStep, setProposalStep] = useState(1); // 1:クライアント選択 2:メール設定 3:確認
   const [proposalToEmail, setProposalToEmail] = useState('');
@@ -188,9 +191,14 @@ export default function AdminSalesPage() {
   const [showEmpSearchDropdown, setShowEmpSearchDropdown] = useState(false);
 
   // メール送信モーダル（既存draft提案用）
-  const [sendMailTarget, setSendMailTarget] = useState<{ engineerId: string; proposalIdx: number; proposalId: string; clientName: string } | null>(null);
-  const [sendMailForm, setSendMailForm] = useState({ toEmail: '', contactPerson: '', customMessage: '' });
+  const [sendMailTarget, setSendMailTarget] = useState<{ engineerId: string; proposalIdx: number; proposalId: string; clientName: string; projectName?: string; clientId?: string } | null>(null);
+  const [sendMailForm, setSendMailForm] = useState({ toEmail: '', contactPerson: '', customMessage: '', extraEmpIds: [] as string[] });
   const [sendMailLoading, setSendMailLoading] = useState(false);
+  const [sendMailPreviewBody, setSendMailPreviewBody] = useState('');
+  const [sendMailPreviewSubject, setSendMailPreviewSubject] = useState('');
+  const [sendMailPreviewLoading, setSendMailPreviewLoading] = useState(false);
+  const [sendMailEmpSearch, setSendMailEmpSearch] = useState('');
+  const [showSendMailEmpDropdown, setShowSendMailEmpDropdown] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -327,7 +335,7 @@ export default function AdminSalesPage() {
         if (statusFilter === 'undecided' && e.salesStatus !== 'undecided') return false;
         if (statusFilter === 'proposing' && e.salesStatus !== 'proposing') return false;
         if (statusFilter === 'confirmed' && e.salesStatus !== 'confirmed') return false;
-        if (['proposing_detail', 'interview', 'waiting', 'confirmed_detail'].includes(statusFilter)) {
+        if (['proposing_detail', 'interview', 'waiting', 'confirmed_detail', 'rejected_detail'].includes(statusFilter)) {
           const mappedStatus = statusFilter.replace('_detail', '');
           const hasMatch = e.proposals.some(p => p.status === mappedStatus);
           if (!hasMatch) return false;
@@ -376,7 +384,17 @@ export default function AdminSalesPage() {
     setProposalPreviewSubject('');
     setShowMailSection(false);
     setShowEmpSearchDropdown(false);
+    setProposalProjects([]);
+    setProposalProjectId('');
   };
+
+  // クライアント変更時にプロジェクト一覧を取得
+  useEffect(() => {
+    if (!proposalClientId) { setProposalProjects([]); setProposalProjectId(''); setProposalProject(''); return; }
+    apiClient<{ id: string; name: string }[]>(`/projects?clientId=${proposalClientId}`)
+      .then(setProposalProjects)
+      .catch(() => setProposalProjects([]));
+  }, [proposalClientId]);
 
   const proposalSelectedClient = useMemo(() => allClients.find(c => c.id === proposalClientId), [allClients, proposalClientId]);
 
@@ -397,6 +415,45 @@ export default function AdminSalesPage() {
         return e.name.split('').some(c => q.includes(c)) || q.split('').some(c => e.name.includes(c)) || e.employeeCode.includes(q) || e.nameKana.includes(q);
       });
   }, [allSkillsheetEmps, proposalTarget, proposalExtraEmpIds, proposalEmpSearch]);
+
+  // --- メール送信モーダル用memo ---
+  const sendMailAllEmpIds = useMemo(() => {
+    if (!sendMailTarget) return [];
+    return Array.from(new Set([sendMailTarget.engineerId, ...sendMailForm.extraEmpIds]));
+  }, [sendMailTarget, sendMailForm.extraEmpIds]);
+
+  const sendMailAddableEmps = useMemo(() => {
+    if (!sendMailTarget) return [];
+    return allSkillsheetEmps
+      .filter(e => e.id !== sendMailTarget.engineerId && !sendMailForm.extraEmpIds.includes(e.id))
+      .filter(e => {
+        if (!sendMailEmpSearch) return false;
+        const q = sendMailEmpSearch;
+        return e.name.split('').some(c => q.includes(c)) || q.split('').some(c => e.name.includes(c)) || e.employeeCode.includes(q) || e.nameKana.includes(q);
+      });
+  }, [allSkillsheetEmps, sendMailTarget, sendMailForm.extraEmpIds, sendMailEmpSearch]);
+
+  const fetchSendMailPreview = async () => {
+    if (!sendMailTarget?.clientId || sendMailAllEmpIds.length === 0) return;
+    setSendMailPreviewLoading(true);
+    try {
+      const res = await apiClient<{ subject: string; bodyText: string }>('/proposals/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: sendMailTarget.clientId,
+          employeeIds: sendMailAllEmpIds,
+          contactPerson: sendMailForm.contactPerson,
+          customMessage: sendMailForm.customMessage,
+        }),
+      });
+      setSendMailPreviewSubject(res.subject);
+      setSendMailPreviewBody(res.bodyText);
+    } catch {
+      setSendMailPreviewBody('プレビューの取得に失敗しました');
+    } finally {
+      setSendMailPreviewLoading(false);
+    }
+  };
 
   // メールプレビュー取得
   const fetchPreview = async () => {
@@ -435,6 +492,7 @@ export default function AdminSalesPage() {
           toEmail: proposalToEmail,
           contactPerson: proposalContactPerson,
           customMessage: proposalCustomMessage,
+          projectName: proposalProject || undefined,
         }),
       });
       const emailSt = res.status === 'sent' ? 'sent' : 'failed';
@@ -508,15 +566,28 @@ export default function AdminSalesPage() {
   };
 
   const handleProposalStatusChange = (engineerId: string, proposalIdx: number, newStatus: string) => {
+    // 先にproposalIdを取得（state更新前に）
+    const eng = engineers.find(e => e.id === engineerId);
+    const proposalId = eng?.proposals[proposalIdx]?.proposalId;
+
+    // DB上の提案結果を更新（confirmed/rejected の場合）
+    if (proposalId) {
+      const resultVal = newStatus === 'confirmed' ? 'confirmed' : newStatus === 'rejected' ? 'rejected' : null;
+      apiClient(`/proposals/${proposalId}/result`, {
+        method: 'PATCH',
+        body: JSON.stringify({ result: resultVal }),
+      }).catch(() => {});
+    }
+
     setEngineers(prev => prev.map(e => {
       if (e.id !== engineerId) return e;
       const newProposals = [...e.proposals];
       newProposals[proposalIdx] = { ...newProposals[proposalIdx], status: newStatus as Proposal['status'] };
 
-      // 確定が1つでもあればconfirmed、提案中があればproposing、それ以外undecided
+      // 確定が1つでもあればconfirmed、不採用以外の提案があればproposing、それ以外undecided
       let salesStatus: Engineer['salesStatus'] = 'undecided';
       if (newProposals.some(p => p.status === 'confirmed')) salesStatus = 'confirmed';
-      else if (newProposals.length > 0) salesStatus = 'proposing';
+      else if (newProposals.some(p => p.status !== 'rejected')) salesStatus = 'proposing';
 
       return { ...e, proposals: newProposals, salesStatus };
     }));
@@ -534,14 +605,25 @@ export default function AdminSalesPage() {
   // 既存draft提案にメール送信
   const openSendMailModal = (engineerId: string, proposalIdx: number, prop: Proposal) => {
     if (!prop.proposalId) return;
-    // クライアント名からcontactEmail/contactPersonを取得
     const client = allClients.find(c => c.name === prop.client);
-    setSendMailTarget({ engineerId, proposalIdx, proposalId: prop.proposalId, clientName: prop.client });
+    setSendMailTarget({
+      engineerId,
+      proposalIdx,
+      proposalId: prop.proposalId,
+      clientName: prop.client,
+      projectName: prop.project,
+      clientId: client?.id,
+    });
     setSendMailForm({
       toEmail: client?.contactEmail || '',
       contactPerson: client?.contactPerson || '',
       customMessage: '',
+      extraEmpIds: [],
     });
+    setSendMailPreviewBody('');
+    setSendMailPreviewSubject('');
+    setSendMailEmpSearch('');
+    setShowSendMailEmpDropdown(false);
   };
 
   const handleSendMailForDraft = async () => {
@@ -605,6 +687,9 @@ export default function AdminSalesPage() {
     if (prop.project) params.set('projectName', prop.project);
     router.push(`/admin/assignments/new?${params.toString()}`);
   };
+
+  const labelCls = 'block text-xs text-secondary mb-1';
+  const inputCls = 'w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card focus:border-primary';
 
   return (
     <div>
@@ -721,7 +806,8 @@ export default function AdminSalesPage() {
                                   <option value="proposing">提案中</option>
                                   <option value="interview">面談予定</option>
                                   <option value="waiting">結果待ち</option>
-                                  <option value="confirmed">確定</option>
+                                  <option value="confirmed">案件確定</option>
+                                  <option value="rejected">不採用</option>
                                 </select>
                                 <span className={`badge ${st.cls}`}>{st.label}</span>
 
@@ -840,8 +926,6 @@ export default function AdminSalesPage() {
       {proposalTarget && (() => {
         const targetEng = engineers.find(e => e.id === proposalTarget);
         const targetName = targetEng?.name || '';
-        const labelCls = 'block text-xs text-secondary mb-1';
-        const inputCls = 'w-full border border-border rounded-md px-3 py-2 text-sm outline-none bg-card focus:border-primary';
 
         return (
           <>
@@ -864,7 +948,43 @@ export default function AdminSalesPage() {
 
                 <div>
                   <label className={labelCls}>案件名（任意）</label>
-                  <input type="text" value={proposalProject} onChange={e => setProposalProject(e.target.value)} placeholder="案件名を入力" className={inputCls} />
+                  {proposalClientId ? (
+                    <>
+                      <select
+                        value={proposalProjectId}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setProposalProjectId(val);
+                          if (val && val !== 'new') {
+                            const proj = proposalProjects.find(p => p.id === val);
+                            setProposalProject(proj?.name || '');
+                          } else if (val === 'new') {
+                            setProposalProject('');
+                          } else {
+                            setProposalProject('');
+                          }
+                        }}
+                        className={`${inputCls} appearance-none`}
+                      >
+                        <option value="">選択してください</option>
+                        {proposalProjects.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                        <option value="new">＋ 新規案件を作成</option>
+                      </select>
+                      {proposalProjectId === 'new' && (
+                        <input
+                          type="text"
+                          value={proposalProject}
+                          onChange={e => setProposalProject(e.target.value)}
+                          placeholder="新しい案件名を入力"
+                          className={`${inputCls} mt-2`}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm text-secondary py-2">先にクライアントを選択してください</div>
+                  )}
                 </div>
 
                 {/* メールあり選択時のみ送信先情報を表示 */}
@@ -1044,52 +1164,154 @@ export default function AdminSalesPage() {
       {sendMailTarget && (
         <>
           <div className="fixed inset-0 bg-black/20 z-[99]" onClick={() => setSendMailTarget(null)} />
-          <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none">
-            <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-md pointer-events-auto">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-base font-medium">メール送信 — {sendMailTarget.clientName}</h3>
-                <button onClick={() => setSendMailTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[520px] bg-card border border-border rounded-xl z-[100] shadow-xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">提案を追加 — {(() => { const eng = engineers.find(e => e.id === sendMailTarget.engineerId); return eng?.name || ''; })()}</h2>
+              <button onClick={() => setSendMailTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* クライアント・案件名（読み取り専用） */}
+              <div>
+                <label className={labelCls}>提案先クライアント</label>
+                <div className="text-sm font-medium py-2 px-3 bg-[#F7F7F5] rounded">{sendMailTarget.clientName}</div>
               </div>
-              <div className="space-y-3">
+              {sendMailTarget.projectName && (
                 <div>
-                  <label className="text-xs text-secondary block mb-1">送信先メールアドレス *</label>
-                  <input
-                    type="email"
-                    value={sendMailForm.toEmail}
-                    onChange={e => setSendMailForm(f => ({ ...f, toEmail: e.target.value }))}
-                    placeholder="client@example.com"
-                    className="w-full border border-border rounded px-3 py-2 text-sm bg-card outline-none focus:border-primary"
-                  />
+                  <label className={labelCls}>案件名</label>
+                  <div className="text-sm font-medium py-2 px-3 bg-[#F7F7F5] rounded">{sendMailTarget.projectName}</div>
+                </div>
+              )}
+
+              <hr className="border-border/30" />
+              <div className="text-sm font-medium text-[#2c3e6b]">提案メール送信</div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls}>送信先メールアドレス</label>
+                  <input type="email" value={sendMailForm.toEmail} onChange={e => setSendMailForm(f => ({ ...f, toEmail: e.target.value }))} placeholder="client@example.com" className={inputCls} />
                 </div>
                 <div>
-                  <label className="text-xs text-secondary block mb-1">担当者名</label>
+                  <label className={labelCls}>担当者名</label>
+                  <input type="text" value={sendMailForm.contactPerson} onChange={e => setSendMailForm(f => ({ ...f, contactPerson: e.target.value }))} placeholder="山田太郎" className={inputCls} />
+                </div>
+              </div>
+
+              {/* 一緒に提案する社員 */}
+              <div>
+                <label className={labelCls}>一緒に提案する社員（複数選択可）</label>
+                {sendMailForm.extraEmpIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {sendMailForm.extraEmpIds.map(id => {
+                      const emp = allSkillsheetEmps.find(e => e.id === id) || engineers.find(e => e.id === id);
+                      const empName = emp ? ('name' in emp ? emp.name : '') : id;
+                      return (
+                        <span key={id} className="bg-primary/10 text-primary rounded px-2 py-0.5 text-xs flex items-center gap-1">
+                          {empName}
+                          <button onClick={() => setSendMailForm(f => ({ ...f, extraEmpIds: f.extraEmpIds.filter(v => v !== id) }))} className="text-primary/60 hover:text-primary">&times;</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <select
+                  className={`${inputCls} appearance-none mb-2`}
+                  value=""
+                  onChange={e => {
+                    if (e.target.value) {
+                      setSendMailForm(f => ({ ...f, extraEmpIds: [...f.extraEmpIds, e.target.value] }));
+                    }
+                  }}
+                >
+                  <option value="">営業一覧から選択...</option>
+                  {engineers
+                    .filter(e => e.id !== sendMailTarget.engineerId && !sendMailForm.extraEmpIds.includes(e.id))
+                    .map(e => <option key={e.id} value={e.id}>{e.name}{e.code ? ` (${e.code})` : ''}</option>)
+                  }
+                </select>
+                <div className="relative">
                   <input
                     type="text"
-                    value={sendMailForm.contactPerson}
-                    onChange={e => setSendMailForm(f => ({ ...f, contactPerson: e.target.value }))}
-                    placeholder="山田太郎"
-                    className="w-full border border-border rounded px-3 py-2 text-sm bg-card outline-none focus:border-primary"
+                    placeholder="その他の社員を検索して追加..."
+                    value={sendMailEmpSearch}
+                    onChange={e => { setSendMailEmpSearch(e.target.value); setShowSendMailEmpDropdown(true); }}
+                    onFocus={() => setShowSendMailEmpDropdown(true)}
+                    className={inputCls}
                   />
-                </div>
-                <div>
-                  <label className="text-xs text-secondary block mb-1">追加メッセージ</label>
-                  <textarea
-                    value={sendMailForm.customMessage}
-                    onChange={e => setSendMailForm(f => ({ ...f, customMessage: e.target.value }))}
-                    placeholder="追加で伝えたい内容があれば入力"
-                    rows={3}
-                    className="w-full border border-border rounded px-3 py-2 text-sm bg-card outline-none focus:border-primary resize-none"
-                  />
+                  {showSendMailEmpDropdown && sendMailEmpSearch && (
+                    <div className="absolute left-0 right-0 border border-border/20 rounded-md mt-1 max-h-[150px] overflow-y-auto bg-card z-10 shadow-lg">
+                      {sendMailAddableEmps.slice(0, 10).map(emp => (
+                        <div
+                          key={emp.id}
+                          className="flex items-center justify-between px-3 py-2 hover:bg-[#F7F7F5] cursor-pointer text-sm"
+                          onClick={() => {
+                            setSendMailForm(f => ({ ...f, extraEmpIds: [...f.extraEmpIds, emp.id] }));
+                            setSendMailEmpSearch('');
+                            setShowSendMailEmpDropdown(false);
+                          }}
+                        >
+                          <span>{emp.name} <span className="text-xs text-secondary">({emp.employeeCode})</span></span>
+                          <span className="text-xs text-primary">追加</span>
+                        </div>
+                      ))}
+                      {sendMailAddableEmps.length === 0 && (
+                        <div className="text-xs text-secondary text-center py-3">該当なし</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="flex justify-end gap-3 mt-5">
-                <button onClick={() => setSendMailTarget(null)} className="btn-outline text-sm py-2 px-4">キャンセル</button>
+
+              {/* 追加メッセージ */}
+              <div>
+                <label className={labelCls}>追加メッセージ（任意）</label>
+                <textarea
+                  className={`${inputCls} resize-y font-[inherit]`}
+                  style={{ height: 50 }}
+                  placeholder="挨拶文と署名の間に追記"
+                  value={sendMailForm.customMessage}
+                  onChange={e => setSendMailForm(f => ({ ...f, customMessage: e.target.value }))}
+                />
+              </div>
+
+              {/* メールプレビュー */}
+              {sendMailForm.toEmail && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-secondary">メールプレビュー</span>
+                    <button
+                      onClick={fetchSendMailPreview}
+                      disabled={sendMailPreviewLoading}
+                      className="text-xs text-primary hover:underline disabled:opacity-50"
+                    >
+                      {sendMailPreviewLoading ? '読み込み中...' : sendMailPreviewBody ? '再読み込み' : 'プレビューを表示'}
+                    </button>
+                  </div>
+                  <div className="bg-[#F7F7F5] rounded-md p-3 text-xs text-secondary space-y-1">
+                    <div className="flex gap-2"><span className="text-secondary/60">To:</span> {sendMailForm.toEmail}</div>
+                    <div className="flex gap-2"><span className="text-secondary/60">From:</span> sales@lervia.co.jp</div>
+                    <div className="flex gap-2"><span className="text-secondary/60">件名:</span> {sendMailPreviewSubject || `【人材ご提案】エンジニア${sendMailAllEmpIds.length}名のご紹介`}</div>
+                    {sendMailPreviewBody && (
+                      <>
+                        <hr className="border-border/30 my-2" />
+                        <pre className="whitespace-pre-wrap font-[inherit] text-xs text-primary/80 leading-relaxed max-h-[300px] overflow-y-auto">
+                          {sendMailPreviewBody}
+                        </pre>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ボタン */}
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => setSendMailTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
                 <button
                   onClick={handleSendMailForDraft}
                   disabled={!sendMailForm.toEmail || sendMailLoading}
-                  className="btn-primary text-sm py-2 px-4 disabled:opacity-50"
+                  className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
                 >
-                  {sendMailLoading ? '送信中...' : 'メール送信'}
+                  {sendMailLoading ? '送信中...' : '提案を追加＆メール送信'}
                 </button>
               </div>
             </div>

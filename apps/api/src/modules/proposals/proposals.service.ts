@@ -129,6 +129,7 @@ export class ProposalsService {
     toEmail: string;
     contactPerson?: string;
     customMessage?: string;
+    projectName?: string;
   }) {
     // クライアント取得
     const client = await this.db.client.findUnique({ where: { id: data.clientId } });
@@ -225,6 +226,7 @@ export class ProposalsService {
         bodyText,
         employeeIds: data.employeeIds,
         status: sendStatus,
+        projectName: data.projectName || null,
       },
     });
 
@@ -316,6 +318,7 @@ export class ProposalsService {
         bodyText: '',
         employeeIds: data.employeeIds,
         status: 'draft',
+        projectName: data.projectName || null,
       },
     });
 
@@ -394,6 +397,8 @@ export class ProposalsService {
         toEmail: r.toEmail,
         subject: r.subject,
         status: r.status,
+        projectName: r.projectName,
+        result: r.result,
         sentAt: r.sentAt,
         employees: ids.map(id => {
           const e = empMap.get(id);
@@ -403,5 +408,19 @@ export class ProposalsService {
         }),
       };
     });
+  }
+
+  /**
+   * 提案結果を更新（案件確定/不採用）
+   */
+  async updateResult(id: string, result: string) {
+    const record = await this.db.proposalEmail.findUnique({ where: { id } });
+    if (!record) throw new NotFoundException('提案が見つかりません');
+
+    const updated = await this.db.proposalEmail.update({
+      where: { id },
+      data: { result },
+    });
+    return { id: updated.id, result: updated.result };
   }
 }

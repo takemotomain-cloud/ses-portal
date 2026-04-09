@@ -60,6 +60,20 @@ interface AttendanceCorrectionItem {
   attendance: { workDate: string };
 }
 
+interface LoaItem {
+  id: string;
+  absenceType: string;
+  startDate: string;
+  expectedReturnDate: string;
+  actualReturnDate: string | null;
+  reason: string | null;
+  fileName: string | null;
+  filePath: string | null;
+  status: string;
+  createdAt: string;
+  employee: { lastName: string; firstName: string; employeeCode: string };
+}
+
 interface DelayCertItem {
   id: string;
   targetDate: string;
@@ -74,7 +88,7 @@ interface DelayCertItem {
 
 interface DoneItem {
   id: string;
-  type: 'leave' | 'expense' | 'change' | 'attendance' | 'delay';
+  type: 'leave' | 'expense' | 'change' | 'attendance' | 'delay' | 'loa';
   name: string;
   detail: string;
   approved: boolean;
@@ -87,6 +101,13 @@ const leaveTypeLabel: Record<string, string> = {
   am_half: '午前半休',
   pm_half: '午後半休',
   special: '特別休暇',
+};
+
+const absenceTypeLabel: Record<string, string> = {
+  injury: '傷病休職',
+  childcare: '育児休業',
+  nursing: '介護休業',
+  other: 'その他',
 };
 
 const changeTypeLabel: Record<string, string> = {
@@ -124,6 +145,7 @@ export default function AdminApprovalsPage() {
   const [changeItems, setChangeItems] = useState<ChangeItem[]>([]);
   const [correctionItems, setCorrectionItems] = useState<AttendanceCorrectionItem[]>([]);
   const [delayCertItems, setDelayCertItems] = useState<DelayCertItem[]>([]);
+  const [loaItems, setLoaItems] = useState<LoaItem[]>([]);
   const [done, setDone] = useState<DoneItem[]>([]);
   const [activeTab, setActiveTab] = useState<0 | 1>(0);
   const [loading, setLoading] = useState(true);
@@ -132,18 +154,20 @@ export default function AdminApprovalsPage() {
   /* データ取得 */
   const fetchData = useCallback(async () => {
     try {
-      const [leaves, expenses, changes, corrections, delayCerts] = await Promise.all([
+      const [leaves, expenses, changes, corrections, delayCerts, loas] = await Promise.all([
         apiClient<LeaveItem[]>('/leave/pending'),
         apiClient<ExpenseItem[]>('/expense/pending'),
         apiClient<ChangeItem[]>('/profile/change-requests/pending'),
         apiClient<AttendanceCorrectionItem[]>('/attendance/corrections/pending'),
         apiClient<DelayCertItem[]>('/delay-certificates/pending'),
+        apiClient<LoaItem[]>('/leave-of-absence/pending'),
       ]);
       setLeaveItems(leaves);
       setExpenseItems(expenses);
       setChangeItems(changes);
       setCorrectionItems(corrections);
       setDelayCertItems(delayCerts);
+      setLoaItems(loas);
     } catch (e: any) {
       console.error('Failed to fetch approvals:', e);
     } finally {
@@ -300,6 +324,57 @@ export default function AdminApprovalsPage() {
     }
   }
 
+  /* 休職届 承認/却下 */
+  async function handleLoa(item: LoaItem, approved: boolean) {
+    setProcessing(item.id);
+    try {
+      if (item.status === 'return_pending') {
+        await apiClient(`/leave-of-absence/${item.id}/return-approve`, { method: 'POST' });
+        setLoaItems(prev => prev.filter(i => i.id !== item.id));
+        setDone(prev => [{
+          id: item.id,
+          type: 'loa',
+          name: `${item.employee.lastName} ${item.employee.firstName}`,
+          detail: `復職承認（${absenceTypeLabel[item.absenceType] || item.absenceType}）`,
+          approved: true,
+          processedDate: fmtDate(new Date().toISOString()),
+        }, ...prev]);
+        toast('復職を承認しました');
+      } else if (approved) {
+        await apiClient(`/leave-of-absence/${item.id}/approve`, { method: 'POST' });
+        setLoaItems(prev => prev.filter(i => i.id !== item.id));
+        setDone(prev => [{
+          id: item.id,
+          type: 'loa',
+          name: `${item.employee.lastName} ${item.employee.firstName}`,
+          detail: `休職承認（${absenceTypeLabel[item.absenceType] || item.absenceType}・${fmtDate(item.startDate)}〜${fmtDate(item.expectedReturnDate)}）`,
+          approved: true,
+          processedDate: fmtDate(new Date().toISOString()),
+        }, ...prev]);
+        toast('休職届を承認しました');
+      } else {
+        await apiClient(`/leave-of-absence/${item.id}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ reason: '管理者判断により却下' }),
+        });
+        setLoaItems(prev => prev.filter(i => i.id !== item.id));
+        setDone(prev => [{
+          id: item.id,
+          type: 'loa',
+          name: `${item.employee.lastName} ${item.employee.firstName}`,
+          detail: `休職却下（${absenceTypeLabel[item.absenceType] || item.absenceType}）`,
+          approved: false,
+          processedDate: fmtDate(new Date().toISOString()),
+        }, ...prev]);
+        toast('却下しました');
+      }
+    } catch (e: any) {
+      toast(e.message || 'エラーが発生しました');
+    } finally {
+      setProcessing(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -313,7 +388,7 @@ export default function AdminApprovalsPage() {
       <h1 className="text-2xl font-medium mb-5">承認待ち</h1>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-4">
         <div className="card p-4">
           <div className="text-xs text-secondary">有給申請</div>
           <div className="text-3xl font-medium">{leaveItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
@@ -333,6 +408,10 @@ export default function AdminApprovalsPage() {
         <div className="card p-4">
           <div className="text-xs text-secondary">遅延証明書</div>
           <div className="text-3xl font-medium">{delayCertItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs text-secondary">休職届</div>
+          <div className="text-3xl font-medium">{loaItems.length}<span className="text-base font-normal text-secondary ml-1">件</span></div>
         </div>
       </div>
 
@@ -532,6 +611,67 @@ export default function AdminApprovalsPage() {
                     <div className="text-sm text-secondary flex-shrink-0 mr-2">{fmtDate(item.createdAt)}</div>
                     <div className="flex gap-1.5 flex-shrink-0">
                       <button onClick={() => handleDelayCert(item)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-green-bg text-status-green-text hover:bg-[#C8EDDA] transition-colors disabled:opacity-50">確認</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* 休職届 */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-md font-medium">休職届</h3>
+              <span className="text-sm text-secondary">{loaItems.length}件</span>
+            </div>
+            <div className="card p-0">
+              {loaItems.length === 0 ? (
+                <div className="px-5 py-4 text-base text-secondary">未処理の休職届はありません</div>
+              ) : (
+                loaItems.map((item, idx) => (
+                  <div key={item.id} className={`flex items-center gap-3 px-5 py-3.5 flex-wrap ${idx < loaItems.length - 1 ? 'border-b border-border/20' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-base font-medium">{item.employee.lastName} {item.employee.firstName}</div>
+                      <div className="text-sm text-secondary">
+                        {item.status === 'return_pending' ? (
+                          <>復職届 — 復職日: {item.actualReturnDate ? fmtDate(item.actualReturnDate) : '未定'}</>
+                        ) : (
+                          <>{absenceTypeLabel[item.absenceType] || item.absenceType}・{fmtDate(item.startDate)}〜{fmtDate(item.expectedReturnDate)}</>
+                        )}
+                      </div>
+                      {item.reason && <div className="text-xs text-secondary mt-0.5">理由: {item.reason}</div>}
+                      {item.fileName && item.filePath && (
+                        <div className="mt-1">
+                          <a
+                            href={item.filePath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                          >
+                            📎 {item.fileName}（クリックで表示）
+                          </a>
+                          {item.fileName && /\.(jpg|jpeg|png|gif|webp)$/i.test(item.fileName) && (
+                            <a href={item.filePath} target="_blank" rel="noopener noreferrer">
+                              <img
+                                src={item.filePath}
+                                alt="添付ファイル"
+                                className="mt-1.5 max-w-[200px] max-h-[120px] rounded border border-border object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                              />
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-sm text-secondary flex-shrink-0 mr-2">{fmtDate(item.createdAt)}</div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      {item.status === 'return_pending' ? (
+                        <button onClick={() => handleLoa(item, true)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-green-bg text-status-green-text hover:bg-[#C8EDDA] transition-colors disabled:opacity-50">復職承認</button>
+                      ) : (
+                        <>
+                          <button onClick={() => handleLoa(item, true)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-green-bg text-status-green-text hover:bg-[#C8EDDA] transition-colors disabled:opacity-50">承認</button>
+                          <button onClick={() => handleLoa(item, false)} disabled={processing === item.id} className="px-3.5 py-1.5 rounded-md text-sm bg-status-red-bg text-status-red-text hover:bg-[#FAD4D4] transition-colors disabled:opacity-50">却下</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))

@@ -114,7 +114,7 @@ export default function ApplicationsPage() {
     {
       label: '各種届出',
       desc: '住所変更・口座変更など',
-      href: '/more/documents',
+      href: '/more/profile',
     },
   ];
 

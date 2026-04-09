@@ -7,6 +7,7 @@
 
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 
@@ -21,41 +22,45 @@ interface MenuSection {
   items: MenuItem[];
 }
 
-const menuSections: MenuSection[] = [
-  {
-    title: '給与・稼働',
-    items: [
-      { label: '給与明細', href: '/mypage/salary', desc: '月次の給与明細を確認' },
-      { label: '稼働情報', href: '/more/assignment', desc: '現在の稼働先・単価・還元率' },
-      { label: '源泉徴収票', href: '/more/withholding', desc: '年度別の源泉徴収票' },
-      { label: '賞与明細', href: '/mypage/bonus', desc: '賞与の支給・控除明細' },
-      { label: '就業規則', href: '/more/rules', desc: '就業規則の閲覧' },
-    ],
-  },
-  {
-    title: '届出・証明書',
-    items: [
-      { label: '証明書発行', href: '/more/documents', desc: '在籍証明書・収入証明書' },
-      { label: '休職届', href: '/more/leave-of-absence', desc: '休職届の提出' },
-    ],
-  },
-  {
-    title: '年次手続き',
-    items: [
-      { label: '年末調整', href: '/more/yearend', desc: '年末調整の入力・提出' },
-    ],
-  },
-  {
-    title: 'アカウント',
-    items: [
-      { label: '個人情報', href: '/more/profile', desc: '基本情報・連絡先・口座の確認・変更' },
-      { label: 'パスワード変更', href: '/more/password' },
-    ],
-  },
-];
+function buildMenuSections(hasBonus: boolean): MenuSection[] {
+  const salaryItems: MenuItem[] = [
+    { label: '給与明細', href: '/mypage/salary', desc: '月次の給与明細を確認' },
+    { label: '稼働情報', href: '/more/assignment', desc: '現在の稼働先・単価・還元率' },
+    { label: '源泉徴収票', href: '/more/withholding', desc: '年度別の源泉徴収票' },
+  ];
+  if (hasBonus) {
+    salaryItems.push({ label: '賞与明細', href: '/mypage/bonus', desc: '賞与の支給・控除明細' });
+  }
+  salaryItems.push({ label: '就業規則', href: '/more/rules', desc: '就業規則の閲覧' });
+
+  return [
+    { title: '給与・稼働', items: salaryItems },
+    {
+      title: '届出',
+      items: [
+        { label: '休職届', href: '/more/leave-of-absence', desc: '休職届の提出' },
+      ],
+    },
+    {
+      title: '年次手続き',
+      items: [
+        { label: '年末調整', href: '/more/yearend', desc: '年末調整の入力・提出' },
+      ],
+    },
+    {
+      title: 'アカウント',
+      items: [
+        { label: '個人情報', href: '/more/profile', desc: '基本情報・連絡先・口座の確認・変更' },
+        { label: 'パスワード変更', href: '/more/password' },
+      ],
+    },
+  ];
+}
 
 export default function MorePage() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+  const hasBonus = (user as any)?.hasBonus ?? false;
+  const menuSections = useMemo(() => buildMenuSections(hasBonus), [hasBonus]);
 
   return (
     <div className="space-y-5">

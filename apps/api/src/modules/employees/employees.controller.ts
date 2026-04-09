@@ -153,6 +153,7 @@ export class EmployeesController {
       bankAccountNumber?: string;
       station?: string;
       qualifications?: any;
+      hasBonus?: boolean;
     },
   ) {
     return this.employeesService.update(id, body);

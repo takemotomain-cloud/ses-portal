@@ -320,6 +320,15 @@ export default function EmployeeDetailPage() {
               ? `${d.bankName} ${d.bankBranch || ''} ${accountTypeLabel[d.bankAccountType || ''] || ''} ${d.bankAccountNumber || ''}`
               : null
           } />
+          <InfoRow label="賞与支給" value={
+            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+              d.hasBonus
+                ? 'bg-status-green-bg text-status-green-text'
+                : 'bg-muted text-secondary'
+            }`}>
+              {d.hasBonus ? 'あり' : 'なし'}
+            </span>
+          } />
           <InfoRow label="書類フォルダ" value="--" />
         </SectionCard>
       </div>

@@ -120,6 +120,9 @@ model Employee {
   confirmedDelayCerts     DelayCertificate[] @relation("DelayCertConfirmer")
   skillsheet              Skillsheet?
   monthlyShifts           MonthlyShift[]
+  leaveOfAbsences         LeaveOfAbsence[]
+  approvedLoaRequests     LeaveOfAbsence[] @relation("LoaApprover")
+  approvedLoaReturns      LeaveOfAbsence[] @relation("LoaReturnApprover")
 
   @@map("employees")
 }
@@ -828,6 +831,36 @@ model DelayCertificate {
 }
 
 // ----------------------------------------
+// 休職届
+// ----------------------------------------
+model LeaveOfAbsence {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId         String    @map("employee_id") @db.Uuid
+  absenceType        String    @map("absence_type") @db.VarChar(20)
+  startDate          DateTime  @map("start_date") @db.Date
+  expectedReturnDate DateTime  @map("expected_return_date") @db.Date
+  actualReturnDate   DateTime? @map("actual_return_date") @db.Date
+  reason             String?
+  filePath           String?   @map("file_path") @db.VarChar(500)
+  fileName           String?   @map("file_name") @db.VarChar(300)
+  status             String    @default("pending") @db.VarChar(20)
+  approvedBy         String?   @map("approved_by") @db.Uuid
+  approvedAt         DateTime? @map("approved_at") @db.Timestamptz
+  rejectReason       String?   @map("reject_reason")
+  returnSubmittedAt  DateTime? @map("return_submitted_at") @db.Timestamptz
+  returnApprovedBy   String?   @map("return_approved_by") @db.Uuid
+  returnApprovedAt   DateTime? @map("return_approved_at") @db.Timestamptz
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee       Employee  @relation(fields: [employeeId], references: [id])
+  approver       Employee? @relation("LoaApprover", fields: [approvedBy], references: [id])
+  returnApprover Employee? @relation("LoaReturnApprover", fields: [returnApprovedBy], references: [id])
+
+  @@map("leave_of_absence")
+}
+
+// ----------------------------------------
 // 提案メール
 // ----------------------------------------
 model ProposalEmail {
@@ -838,6 +871,8 @@ model ProposalEmail {
   bodyText    String    @map("body_text")
   employeeIds Json      @map("employee_ids") @default("[]")
   status      String    @default("sent") @db.VarChar(20)
+  projectName String?   @map("project_name") @db.VarChar(200)
+  result      String?   @map("result") @db.VarChar(20) /// confirmed | rejected | null(未確定)
   sentAt      DateTime  @default(now()) @map("sent_at") @db.Timestamptz
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 

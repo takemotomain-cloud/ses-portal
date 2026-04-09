@@ -436,6 +436,7 @@ export class EmployeesService {
     bankAccountNumber?: string;
     station?: string;
     qualifications?: any;
+    hasBonus?: boolean;
   }) {
     // 存在確認
     const existing = await this.db.employee.findFirst({
@@ -480,6 +481,7 @@ export class EmployeesService {
     if (data.bankAccountNumber !== undefined) updateData.bankAccountNumber = data.bankAccountNumber;
     if (data.station !== undefined) updateData.station = data.station;
     if (data.qualifications !== undefined) updateData.qualifications = data.qualifications;
+    if (data.hasBonus !== undefined) updateData.hasBonus = data.hasBonus;
 
     const updated = await this.db.employee.update({
       where: { id },

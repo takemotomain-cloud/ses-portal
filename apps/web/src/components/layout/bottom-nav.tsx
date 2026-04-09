@@ -33,7 +33,7 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: '勤怠',
+    label: '勤怠表',
     href: '/attendance',
     matchPrefix: '/attendance',
     icon: (

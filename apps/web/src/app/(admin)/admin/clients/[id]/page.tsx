@@ -48,6 +48,8 @@ interface ProposalHistory {
   toEmail: string;
   subject: string;
   status: string;
+  projectName: string | null;
+  result: string | null;
   sentAt: string;
   employees: { id: string; name: string; initial: string }[];
 }
@@ -144,9 +146,6 @@ export default function ClientDetailPage() {
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
 
   // 提案メール送信モーダル
-  const [sendMailTarget, setSendMailTarget] = useState<ProposalHistory | null>(null);
-  const [sendMailForm, setSendMailForm] = useState({ toEmail: '', contactPerson: '', customMessage: '' });
-  const [sendingMail, setSendingMail] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -652,40 +651,33 @@ export default function ClientDetailPage() {
                   <div className="text-sm text-secondary py-4 text-center">提案履歴はありません</div>
                 ) : (
                   <div className="space-y-0">
-                    {proposals.map(p => (
-                      <div key={p.id} className="py-3 border-b border-border/20">
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-medium">{p.subject}</div>
-                          <div className="flex items-center gap-2">
-                            {p.status === 'draft' && (
-                              <button
-                                onClick={() => {
-                                  setSendMailTarget(p);
-                                  setSendMailForm({ toEmail: client?.contactEmail || '', contactPerson: client?.contactPerson || '', customMessage: '' });
-                                }}
-                                className="text-xs text-primary hover:underline"
-                              >メール送信</button>
-                            )}
-                            <span className={`badge ${p.status === 'sent' ? 'badge-ok' : p.status === 'draft' ? 'badge-neutral' : 'badge-warn'}`}>
-                              {p.status === 'sent' ? '送信済' : p.status === 'draft' ? 'メール未送信' : p.status}
+                    {proposals.map(p => {
+                      const d = new Date(p.sentAt);
+                      const dateLabel = `${d.getFullYear()}年${d.getMonth() + 1}月`;
+                      return (
+                        <div key={p.id} className="py-3 border-b border-border/20">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-secondary mr-2">{dateLabel}</span>
+                              <span className="text-sm font-medium">{p.projectName || '案件名なし'}</span>
+                            </div>
+                            <span className={`badge ${p.result === 'confirmed' ? 'badge-ok' : p.result === 'rejected' ? 'badge-danger' : 'badge-neutral'}`}>
+                              {p.result === 'confirmed' ? '案件確定' : p.result === 'rejected' ? '不採用' : '未確定'}
                             </span>
                           </div>
+                          {/* 提案した社員 */}
+                          {p.employees.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {p.employees.map(e => (
+                                <span key={e.id} className="bg-primary/8 text-primary rounded px-2 py-0.5 text-xs">
+                                  {e.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-4 mt-1 text-xs text-secondary">
-                          {p.toEmail && <span>To: {p.toEmail}</span>}
-                          <span>{fmtDateTime(p.sentAt)}</span>
-                        </div>
-                        {p.employees.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mt-1.5">
-                            {p.employees.map(e => (
-                              <span key={e.id} className="bg-primary/8 text-primary rounded px-2 py-0.5 text-xs">
-                                {e.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )
               )}
@@ -779,64 +771,6 @@ export default function ClientDetailPage() {
         </>
       )}
 
-      {/* 提案メール送信モーダル */}
-      {sendMailTarget && (
-        <>
-          <div className="fixed inset-0 bg-black/20 z-[200]" onClick={() => setSendMailTarget(null)} />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[480px] bg-card border border-border rounded-xl z-[201] shadow-xl">
-            <div className="flex justify-between items-center p-5 border-b border-border/30">
-              <h2 className="text-lg font-medium">提案メール送信</h2>
-              <button onClick={() => setSendMailTarget(null)} className="text-secondary hover:text-primary text-xl">✕</button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="text-sm text-secondary">
-                対象社員: {sendMailTarget.employees.map(e => e.name).join('、')}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-secondary mb-1">送信先メールアドレス <span className="text-red-600">*</span></label>
-                  <input type="email" value={sendMailForm.toEmail} onChange={e => setSendMailForm(f => ({ ...f, toEmail: e.target.value }))} placeholder="client@example.com" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary" />
-                </div>
-                <div>
-                  <label className="block text-xs text-secondary mb-1">担当者名</label>
-                  <input type="text" value={sendMailForm.contactPerson} onChange={e => setSendMailForm(f => ({ ...f, contactPerson: e.target.value }))} placeholder="山田太郎" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-secondary mb-1">追加メッセージ（任意）</label>
-                <textarea value={sendMailForm.customMessage} onChange={e => setSendMailForm(f => ({ ...f, customMessage: e.target.value }))} rows={3} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none resize-y focus:border-primary" placeholder="挨拶文と署名の間に追記" />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button onClick={() => setSendMailTarget(null)} className="btn-outline flex-1 text-sm py-2">キャンセル</button>
-                <button
-                  onClick={async () => {
-                    if (!sendMailForm.toEmail) { toast('メールアドレスを入力してください'); return; }
-                    setSendingMail(true);
-                    try {
-                      const res = await apiClient<{ status: string }>(`/proposals/${sendMailTarget.id}/send`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                          toEmail: sendMailForm.toEmail,
-                          contactPerson: sendMailForm.contactPerson || undefined,
-                          customMessage: sendMailForm.customMessage || undefined,
-                        }),
-                      });
-                      toast(res.status === 'sent' ? 'メールを送信しました' : '送信に失敗しましたが履歴は更新されました');
-                      setSendMailTarget(null);
-                      fetchData();
-                    } catch { toast('送信に失敗しました'); }
-                    finally { setSendingMail(false); }
-                  }}
-                  disabled={sendingMail || !sendMailForm.toEmail}
-                  className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
-                >
-                  {sendingMail ? '送信中...' : 'メール送信'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
 
       <ToastUI />
     </div>

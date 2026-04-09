@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: employee.email,
           role: '' as any,
           department: employee.department?.name || '',
+          hasBonus: employee.hasBonus ?? false,
         } as any);
       })
       .catch(() => {

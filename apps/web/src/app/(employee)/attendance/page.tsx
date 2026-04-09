@@ -28,6 +28,21 @@ interface AttendanceRecord extends AttendanceRecordRaw {
   date: string;
 }
 
+interface ApprovedLeave {
+  startDate: string;
+  endDate: string;
+  days: number;
+  leaveType: string;
+}
+
+interface CalendarDay {
+  day: number;
+  dateStr: string;
+  dow: number;
+  record?: AttendanceRecord;
+  isLeave: boolean;
+}
+
 interface CorrectionItem {
   id: string;
   attendanceId: string;
@@ -86,6 +101,7 @@ export default function AttendancePage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [approvedLeaves, setApprovedLeaves] = useState<ApprovedLeave[]>([]);
   const [corrections, setCorrections] = useState<CorrectionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<0 | 1 | 2>(0);
@@ -161,17 +177,24 @@ export default function AttendancePage() {
 
   /* ---- 修正モーダル ---- */
   const [editTarget, setEditTarget] = useState<AttendanceRecord | null>(null);
+  /** レコードがない日を開く場合に使う日付文字列 */
+  const [editDateStr, setEditDateStr] = useState<string | null>(null);
   const [editClockIn, setEditClockIn] = useState('');
   const [editClockOut, setEditClockOut] = useState('');
   const [editBreak, setEditBreak] = useState('');
   const [editReason, setEditReason] = useState('');
+  const [editAbsentMode, setEditAbsentMode] = useState(false);
+  const [absentReason, setAbsentReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    apiClient<AttendanceRecordRaw[]>(`/attendance/${year}/${month}`)
-      .then(rows => setRecords(rows.map(r => ({ ...r, date: r.workDate || r.date || '' }))))
-      .catch(() => setRecords([]))
+    apiClient<{ records: AttendanceRecordRaw[]; approvedLeaves: ApprovedLeave[] }>(`/attendance/${year}/${month}`)
+      .then(data => {
+        setRecords(data.records.map(r => ({ ...r, date: r.workDate || r.date || '' })));
+        setApprovedLeaves(data.approvedLeaves || []);
+      })
+      .catch(() => { setRecords([]); setApprovedLeaves([]); })
       .finally(() => setLoading(false));
   }, [year, month]);
 
@@ -200,20 +223,63 @@ export default function AttendancePage() {
     setYear(y);
   }
 
+  /** 有給日付のSet */
+  const leaveDateSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const lv of approvedLeaves) {
+      const start = new Date(lv.startDate);
+      const end = new Date(lv.endDate);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        s.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      }
+    }
+    return s;
+  }, [approvedLeaves]);
+
+  /** フルカレンダー（1日〜月末日） */
+  const fullCalendar = useMemo<CalendarDay[]>(() => {
+    const recordMap = new Map<string, AttendanceRecord>();
+    for (const r of records) {
+      const d = new Date(r.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      recordMap.set(key, r);
+    }
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    return Array.from({ length: daysInMonth }, (_, i) => {
+      const day = i + 1;
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return {
+        day,
+        dateStr,
+        dow: new Date(year, month - 1, day).getDay(),
+        record: recordMap.get(dateStr),
+        isLeave: leaveDateSet.has(dateStr),
+      };
+    });
+  }, [records, year, month, leaveDateSet]);
+
   const summary = useMemo(() => {
     const worked = records.filter(d => d.status === 'normal' || d.clockOut);
     const totalWork = worked.reduce((s, d) => s + (d.workMinutes || 0), 0);
     const totalOT = worked.reduce((s, d) => s + (d.overtimeMinutes || 0), 0);
     const missed = records.filter(d => d.clockIn && !d.clockOut && d.status !== 'working').length;
+    const absent = records.filter(d => d.status === 'absent').length;
+    // 当月の有給日数を算出
+    const ymPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    let paidLeave = 0;
+    for (const ds of leaveDateSet) {
+      if (ds.startsWith(ymPrefix)) paidLeave++;
+    }
     return {
       workDays: worked.length,
       totalWork: formatMinutes(totalWork),
       totalOT: formatMinutes(totalOT),
-      absent: 0,
+      absent,
       missed,
-      paidLeave: 0,
+      paidLeave,
     };
-  }, [records]);
+  }, [records, year, month, leaveDateSet]);
 
   /** 修正申請中の勤怠IDセット */
   const pendingCorrectionIds = useMemo(() => {
@@ -222,10 +288,48 @@ export default function AttendancePage() {
 
   function openEdit(row: AttendanceRecord) {
     setEditTarget(row);
+    setEditDateStr(null);
     setEditClockIn(toTimeValue(row.clockIn));
     setEditClockOut(toTimeValue(row.clockOut));
     setEditBreak(String(row.breakMinutes));
     setEditReason('');
+    setEditAbsentMode(false);
+    setAbsentReason('');
+  }
+
+  function openEditForDate(dateStr: string) {
+    setEditTarget(null);
+    setEditDateStr(dateStr);
+    setEditClockIn('');
+    setEditClockOut('');
+    setEditBreak('0');
+    setEditReason('');
+    setEditAbsentMode(true);
+    setAbsentReason('');
+  }
+
+  async function submitAbsent() {
+    const dateStr = editTarget ? editTarget.date.split('T')[0] : editDateStr;
+    if (!dateStr) return;
+
+    setSubmitting(true);
+    try {
+      await apiClient('/attendance/absent-date', {
+        method: 'POST',
+        body: JSON.stringify({ date: dateStr, reason: absentReason.trim() || undefined }),
+      });
+      toast('欠勤登録しました');
+      setEditTarget(null);
+      setEditDateStr(null);
+      // データ再取得
+      const data = await apiClient<{ records: AttendanceRecordRaw[]; approvedLeaves: ApprovedLeave[] }>(`/attendance/${year}/${month}`);
+      setRecords(data.records.map(r => ({ ...r, date: r.workDate || r.date || '' })));
+      setApprovedLeaves(data.approvedLeaves || []);
+    } catch (e: any) {
+      toast(e.message || '欠勤登録に失敗しました');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function submitCorrection() {
@@ -346,17 +450,15 @@ export default function AttendancePage() {
             ))}
           </div>
 
-          {/* 勤怠テーブル */}
-          <div className="card p-0 overflow-x-auto">
+          {/* 勤怠テーブル（フルカレンダー） */}
+          <div className="card p-0">
             {loading ? (
               <div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div>
-            ) : records.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-secondary">勤怠データはありません</div>
             ) : (
-              <table className="w-full min-w-[620px]">
+              <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    {['日付', '出勤', '退勤', '休憩', '稼働', '残業', ''].map(h => (
+                    {['日付', '出勤', '退勤', '休憩', '稼働', '残業'].map(h => (
                       <th key={h} className="text-left text-xs text-secondary font-normal px-3 py-2 bg-page/50 first:pl-4">
                         {h}
                       </th>
@@ -364,51 +466,90 @@ export default function AttendancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map((row) => {
-                    const d = new Date(row.date);
-                    const isMissed = row.clockIn && !row.clockOut && row.status !== 'working';
-                    const isWorking = row.status === 'working';
-                    const hasPending = pendingCorrectionIds.has(row.id);
+                  {fullCalendar.map((cd) => {
+                    const row = cd.record;
+                    const isWeekend = cd.dow === 0 || cd.dow === 6;
+                    const isAbsent = row?.status === 'absent';
+                    const isMissed = row ? (row.clockIn && !row.clockOut && row.status !== 'working') : false;
+                    const isWorking = row?.status === 'working';
+                    const hasPending = row ? pendingCorrectionIds.has(row.id) : false;
+                    const isConfirmed = row?.status === 'confirmed';
+
+                    // 行クリック可能かどうか
+                    const canClick = !isWeekend && !isConfirmed && !hasPending && !cd.isLeave;
+
+                    let rowBg = '';
+                    if (isWeekend) rowBg = 'bg-page/40';
+                    else if (isMissed) rowBg = 'bg-status-red-bg/30';
+                    else if (isWorking) rowBg = 'bg-status-blue-bg/30';
+
+                    function handleRowClick() {
+                      if (!canClick) return;
+                      if (row && !isAbsent) {
+                        openEdit(row);
+                      } else if (!row) {
+                        openEditForDate(cd.dateStr);
+                      }
+                    }
+
                     return (
                       <tr
-                        key={row.id}
-                        className={`border-b border-border-light last:border-b-0 text-md
-                          ${isMissed ? 'bg-status-red-bg/30' : ''}
-                          ${isWorking ? 'bg-status-blue-bg/30' : ''}`}
+                        key={cd.dateStr}
+                        onClick={handleRowClick}
+                        className={`border-b border-border-light last:border-b-0 text-md ${rowBg}
+                          ${canClick && (row && !isAbsent || !row) ? 'cursor-pointer hover:bg-accent/50 active:bg-accent transition-colors' : ''}`}
                       >
-                        <td className="px-3 py-2.5 pl-4 font-medium">
-                          {d.getMonth() + 1}月{d.getDate()}日
-                          <span className="text-secondary ml-1">({DOW[d.getDay()]})</span>
+                        <td className="px-3 py-2.5 pl-4 font-medium whitespace-nowrap">
+                          {cd.day}日
+                          <span className={`ml-1 ${isWeekend ? 'text-status-red-text' : 'text-secondary'}`}>
+                            ({DOW[cd.dow]})
+                          </span>
                         </td>
-                        <td className="px-3 py-2.5 tabular-nums">{formatTime(row.clockIn)}</td>
-                        <td className="px-3 py-2.5 tabular-nums">
-                          {!row.clockOut ? (
-                            <span className="text-status-red-text">--:--</span>
-                          ) : formatTime(row.clockOut)}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <span className="text-secondary">{row.breakMinutes}分</span>
-                        </td>
-                        <td className="px-3 py-2.5 tabular-nums">{formatMinutes(row.workMinutes)}</td>
-                        <td className="px-3 py-2.5 tabular-nums">
-                          {row.overtimeMinutes && row.overtimeMinutes > 0 ? (
-                            <span className="text-status-amber-text">{formatMinutes(row.overtimeMinutes)}</span>
-                          ) : formatMinutes(row.overtimeMinutes)}
-                        </td>
-                        <td className="px-3 py-2 text-right pr-4">
-                          {row.status === 'confirmed' ? (
-                            <span className="text-2xs text-secondary">確定済</span>
-                          ) : hasPending ? (
-                            <span className="text-2xs px-2 py-0.5 rounded bg-status-amber-bg text-status-amber-text">申請中</span>
-                          ) : (
-                            <button
-                              onClick={() => openEdit(row)}
-                              className="text-2xs text-primary hover:underline"
-                            >
-                              修正
-                            </button>
-                          )}
-                        </td>
+
+                        {/* 有給休暇の日 */}
+                        {cd.isLeave && !row ? (
+                          <td colSpan={5} className="px-3 py-2.5">
+                            <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-green-bg text-status-green-text">
+                              有給休暇
+                            </span>
+                          </td>
+                        ) : isAbsent ? (
+                          <td colSpan={5} className="px-3 py-2.5">
+                            <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-red-bg text-status-red-text">
+                              欠勤
+                            </span>
+                          </td>
+                        ) : row ? (
+                          <>
+                            <td className="px-3 py-2.5 tabular-nums">
+                              {cd.isLeave ? (
+                                <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-green-bg text-status-green-text">有給休暇</span>
+                              ) : formatTime(row.clockIn)}
+                            </td>
+                            <td className="px-3 py-2.5 tabular-nums">
+                              {!row.clockOut ? (
+                                <span className="text-status-red-text">--:--</span>
+                              ) : formatTime(row.clockOut)}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className="text-secondary">{row.breakMinutes}分</span>
+                            </td>
+                            <td className="px-3 py-2.5 tabular-nums">{formatMinutes(row.workMinutes)}</td>
+                            <td className="px-3 py-2.5 tabular-nums">
+                              {row.overtimeMinutes && row.overtimeMinutes > 0 ? (
+                                <span className="text-status-amber-text">{formatMinutes(row.overtimeMinutes)}</span>
+                              ) : formatMinutes(row.overtimeMinutes)}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-3 py-2.5 text-secondary">--:--</td>
+                            <td className="px-3 py-2.5 text-secondary">--:--</td>
+                            <td className="px-3 py-2.5 text-secondary">--</td>
+                            <td className="px-3 py-2.5 text-secondary">--</td>
+                            <td className="px-3 py-2.5 text-secondary">--</td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
@@ -573,75 +714,124 @@ export default function AttendancePage() {
       )}
 
       {/* 修正申請モーダル */}
-      {editTarget && (
+      {(editTarget || editDateStr) && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="px-5 py-4 border-b border-border/30">
-              <h2 className="text-lg font-medium">勤怠修正申請</h2>
+              <h2 className="text-lg font-medium">
+                {editAbsentMode ? '欠勤登録' : '勤怠修正申請'}
+              </h2>
               <p className="text-sm text-secondary mt-0.5">
                 {(() => {
-                  const d = new Date(editTarget.date);
-                  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${DOW[d.getDay()]})`;
+                  const ds = editTarget ? editTarget.date.split('T')[0] : editDateStr!;
+                  const [y, m, d] = ds.split('-').map(Number);
+                  const dt = new Date(y, m - 1, d);
+                  return `${y}年${m}月${d}日(${DOW[dt.getDay()]})`;
                 })()}
               </p>
             </div>
             <div className="px-5 py-4 space-y-4">
-              <div>
-                <label className="block text-sm text-secondary mb-1">出勤時間</label>
-                <input
-                  type="time"
-                  value={editClockIn}
-                  onChange={e => setEditClockIn(e.target.value)}
-                  className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-secondary mb-1">退勤時間</label>
-                <input
-                  type="time"
-                  value={editClockOut}
-                  onChange={e => setEditClockOut(e.target.value)}
-                  className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-secondary mb-1">休憩時間（分）</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={480}
-                  value={editBreak}
-                  onChange={e => setEditBreak(e.target.value)}
-                  className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-secondary mb-1">
-                  修正理由 <span className="text-status-red-text">*</span>
-                </label>
-                <textarea
-                  rows={3}
-                  value={editReason}
-                  onChange={e => setEditReason(e.target.value)}
-                  placeholder="修正の理由を入力してください"
-                  className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary resize-none"
-                />
-              </div>
+              {editAbsentMode ? (
+                /* 欠勤モード */
+                <div>
+                  <label className="block text-sm text-secondary mb-1">欠勤理由</label>
+                  <textarea
+                    rows={3}
+                    value={absentReason}
+                    onChange={e => setAbsentReason(e.target.value)}
+                    placeholder="欠勤の理由を入力してください（任意）"
+                    className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary resize-none"
+                  />
+                </div>
+              ) : (
+                /* 修正モード */
+                <>
+                  <div>
+                    <label className="block text-sm text-secondary mb-1">出勤時間</label>
+                    <input
+                      type="time"
+                      value={editClockIn}
+                      onChange={e => setEditClockIn(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-secondary mb-1">退勤時間</label>
+                    <input
+                      type="time"
+                      value={editClockOut}
+                      onChange={e => setEditClockOut(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-secondary mb-1">休憩時間（分）</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={480}
+                      value={editBreak}
+                      onChange={e => setEditBreak(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-secondary mb-1">
+                      修正理由 <span className="text-status-red-text">*</span>
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={editReason}
+                      onChange={e => setEditReason(e.target.value)}
+                      placeholder="修正の理由を入力してください"
+                      className="w-full border border-border rounded-lg px-3 py-2.5 text-md outline-none focus:border-primary resize-none"
+                    />
+                  </div>
+
+                  {/* 欠勤にするボタン */}
+                  {editTarget && editTarget.status !== 'absent' && (
+                    <button
+                      onClick={() => setEditAbsentMode(true)}
+                      className="w-full py-2 rounded-lg text-sm border border-border text-secondary hover:bg-page transition-colors"
+                    >
+                      この日を欠勤にする
+                    </button>
+                  )}
+                </>
+              )}
             </div>
             <div className="px-5 py-4 border-t border-border/30 flex justify-end gap-2">
+              {editAbsentMode && editTarget && (
+                <button
+                  onClick={() => setEditAbsentMode(false)}
+                  className="px-4 py-2 rounded-lg text-sm border border-border hover:bg-page transition-colors mr-auto"
+                >
+                  戻る
+                </button>
+              )}
               <button
-                onClick={() => setEditTarget(null)}
+                onClick={() => { setEditTarget(null); setEditDateStr(null); }}
                 className="px-4 py-2 rounded-lg text-sm border border-border hover:bg-page transition-colors"
               >
                 キャンセル
               </button>
-              <button
-                onClick={submitCorrection}
-                disabled={submitting}
-                className="px-4 py-2 rounded-lg text-sm bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
-              >
-                {submitting ? '送信中...' : '申請する'}
-              </button>
+              {editAbsentMode ? (
+                <button
+                  onClick={submitAbsent}
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-lg text-sm bg-status-red-text text-white hover:opacity-90 transition-colors disabled:opacity-50"
+                >
+                  {submitting ? '処理中...' : '欠勤確定'}
+                </button>
+              ) : (
+                <button
+                  onClick={submitCorrection}
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-lg text-sm bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {submitting ? '送信中...' : '申請する'}
+                </button>
+              )}
             </div>
           </div>
         </div>

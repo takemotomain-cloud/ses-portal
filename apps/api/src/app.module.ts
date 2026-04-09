@@ -38,6 +38,7 @@ import { ProposalsModule } from './modules/proposals/proposals.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { FreeeModule } from './modules/freee/freee.module';
 import { ProjectsModule } from './modules/projects/projects.module';
+import { LeaveOfAbsenceModule } from './modules/leave-of-absence/leave-of-absence.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
     InvoicesModule,
     FreeeModule,
     ProjectsModule,
+    LeaveOfAbsenceModule,
   ],
   controllers: [HealthController],
 })

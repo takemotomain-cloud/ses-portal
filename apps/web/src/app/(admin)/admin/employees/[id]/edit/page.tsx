@@ -124,6 +124,24 @@ const genderReverse: Record<string, string> = {
   'その他': 'other',
 };
 
+const educationLabel: Record<string, string> = {
+  university: '大卒',
+  grad_school: '大学院卒',
+  vocational: '専門卒',
+  high_school: '高卒',
+  junior_college: '短大卒',
+  technical_college: '高専卒',
+};
+
+const educationReverse: Record<string, string> = {
+  '大卒': 'university',
+  '大学院卒': 'grad_school',
+  '専門卒': 'vocational',
+  '高卒': 'high_school',
+  '短大卒': 'junior_college',
+  '高専卒': 'technical_college',
+};
+
 const accountTypeLabel: Record<string, string> = {
   ordinary: '普通',
   checking: '当座',
@@ -207,6 +225,8 @@ export default function EmployeeEditPage() {
     driveUrl: '',
   });
 
+  const [hasBonus, setHasBonus] = useState(false);
+  const [originalDeptId, setOriginalDeptId] = useState<string | null>(null);
   const [qualifications, setQualifications] = useState<string[]>([]);
   const [newQualification, setNewQualification] = useState('');
   const [loading, setLoading] = useState(true);
@@ -227,7 +247,7 @@ export default function EmployeeEditPage() {
           department: d.department?.name || 'SES事業部',
           employmentType: empTypeLabel[d.employmentType] || '正社員',
           status: statusLabel[d.status] || '在籍',
-          education: d.education || '大卒',
+          education: educationLabel[d.education || ''] || d.education || '大卒',
           schoolName: d.schoolName || '',
           email: d.email || '',
           phone: d.phone || '',
@@ -247,6 +267,8 @@ export default function EmployeeEditPage() {
           station: d.station || '',
           driveUrl: '',
         });
+        setHasBonus(d.hasBonus ?? false);
+        setOriginalDeptId(d.department?.id || null);
         setQualifications(Array.isArray(d.qualifications) ? d.qualifications : []);
       })
       .catch((err) => {
@@ -273,7 +295,7 @@ export default function EmployeeEditPage() {
         firstNameKana: form.firstNameKana,
         employmentType: empTypeReverse[form.employmentType] || form.employmentType,
         status: statusReverse[form.status] || form.status,
-        education: form.education,
+        education: educationReverse[form.education] || form.education,
         schoolName: form.schoolName,
         email: form.email,
         phone: form.phone,
@@ -286,12 +308,13 @@ export default function EmployeeEditPage() {
         bankAccountType: accountTypeReverse[form.bankAccountType] || form.bankAccountType,
         bankAccountNumber: form.bankAccountNumber,
         station: form.station,
+        hasBonus,
         qualifications,
       };
 
-      // 部署が変更された場合
-      if (form.department) {
-        payload.departmentId = deptNameMap[form.department] || form.department;
+      // 部署IDは元の値を使用（部署セレクトはUUIDマッピングがないため）
+      if (originalDeptId) {
+        payload.departmentId = originalDeptId;
       }
 
       await apiClient(`/employees/${id}`, {
@@ -697,6 +720,22 @@ export default function EmployeeEditPage() {
                 onChange={set('bankAccountNumber')}
               />
             </div>
+          </div>
+
+          {/* 賞与支給 */}
+          <div className="mt-3">
+            <label className={labelCls}>賞与支給</label>
+            <button
+              type="button"
+              onClick={() => setHasBonus(!hasBonus)}
+              className={`px-4 py-2 rounded-md text-[13px] font-medium transition-colors ${
+                hasBonus
+                  ? 'bg-status-green-bg text-status-green-text'
+                  : 'bg-muted text-secondary'
+              }`}
+            >
+              {hasBonus ? 'あり' : 'なし'}
+            </button>
           </div>
         </div>
 

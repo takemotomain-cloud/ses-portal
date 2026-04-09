@@ -78,6 +78,88 @@ export class AttendanceService {
   }
 
   /**
+   * 欠勤登録
+   *
+   * 当日のレコードを status: 'absent' で作成/更新。
+   * 既に出勤済み（clockInあり）の場合はエラー。
+   */
+  async markAbsent(employeeId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existing = await this.db.attendance.findUnique({
+      where: {
+        employeeId_workDate: { employeeId, workDate: today },
+      },
+    });
+
+    if (existing?.clockIn) {
+      throw new BadRequestException('既に出勤打刻済みのため、欠勤登録できません');
+    }
+
+    if (existing?.status === 'absent') {
+      throw new BadRequestException('本日は既に欠勤登録済みです');
+    }
+
+    if (existing) {
+      return this.db.attendance.update({
+        where: { id: existing.id },
+        data: { status: 'absent', workMinutes: 0, overtimeMinutes: 0 },
+      });
+    }
+
+    return this.db.attendance.create({
+      data: {
+        employeeId,
+        workDate: today,
+        status: 'absent',
+        workMinutes: 0,
+        overtimeMinutes: 0,
+      },
+    });
+  }
+
+  /**
+   * 日付指定の欠勤登録
+   *
+   * 勤怠表から任意の日付を欠勤にする。管理者承認不要。
+   */
+  async markAbsentForDate(employeeId: string, dateStr: string, reason?: string) {
+    const workDate = new Date(dateStr + 'T00:00:00Z');
+
+    const existing = await this.db.attendance.findUnique({
+      where: {
+        employeeId_workDate: { employeeId, workDate },
+      },
+    });
+
+    if (existing?.clockIn) {
+      throw new BadRequestException('既に出勤打刻済みのため、欠勤登録できません');
+    }
+
+    if (existing?.status === 'absent') {
+      throw new BadRequestException('この日は既に欠勤登録済みです');
+    }
+
+    if (existing) {
+      return this.db.attendance.update({
+        where: { id: existing.id },
+        data: { status: 'absent', workMinutes: 0, overtimeMinutes: 0 },
+      });
+    }
+
+    return this.db.attendance.create({
+      data: {
+        employeeId,
+        workDate,
+        status: 'absent',
+        workMinutes: 0,
+        overtimeMinutes: 0,
+      },
+    });
+  }
+
+  /**
    * 退勤打刻
    *
    * 出勤打刻がない場合はエラー。
@@ -121,13 +203,13 @@ export class AttendanceService {
   }
 
   /**
-   * 月次勤怠データ取得
+   * 月次勤怠データ取得（有給情報付き）
    */
   async getMonthly(employeeId: string, year: number, month: number) {
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate = new Date(Date.UTC(year, month, 0)); // 月末
 
-    return this.db.attendance.findMany({
+    const records = await this.db.attendance.findMany({
       where: {
         employeeId,
         workDate: {
@@ -137,6 +219,24 @@ export class AttendanceService {
       },
       orderBy: { workDate: 'asc' },
     });
+
+    // 承認済み有給申請を取得（当月に重なるもの）
+    const approvedLeaves = await this.db.leaveRequest.findMany({
+      where: {
+        employeeId,
+        status: 'approved',
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: {
+        startDate: true,
+        endDate: true,
+        days: true,
+        leaveType: true,
+      },
+    });
+
+    return { records, approvedLeaves };
   }
 
   /**
