@@ -16,8 +16,12 @@ out/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
+
+# TypeScript incremental build cache
+*.tsbuildinfo
 
 # OS
 .DS_Store
