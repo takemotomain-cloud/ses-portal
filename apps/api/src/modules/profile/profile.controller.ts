@@ -77,7 +77,7 @@ export class ProfileController {
 
   @Get('change-requests/pending')
   @UseGuards(RolesGuard)
-  @Roles('admin')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '承認待ち変更申請一覧（管理者用）' })
   async getPendingChangeRequests() {
     return this.profileService.getPendingChangeRequests();
@@ -85,25 +85,26 @@ export class ProfileController {
 
   @Post('change-requests/:id/approve')
   @UseGuards(RolesGuard)
-  @Roles('admin')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '変更申請を承認' })
   async approveChangeRequest(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.profileService.approveChangeRequest(id, user.employeeId, user.userId);
+    // bank 変更は service 側で manager 以上をチェック
+    await this.profileService.approveChangeRequest(id, user.employeeId, user.userId, user.role);
     return { message: '承認しました' };
   }
 
   @Post('change-requests/:id/reject')
   @UseGuards(RolesGuard)
-  @Roles('admin')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '変更申請を却下' })
   async rejectChangeRequest(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.profileService.rejectChangeRequest(id, user.employeeId, user.userId);
+    await this.profileService.rejectChangeRequest(id, user.employeeId, user.userId, user.role);
     return { message: '却下しました' };
   }
 }

@@ -9,6 +9,8 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '../auth.service';
 import { DatabaseService } from '../../../database/database.service';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { AuditService } from '../../audit-logs/audit.service';
 import * as bcrypt from 'bcrypt';
 
 jest.mock('bcrypt');
@@ -66,6 +68,17 @@ describe('AuthService', () => {
         AuthService,
         { provide: DatabaseService, useValue: db },
         { provide: JwtService, useValue: jwt },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyAdmins: jest.fn().mockResolvedValue(undefined),
+            create: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: AuditService,
+          useValue: { log: jest.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compile();
 
@@ -201,7 +214,7 @@ describe('AuthService', () => {
 
       await expect(
         service.login('tanaka@example.com', 'CorrectPass1!'),
-      ).rejects.toThrow('このアカウントは無効です');
+      ).rejects.toThrow('このアカウントは無効になっています');
     });
   });
 });

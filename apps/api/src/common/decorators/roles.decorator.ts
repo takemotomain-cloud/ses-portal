@@ -5,8 +5,8 @@
  * RolesGuardと組み合わせて使用。
  *
  * 使い方:
- *   @Roles('admin')           ← 管理者のみ
- *   @Roles('admin', 'sales')  ← 管理者または営業
+ *   @Roles('admin')                         ← 管理者のみ
+ *   @Roles('admin', 'manager', 'member')    ← 管理側ログイン全員
  */
 
 import { SetMetadata } from '@nestjs/common';

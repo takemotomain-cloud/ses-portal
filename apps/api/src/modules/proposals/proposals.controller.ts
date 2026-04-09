@@ -24,7 +24,7 @@ export class ProposalsController {
 
   /** メール送信なしで提案をDB保存 */
   @Post()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案追加（メールなし）' })
   async create(
     @Body() body: {
@@ -37,7 +37,7 @@ export class ProposalsController {
   }
 
   @Post('send')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案メール送信' })
   async send(
     @Body() body: {
@@ -54,7 +54,7 @@ export class ProposalsController {
 
   /** 提案結果を更新（案件確定/不採用） */
   @Patch(':id/result')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案結果更新' })
   async updateResult(
     @Param('id', ParseUUIDPipe) id: string,
@@ -65,7 +65,7 @@ export class ProposalsController {
 
   /** 既存の提案（draft）に対してメール送信 */
   @Post(':id/send')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '既存提案にメール送信' })
   async sendExisting(
     @Param('id', ParseUUIDPipe) id: string,
@@ -79,7 +79,7 @@ export class ProposalsController {
   }
 
   @Post('preview')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案メールプレビュー' })
   async preview(
     @Body() body: {
@@ -99,7 +99,7 @@ export class ProposalsController {
    * 「過去X件の重複送信があります。本当に送信しますか？」のダイアログを表示する。
    */
   @Post('check-duplicate')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '同一クライアント・社員・案件の重複送信チェック' })
   async checkDuplicate(
     @Body() body: {
@@ -113,7 +113,7 @@ export class ProposalsController {
   }
 
   @Get('history')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント別送信履歴' })
   async history(@Query('clientId') clientId: string) {
     return this.service.findByClient(clientId);
@@ -123,7 +123,7 @@ export class ProposalsController {
    * 送信失敗の提案一覧（N3: 再送 UI 用）
    */
   @Get('failed')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '送信失敗した提案一覧' })
   async failed() {
     const rows = await this.service.findFailed();

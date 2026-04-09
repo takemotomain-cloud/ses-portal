@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth-context';
 
 /* ---------- 取得データの型 ---------- */
 
@@ -60,7 +61,18 @@ interface EmployeeDetail {
   position: { id: string; name: string; rank: number } | null;
   emergencyContacts?: { id: string; name: string; relationship: string; phone: string }[];
   dependents?: { id: string; name: string; relationship: string; birthDate: string; annualIncome: number | null }[];
+  /** E: ロール（user.role）。employeeId→user リレーションから取得 */
+  user?: { id: string; role: string } | null;
 }
+
+/* ---------- ロール表示ラベル ---------- */
+
+const roleLabel: Record<string, string> = {
+  admin: '管理者 (admin)',
+  manager: 'マネージャー (manager)',
+  member: 'メンバー (member)',
+  employee: '一般社員 (employee)',
+};
 
 /* ---------- フォーム状態の型 ---------- */
 
@@ -216,6 +228,11 @@ export default function EmployeeEditPage() {
   const params = useParams();
   const id = params.id as string;
   const { toast, ToastUI } = useToast();
+  const { user: currentUser } = useAuth();
+  // E: ロール変更は admin のみ可能
+  const canChangeRole = currentUser?.role === 'admin';
+  // E: マイナンバー・銀行口座の閲覧は admin + manager のみ
+  const canViewPii = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
   const [form, setForm] = useState<EditForm>({
     lastName: '',
@@ -269,6 +286,11 @@ export default function EmployeeEditPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revertModal, setRevertModal] = useState(false);
+  // E: ロール変更関連の state
+  const [targetUserId, setTargetUserId] = useState<string | null>(null);
+  const [currentRole, setCurrentRole] = useState<string>('employee');
+  const [roleDraft, setRoleDraft] = useState<string>('employee');
+  const [roleSubmitting, setRoleSubmitting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -320,6 +342,11 @@ export default function EmployeeEditPage() {
         setOriginalDeptId(d.department?.id || null);
         setOriginalStatus(d.status);
         setQualifications(Array.isArray(d.qualifications) ? d.qualifications : []);
+        // E: ロール情報を state に反映
+        setTargetUserId(d.user?.id ?? null);
+        const role = d.user?.role ?? 'employee';
+        setCurrentRole(role);
+        setRoleDraft(role);
       })
       .catch((err) => {
         console.error('Failed to fetch employee detail:', err);
@@ -388,14 +415,18 @@ export default function EmployeeEditPage() {
         leaveGrantMethod: form.leaveGrantMethod || null,
         transferredLeaveDays: form.transferredLeaveDays ? Number(form.transferredLeaveDays) : null,
         transferredLeaveGrantedDate: form.transferredLeaveGrantedDate || null,
-        bankName: form.bankName,
-        bankBranch: form.bankBranch,
-        bankAccountType: accountTypeReverse[form.bankAccountType] || form.bankAccountType,
-        bankAccountNumber: form.bankAccountNumber,
         station: form.station,
         hasBonus,
         qualifications,
       };
+
+      // E: 銀行口座は admin + manager のみが編集可。member の場合は payload に含めず既存値を維持
+      if (canViewPii) {
+        payload.bankName = form.bankName;
+        payload.bankBranch = form.bankBranch;
+        payload.bankAccountType = accountTypeReverse[form.bankAccountType] || form.bankAccountType;
+        payload.bankAccountNumber = form.bankAccountNumber;
+      }
 
       // 部署IDは元の値を使用（部署セレクトはUUIDマッピングがないため）
       if (originalDeptId) {
@@ -413,6 +444,42 @@ export default function EmployeeEditPage() {
     } finally {
       setSubmitting(false);
       setRevertModal(false);
+    }
+  };
+
+  /**
+   * E: ロール変更
+   *
+   * admin 専用。`PATCH /users/:userId/role` を呼び出し、サーバー側で
+   * 最後の admin 保護・監査ログ記録が行われる。
+   */
+  const handleRoleChange = async () => {
+    if (roleSubmitting) return;
+    if (!targetUserId) {
+      toast('この社員にはログインユーザーが紐付いていません');
+      return;
+    }
+    if (roleDraft === currentRole) {
+      toast('ロールが変更されていません');
+      return;
+    }
+    setRoleSubmitting(true);
+    try {
+      const res = await apiClient<{ id: string; role: string; message?: string }>(
+        `/users/${targetUserId}/role`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ role: roleDraft }),
+        },
+      );
+      setCurrentRole(res.role);
+      setRoleDraft(res.role);
+      toast(res.message || 'ロールを変更しました');
+    } catch (err: any) {
+      // 最後の admin 降格拒否などのサーバーエラーをそのまま表示
+      toast(err?.message || 'ロールの変更に失敗しました');
+    } finally {
+      setRoleSubmitting(false);
     }
   };
 
@@ -607,6 +674,64 @@ export default function EmployeeEditPage() {
             </div>
           </div>
         </div>
+
+        {/* ===== E: 権限・ロール ===== */}
+        {targetUserId && (
+          <div className="card p-5 mb-3">
+            <div className="text-sm font-medium mb-3">権限・ロール</div>
+
+            {canChangeRole ? (
+              <>
+                <div className="grid grid-cols-2 gap-2 items-end">
+                  <div>
+                    <label className={labelCls}>ロール</label>
+                    <select
+                      className={selectCls}
+                      value={roleDraft}
+                      onChange={(e) => setRoleDraft(e.target.value)}
+                      disabled={roleSubmitting}
+                    >
+                      <option value="admin">管理者 (admin)</option>
+                      <option value="manager">マネージャー (manager)</option>
+                      <option value="member">メンバー (member)</option>
+                      <option value="employee">一般社員 (employee)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleRoleChange}
+                      disabled={roleSubmitting || roleDraft === currentRole}
+                      className="btn-primary text-sm py-2 disabled:opacity-50"
+                    >
+                      {roleSubmitting ? '変更中...' : 'ロールを変更'}
+                    </button>
+                  </div>
+                </div>
+                <div className="text-[10px] text-secondary mt-[6px]">
+                  ※ 現在のロール: <span className="text-primary font-medium">{roleLabel[currentRole] || currentRole}</span>
+                  <br />
+                  ※ admin: 全権限 / manager・member: 全権限（給与は階層で制限）/ employee: 管理側ログイン不可（/mypage のみ）
+                  <br />
+                  ※ 最後の admin を降格することはできません
+                </div>
+              </>
+            ) : (
+              <>
+                <label className={labelCls}>ロール</label>
+                <input
+                  type="text"
+                  className={readonlyCls}
+                  value={roleLabel[currentRole] || currentRole}
+                  readOnly
+                />
+                <div className="text-[10px] text-secondary mt-[3px]">
+                  ※ ロールの変更は admin 権限を持つユーザーのみ可能です
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* ===== 連絡先 ===== */}
         <div className="card p-5 mb-3">
@@ -897,47 +1022,54 @@ export default function EmployeeEditPage() {
             </div>
           </div>
 
-          {/* 銀行名 / 支店名 / 口座種別 / 口座番号 */}
-          <div className="grid grid-cols-4 gap-2">
-            <div>
-              <label className={labelCls}>銀行名</label>
-              <input
-                type="text"
-                className={inputCls}
-                value={form.bankName}
-                onChange={set('bankName')}
-              />
+          {/* 銀行名 / 支店名 / 口座種別 / 口座番号
+              E: 閲覧・編集は admin + manager のみ。member 以下は「閲覧権限なし」表示 */}
+          {canViewPii ? (
+            <div className="grid grid-cols-4 gap-2">
+              <div>
+                <label className={labelCls}>銀行名</label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={form.bankName}
+                  onChange={set('bankName')}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>支店名</label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={form.bankBranch}
+                  onChange={set('bankBranch')}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>口座種別</label>
+                <select
+                  className={selectCls}
+                  value={form.bankAccountType}
+                  onChange={set('bankAccountType')}
+                >
+                  <option>普通</option>
+                  <option>当座</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>口座番号</label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={form.bankAccountNumber}
+                  onChange={set('bankAccountNumber')}
+                />
+              </div>
             </div>
-            <div>
-              <label className={labelCls}>支店名</label>
-              <input
-                type="text"
-                className={inputCls}
-                value={form.bankBranch}
-                onChange={set('bankBranch')}
-              />
+          ) : (
+            <div className="p-3 border border-border/30 rounded-md bg-[#F7F7F5] text-[12px] text-secondary">
+              銀行口座情報の閲覧・編集には manager 以上の権限が必要です
             </div>
-            <div>
-              <label className={labelCls}>口座種別</label>
-              <select
-                className={selectCls}
-                value={form.bankAccountType}
-                onChange={set('bankAccountType')}
-              >
-                <option>普通</option>
-                <option>当座</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>口座番号</label>
-              <input
-                type="text"
-                className={inputCls}
-                value={form.bankAccountNumber}
-                onChange={set('bankAccountNumber')}
-              />
-            </div>
-          </div>
+          )}
 
           {/* 賞与支給 */}
           <div className="mt-3">

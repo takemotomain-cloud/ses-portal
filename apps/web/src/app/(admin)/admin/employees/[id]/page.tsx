@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth-context';
 
 /* ---------- 型定義 ---------- */
 
@@ -217,6 +218,9 @@ export default function EmployeeDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const { toast, ToastUI } = useToast();
+  const { user: currentUser } = useAuth();
+  // E: 銀行口座・マイナンバーの閲覧は admin + manager のみ
+  const canViewPii = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
   const [detail, setDetail] = useState<EmployeeDetail | null>(null);
   const [currentAssignment, setCurrentAssignment] = useState<AssignmentInfo | null>(null);
@@ -316,9 +320,11 @@ export default function EmployeeDetailPage() {
           } />
           <InfoRow label="還元率" value={d.rewardRate !== null && d.rewardRate !== undefined ? `${d.rewardRate}%` : null} />
           <InfoRow label="振込口座" value={
-            d.bankName
-              ? `${d.bankName} ${d.bankBranch || ''} ${accountTypeLabel[d.bankAccountType || ''] || ''} ${d.bankAccountNumber || ''}`
-              : null
+            canViewPii
+              ? (d.bankName
+                  ? `${d.bankName} ${d.bankBranch || ''} ${accountTypeLabel[d.bankAccountType || ''] || ''} ${d.bankAccountNumber || ''}`
+                  : null)
+              : <span className="text-secondary text-xs">閲覧権限がありません</span>
           } />
           <InfoRow label="賞与支給" value={
             <span className={`px-3 py-1 rounded-full text-xs font-medium ${

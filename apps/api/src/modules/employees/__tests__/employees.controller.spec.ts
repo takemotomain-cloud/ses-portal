@@ -40,7 +40,7 @@ const salesUser: RequestUser = {
   employeeCode: 'SLS-001',
   name: '営業担当',
   email: 'sales@example.com',
-  role: 'sales',
+  role: 'manager',
 };
 
 /* ====== サービスモック ====== */
@@ -233,10 +233,10 @@ describe('EmployeesController', () => {
    * RolesGuard メタデータ検証
    * ============================ */
   describe('ロールメタデータ', () => {
-    it('findAllはadmin/sales/accountingロールが必要', () => {
+    it('findAllはadmin/manager/memberロールが必要', () => {
       const reflector = new Reflector();
       const roles = reflector.get<string[]>(ROLES_KEY, EmployeesController.prototype.findAll);
-      expect(roles).toEqual(['admin', 'sales', 'accounting']);
+      expect(roles).toEqual(['admin', 'manager', 'member']);
     });
 
     it('createはadminロールが必要', () => {

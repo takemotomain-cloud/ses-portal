@@ -12,7 +12,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @ApiBearerAuth()
 @Controller('projects')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'sales')
+@Roles('admin', 'manager', 'member')
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 

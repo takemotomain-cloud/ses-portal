@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { AttendanceService } from '../attendance.service';
 import { DatabaseService } from '../../../database/database.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 /* ====== モック定義 ====== */
 
@@ -56,6 +57,13 @@ describe('AttendanceService', () => {
       providers: [
         AttendanceService,
         { provide: DatabaseService, useValue: db },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyAdmins: jest.fn().mockResolvedValue(undefined),
+            create: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 

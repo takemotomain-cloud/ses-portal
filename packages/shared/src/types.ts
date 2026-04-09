@@ -12,11 +12,19 @@
 // Enums & Constants
 // ============================================================
 
-/** ユーザーロール。users.roleのCHECK制約と一致させること */
+/**
+ * ユーザーロール（E: 権限・ロール定義）
+ *
+ * users.role に格納される文字列と一致させること。
+ * - admin:    管理側ログイン。全権限。全員の給与閲覧可。
+ * - manager:  管理側ログイン。admin/他 manager の給与不可視。経費事前申請必須。
+ * - member:   管理側ログイン。admin/manager/他 member の給与不可視。経費事前申請必須。
+ * - employee: 管理側非ログイン。SES 事業部など /mypage のみ。
+ */
 export const UserRole = {
   ADMIN: 'admin',
-  SALES: 'sales',
-  ACCOUNTING: 'accounting',
+  MANAGER: 'manager',
+  MEMBER: 'member',
   EMPLOYEE: 'employee',
 } as const;
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];

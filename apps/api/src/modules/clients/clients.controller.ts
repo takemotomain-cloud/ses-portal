@@ -41,7 +41,7 @@ export class ClientsController {
    * クライアント新規登録
    */
   @Post()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント新規登録' })
   async create(
     @Body()
@@ -71,7 +71,7 @@ export class ClientsController {
    * クライアント一覧
    */
   @Get()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント一覧' })
   async findAll(
     @Query('page') page?: number,
@@ -85,7 +85,7 @@ export class ClientsController {
    * クライアント更新
    */
   @Patch(':id')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント更新' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -116,7 +116,7 @@ export class ClientsController {
    * gBizINFO 会社名検索
    */
   @Get('gbiz/search')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'gBizINFO 会社名検索' })
   async gbizSearch(@Query('name') name: string) {
     if (!name) return [];
@@ -127,7 +127,7 @@ export class ClientsController {
    * gBizINFO 法人番号で取得
    */
   @Get('gbiz/:corpNumber')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'gBizINFO 法人番号取得' })
   async gbizGet(@Param('corpNumber') corpNumber: string) {
     return this.gbizInfoService.getByCorpNumber(corpNumber);
@@ -137,7 +137,7 @@ export class ClientsController {
    * クライアント詳細
    */
   @Get(':id')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント詳細' })
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.clientsService.findOne(id);

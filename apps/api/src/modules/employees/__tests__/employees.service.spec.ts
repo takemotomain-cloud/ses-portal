@@ -9,6 +9,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { EmployeesService } from '../employees.service';
 import { DatabaseService } from '../../../database/database.service';
+import { LeaveService } from '../../leave/leave.service';
+import { AuditService } from '../../audit-logs/audit.service';
 
 /* ====== モック定義 ====== */
 
@@ -57,20 +59,41 @@ function createMockDb() {
     employee: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
     user: {
       create: jest.fn(),
+      count: jest.fn(),
     },
     emergencyContact: {
       findFirst: jest.fn(),
       create: jest.fn(),
     },
+    attendance: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    department: {
+      findFirst: jest.fn(),
+    },
+    position: {
+      findFirst: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 }
+
+const mockLeaveService = {
+  getBalance: jest.fn(),
+  grantAnnualLeave: jest.fn().mockResolvedValue(undefined),
+  grantInitialLeave: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockAuditService = {
+  log: jest.fn().mockResolvedValue(undefined),
+};
 
 /* ====== テストスイート ====== */
 
@@ -85,6 +108,8 @@ describe('EmployeesService', () => {
       providers: [
         EmployeesService,
         { provide: DatabaseService, useValue: db },
+        { provide: LeaveService, useValue: mockLeaveService },
+        { provide: AuditService, useValue: mockAuditService },
       ],
     }).compile();
 

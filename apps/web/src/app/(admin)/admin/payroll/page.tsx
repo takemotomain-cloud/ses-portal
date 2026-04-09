@@ -10,6 +10,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
+import { AuthGuard } from '@/components/ui/auth-guard';
 
 const steps = ['勤怠締め', '給与計算', '確認・修正', '確定', '振込・通知'];
 const currentStepIdx = 2;
@@ -19,22 +20,24 @@ interface PayrollApiItem {
   id: string;
   employeeId: string;
   employee?: { name?: string; lastName?: string; firstName?: string };
-  baseSalary: number;
-  overtimePay: number;
-  commuteAllowance: number;
-  otherAllowance: number;
-  grossSalary: number;
-  healthInsurance: number;
-  pension: number;
-  employmentInsurance: number;
-  incomeTax: number;
-  residentTax: number;
-  totalDeductions: number;
-  netSalary: number;
+  baseSalary: number | null;
+  overtimePay: number | null;
+  commuteAllowance: number | null;
+  otherAllowance: number | null;
+  grossSalary: number | null;
+  healthInsurance: number | null;
+  pension: number | null;
+  employmentInsurance: number | null;
+  incomeTax: number | null;
+  residentTax: number | null;
+  totalDeductions: number | null;
+  netSalary: number | null;
   status: string;
   workingHours?: number;
   unitPrice?: number;
   ratio?: number;
+  /** E: 給与可視性マスク。true のときは manager から見えない admin/他 manager の行。 */
+  _masked?: boolean;
 }
 
 /** UI 用に整形した給与データ */
@@ -43,14 +46,16 @@ interface PayrollRow {
   name: string;
   unitPrice: number;
   ratio: number;
-  gross: number;
-  deductions: number;
-  net: number;
+  gross: number | null;
+  deductions: number | null;
+  net: number | null;
   hours: number;
   hoursWarn: boolean;
   status: string;
-  earnings: { label: string; amount: number }[];
-  deductionItems: { label: string; amount: number }[];
+  earnings: { label: string; amount: number | null }[];
+  deductionItems: { label: string; amount: number | null }[];
+  /** E: マスク行（manager から admin/他 manager の給与行） */
+  masked: boolean;
 }
 
 /** API レスポンスを UI 行に変換 */
@@ -74,6 +79,7 @@ function toRow(item: PayrollApiItem): PayrollRow {
     hours,
     hoursWarn: hours > 180 || hours < 140,
     status: item.status ?? 'draft',
+    masked: item._masked === true,
     earnings: [
       { label: '基本給', amount: item.baseSalary },
       { label: '残業手当', amount: item.overtimePay },
@@ -88,6 +94,12 @@ function toRow(item: PayrollApiItem): PayrollRow {
       { label: '住民税', amount: item.residentTax },
     ],
   };
+}
+
+/** マスク対応のフォーマッタ: null は `****` で表示 */
+function fmtMasked(n: number | null | undefined, masked = false): string {
+  if (masked || n === null || n === undefined) return '****';
+  return n.toLocaleString();
 }
 
 function fmt(n: number | null | undefined) { return (n ?? 0).toLocaleString(); }
@@ -151,7 +163,16 @@ const fieldLabel: Record<string, string> = {
   residentTax: '住民税',
 };
 
-export default function AdminPayrollPage() {
+export default function AdminPayrollPageWrapper() {
+  // E: /admin/payroll は admin / manager のみアクセス可。member / employee はリダイレクト。
+  return (
+    <AuthGuard requiredRoles={['admin', 'manager']}>
+      <AdminPayrollPage />
+    </AuthGuard>
+  );
+}
+
+function AdminPayrollPage() {
   const [payrollData, setPayrollData] = useState<PayrollRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -194,8 +215,8 @@ export default function AdminPayrollPage() {
     fetchPayroll();
   }, [fetchPayroll]);
 
-  /** 総支給額合計 */
-  const totalGross = payrollData.reduce((sum, p) => sum + p.gross, 0);
+  /** 総支給額合計（マスクされた行は除外） */
+  const totalGross = payrollData.reduce((sum, p) => sum + (p.masked ? 0 : p.gross ?? 0), 0);
 
   const handleCalc = useCallback(async () => {
     try {
@@ -215,7 +236,7 @@ export default function AdminPayrollPage() {
       toast('確定済みの給与は編集できません');
       return;
     }
-    const getByLabel = (items: { label: string; amount: number }[], label: string) =>
+    const getByLabel = (items: { label: string; amount: number | null }[], label: string) =>
       String(items.find(i => i.label === label)?.amount ?? 0);
     setEditForm({
       baseSalary: getByLabel(selected.earnings, '基本給'),
@@ -372,16 +393,31 @@ export default function AdminPayrollPage() {
               <tr><td colSpan={8}><div className="px-4 py-8 text-center text-sm text-secondary">データはありません</div></td></tr>
             ) : payrollData.map(p => {
               const st = statusBadge[p.status] ?? statusBadge.draft;
+              // E: マスク行は選択不可・灰色背景で「閲覧権限なし」を示唆
+              const rowClass = p.masked
+                ? 'border-b border-border/20 bg-[#F5F5F3] opacity-70 cursor-not-allowed'
+                : 'border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors';
               return (
-                <tr key={p.id} onClick={() => setSelectedId(p.id)} className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer transition-colors">
+                <tr
+                  key={p.id}
+                  onClick={() => !p.masked && setSelectedId(p.id)}
+                  className={rowClass}
+                  title={p.masked ? '閲覧権限がありません' : undefined}
+                >
                   <td className="px-4 py-2.5 text-base font-medium">{p.name}</td>
                   <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(p.unitPrice)}</td>
                   <td className="px-4 py-2.5 text-base text-right">{p.ratio}%</td>
-                  <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(p.gross)}</td>
-                  <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(p.deductions)}</td>
-                  <td className="px-4 py-2.5 text-base text-right tabular-nums font-medium bg-yellow-50">{fmt(p.net)}</td>
+                  <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmtMasked(p.gross, p.masked)}</td>
+                  <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmtMasked(p.deductions, p.masked)}</td>
+                  <td className={`px-4 py-2.5 text-base text-right tabular-nums font-medium ${p.masked ? '' : 'bg-yellow-50'}`}>{fmtMasked(p.net, p.masked)}</td>
                   <td className={`px-4 py-2.5 text-base text-right tabular-nums ${p.hoursWarn ? 'text-status-red-text font-medium' : ''}`}>{p.hours}h</td>
-                  <td className="px-4 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
+                  <td className="px-4 py-2.5">
+                    {p.masked ? (
+                      <span className="badge bg-[#E8E8E6] text-secondary">閲覧不可</span>
+                    ) : (
+                      <span className={`badge ${st.cls}`}>{st.label}</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}

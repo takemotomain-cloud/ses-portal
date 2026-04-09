@@ -50,7 +50,7 @@ export class ExpenseController {
 
   @Get('pending')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '承認待ち経費申請一覧（管理者用）' })
   async getPending() {
     return this.expenseService.getPendingRequests();
@@ -58,19 +58,19 @@ export class ExpenseController {
 
   @Post(':id/approve')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '経費申請を承認' })
   async approve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.expenseService.approve(id, user.employeeId, user.userId);
+    await this.expenseService.approve(id, user.employeeId, user.userId, user.role);
     return { message: '承認しました' };
   }
 
   @Post(':id/reject')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '経費申請を却下' })
   async reject(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.expenseService.reject(id, user.employeeId, user.userId);
+    await this.expenseService.reject(id, user.employeeId, user.userId, user.role);
     return { message: '却下しました' };
   }
 }

@@ -6,7 +6,7 @@
  *
  * 使い方:
  *   @UseGuards(JwtAuthGuard, RolesGuard)
- *   @Roles('admin', 'sales')
+ *   @Roles('admin', 'manager')
  *   getEmployees() { ... }
  *
  * 注意: JwtAuthGuardより後に配置すること（request.userが必要）

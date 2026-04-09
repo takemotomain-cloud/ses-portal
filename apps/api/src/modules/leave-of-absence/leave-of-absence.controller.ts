@@ -102,7 +102,7 @@ export class LeaveOfAbsenceController {
 
   @Get('pending')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '承認待ち休職届一覧' })
   async getPending() {
     return this.service.getPending();
@@ -110,7 +110,7 @@ export class LeaveOfAbsenceController {
 
   @Post(':id/approve')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '休職届を承認' })
   async approve(
     @Param('id', ParseUUIDPipe) id: string,
@@ -122,7 +122,7 @@ export class LeaveOfAbsenceController {
 
   @Post(':id/reject')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '休職届を却下' })
   async reject(
     @Param('id', ParseUUIDPipe) id: string,
@@ -148,7 +148,7 @@ export class LeaveOfAbsenceController {
 
   @Post(':id/return-approve')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '復職を承認' })
   async approveReturn(
     @Param('id', ParseUUIDPipe) id: string,

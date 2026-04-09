@@ -13,28 +13,28 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Get()
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '請求書一覧' })
   async findAll(@Query('month') month?: string) {
     return this.invoicesService.findAll(month);
   }
 
   @Get(':id')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '請求書詳細' })
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoicesService.findOne(id);
   }
 
   @Post()
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '請求書作成' })
   async create(@Body() body: any) {
     return this.invoicesService.create(body);
   }
 
   @Patch(':id/status')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '請求書ステータス更新' })
   async updateStatus(@Param('id', ParseUUIDPipe) id: string, @Body('status') status: string) {
     return this.invoicesService.updateStatus(id, status);

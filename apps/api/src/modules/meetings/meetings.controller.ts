@@ -34,7 +34,7 @@ export class MeetingsController {
    * 面談記録を追加
    */
   @Post()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '面談記録を追加' })
   async create(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
@@ -47,7 +47,7 @@ export class MeetingsController {
    * 社員の面談記録一覧を取得
    */
   @Get()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '面談記録一覧' })
   async findByEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,

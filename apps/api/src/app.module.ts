@@ -41,6 +41,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
 import { LeaveOfAbsenceModule } from './modules/leave-of-absence/leave-of-absence.module';
 import { MailerModule } from './modules/mailer/mailer.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     MailerModule,
     AuditLogsModule,
     AuthModule,
+    UsersModule,
     EmployeesModule,
     AttendanceModule,
     LeaveModule,

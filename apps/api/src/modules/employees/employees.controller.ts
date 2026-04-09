@@ -57,7 +57,7 @@ export class EmployeesController {
    * 注意: /unassigned は /:id より先に定義
    */
   @Get('unassigned')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'アサイン未経験社員一覧' })
   async findUnassigned() {
     return this.employeesService.findUnassigned();
@@ -79,7 +79,7 @@ export class EmployeesController {
    * 注意: /:id/mynumber は /:id より先に定義
    */
   @Get(':id/mynumber')
-  @Roles('admin')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: 'マイナンバー閲覧（監査ログ記録）' })
   async getMyNumber(
     @Param('id', ParseUUIDPipe) id: string,
@@ -92,7 +92,7 @@ export class EmployeesController {
    * 銀行口座閲覧（T2: 監査ログ必須）
    */
   @Get(':id/bank')
-  @Roles('admin')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '銀行口座閲覧（監査ログ記録）' })
   async getBankAccount(
     @Param('id', ParseUUIDPipe) id: string,
@@ -104,11 +104,11 @@ export class EmployeesController {
   /**
    * 社員一覧を取得
    *
-   * admin/sales: 全社員を検索・一覧表示可能
+   * admin/manager/member: 全社員を検索・一覧表示可能
    * employee: アクセス不可（自分の情報はGET /meを使用）
    */
   @Get()
-  @Roles('admin', 'sales', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '社員一覧' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -266,7 +266,7 @@ export class EmployeesController {
    * 社員詳細を取得
    *
    * admin: 全社員の詳細を閲覧可能
-   * sales/accounting: 閲覧可能（ただし給与情報は別API）
+   * manager/member: 閲覧可能（ただし給与情報は別API）
    * employee: 自分のIDのみアクセス可能
    */
   @Get(':id')

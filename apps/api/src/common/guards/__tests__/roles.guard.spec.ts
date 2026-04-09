@@ -42,7 +42,7 @@ describe('RolesGuard', () => {
   });
 
   it('指定ロールに一致する場合は許可', () => {
-    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(['admin', 'sales']);
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(['admin', 'manager']);
     const ctx = createMockContext({ role: 'admin' });
 
     expect(guard.canActivate(ctx)).toBe(true);

@@ -13,35 +13,35 @@ export class FreeeController {
   constructor(private readonly freeeService: FreeeService) {}
 
   @Get('journals')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '仕訳一覧' })
   async getJournals(@Query('status') status?: string) {
     return this.freeeService.getJournals(status);
   }
 
   @Get('summary')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '今月のサマリー' })
   async getSummary() {
     return this.freeeService.getSummary();
   }
 
   @Post('journals')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '仕訳作成' })
   async createJournal(@Body() body: any) {
     return this.freeeService.createJournal(body);
   }
 
   @Patch('journals/:id/send')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '仕訳を送信済みに' })
   async markAsSent(@Param('id', ParseUUIDPipe) id: string) {
     return this.freeeService.markAsSent(id);
   }
 
   @Post('sync')
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '一括送信' })
   async sendAll() {
     return this.freeeService.sendAll();

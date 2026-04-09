@@ -40,7 +40,7 @@ export class BusinessCardsController {
    * 名刺画像をアップロードしてOCR解析
    */
   @Post('scan')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺スキャン（OCR）' })
   @UseInterceptors(FileInterceptor('image', {
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
@@ -62,7 +62,7 @@ export class BusinessCardsController {
    * 名刺データを保存
    */
   @Post()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺登録' })
   async create(
     @Body()
@@ -85,7 +85,7 @@ export class BusinessCardsController {
    * 名刺一覧
    */
   @Get()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺一覧' })
   async findAll(@Query('search') search?: string) {
     return this.service.findAll({ search });
@@ -95,7 +95,7 @@ export class BusinessCardsController {
    * 名刺（会社）情報を更新
    */
   @Patch(':id')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺情報更新' })
   async updateCard(
     @Param('id') id: string,
@@ -118,7 +118,7 @@ export class BusinessCardsController {
    * 商談ログを追加
    */
   @Post(':id/logs')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '商談ログ追加' })
   async addLog(
     @Param('id') id: string,
@@ -146,7 +146,7 @@ export class BusinessCardsController {
    * 商談ログに名刺画像を追加
    */
   @Post('logs/:logId/images')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '商談ログ名刺画像追加' })
   @UseInterceptors(FileInterceptor('image', {
     limits: { fileSize: 10 * 1024 * 1024 },
@@ -172,7 +172,7 @@ export class BusinessCardsController {
    * 商談ログを更新
    */
   @Patch('logs/:logId')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '商談ログ更新' })
   async updateLog(
     @Param('logId') logId: string,
@@ -191,7 +191,7 @@ export class BusinessCardsController {
    * 商談ログを削除
    */
   @Delete('logs/:logId')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '商談ログ削除' })
   async deleteLog(@Param('logId') logId: string) {
     return this.service.deleteDealLog(logId);
@@ -201,7 +201,7 @@ export class BusinessCardsController {
    * 名刺画像をアップロード（スキャン風に加工して保存）
    */
   @Post(':id/card-image')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺画像アップロード' })
   @UseInterceptors(FileInterceptor('image', {
     limits: { fileSize: 10 * 1024 * 1024 },
@@ -227,7 +227,7 @@ export class BusinessCardsController {
    * R2: 名刺画像を削除
    */
   @Delete(':id/card-image')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺画像削除' })
   async deleteCardImage(@Param('id') id: string) {
     await this.service.deleteCardImage(id);
@@ -238,7 +238,7 @@ export class BusinessCardsController {
    * R2: 商談ログの名刺画像を1枚削除
    */
   @Delete('logs/:logId/images')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '商談ログ名刺画像削除' })
   async deleteLogImage(
     @Param('logId') logId: string,

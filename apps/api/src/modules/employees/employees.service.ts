@@ -186,6 +186,8 @@ export class EmployeesService {
     const employee = await this.db.employee.findFirst({
       where: { id, deletedAt: null },
       include: {
+        // E: フロント側のロール表示 + ロール変更 API 用に user.id も含める
+        user: { select: { id: true, role: true } },
         department: { select: { id: true, name: true, code: true } },
         position: { select: { id: true, name: true, rank: true } },
         emergencyContacts: {
@@ -504,6 +506,7 @@ export class EmployeesService {
     // 存在確認
     const existing = await this.db.employee.findFirst({
       where: { id, deletedAt: null },
+      include: { user: { select: { id: true, role: true } } },
     });
     if (!existing) {
       throw new NotFoundException('社員が見つかりません');
@@ -525,6 +528,22 @@ export class EmployeesService {
     const newResignDate = data.resignDate !== undefined ? data.resignDate : (existing.resignDate ? existing.resignDate.toISOString().slice(0, 10) : null);
     if (newStatus === 'resigned' && !newResignDate) {
       throw new BadRequestException('退職ステータスにする場合は退職日を入力してください');
+    }
+
+    // E: 最後の admin 保護 — admin ユーザーを退職（status=resigned）にしようとしたら拒否
+    if (
+      newStatus === 'resigned' &&
+      existing.status !== 'resigned' &&
+      existing.user?.role === 'admin'
+    ) {
+      const activeAdminCount = await this.db.user.count({
+        where: { role: 'admin', employee: { deletedAt: null, status: { not: 'resigned' } } },
+      });
+      if (activeAdminCount <= 1) {
+        throw new BadRequestException(
+          '最後のadminを退職させることはできません。別のユーザーをadminに昇格してから退職処理を行ってください。',
+        );
+      }
     }
 
     // 更新データを組み立て（undefinedのフィールドは除外）
@@ -645,9 +664,22 @@ export class EmployeesService {
   async softDelete(id: string, actorUserId?: string) {
     const existing = await this.db.employee.findFirst({
       where: { id, deletedAt: null },
+      include: { user: { select: { id: true, role: true } } },
     });
     if (!existing) {
       throw new NotFoundException('社員が見つかりません');
+    }
+
+    // E: 最後の admin 保護
+    if (existing.user?.role === 'admin') {
+      const activeAdminCount = await this.db.user.count({
+        where: { role: 'admin', employee: { deletedAt: null } },
+      });
+      if (activeAdminCount <= 1) {
+        throw new BadRequestException(
+          '最後のadminを削除することはできません。別のユーザーをadminに昇格してから削除してください。',
+        );
+      }
     }
 
     await this.db.employee.update({

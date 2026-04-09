@@ -11,7 +11,7 @@
  * 社員は自分の給与明細のみ閲覧可能（GET /salary/:year/:month）。
  */
 
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit-logs/audit.service';
 
@@ -38,15 +38,82 @@ export class PayrollService {
 
   /**
    * 全社員の月次給与一覧（管理者用）
+   *
+   * E: 給与可視性マトリクス
+   * - admin:   全員の金額を通常表示
+   * - manager: admin / 他 manager の金額は null（フロントで `****`）
+   * - member:  controller 側で弾かれる想定（admin+manager のみ到達）
+   *
+   * 自分自身の行は常に金額表示（/mypage/payroll とは別経路だが、画面上は揃える）。
+   * `_masked: true` のフラグを付けて返し、フロントで ボタン非表示 の判定に使う。
    */
-  async getMonthlyPayroll(year: number, month: number) {
+  async getMonthlyPayroll(
+    year: number,
+    month: number,
+    viewer?: { role: string; employeeId: string },
+  ) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
-    return this.db.payroll.findMany({
+    const records = await this.db.payroll.findMany({
       where: { targetMonth },
       include: {
-        employee: { select: { employeeCode: true, lastName: true, firstName: true } },
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            lastName: true,
+            firstName: true,
+            user: { select: { role: true } },
+          },
+        },
       },
       orderBy: { employee: { employeeCode: 'asc' } },
+    });
+
+    // viewer 未指定 or admin は無加工
+    if (!viewer || viewer.role === 'admin') {
+      return records.map((r: any) => ({ ...r, _masked: false }));
+    }
+
+    return records.map((r: any) => {
+      const targetRole = r.employee?.user?.role ?? 'employee';
+      const isSelf = r.employee?.id === viewer.employeeId;
+
+      // manager: 自分 or admin/他 manager 以外 → 表示可
+      //          admin / 他 manager（自分除く） → マスク
+      let masked = false;
+      if (viewer.role === 'manager') {
+        if (!isSelf && (targetRole === 'admin' || targetRole === 'manager')) {
+          masked = true;
+        }
+      } else if (viewer.role === 'member') {
+        // member が到達することは通常ないが、防御的に:
+        // 自分以外の admin/manager/member はすべてマスク
+        if (!isSelf && (targetRole === 'admin' || targetRole === 'manager' || targetRole === 'member')) {
+          masked = true;
+        }
+      }
+
+      if (!masked) {
+        return { ...r, _masked: false };
+      }
+
+      // マスク対象: 金額系フィールドをすべて null 化
+      return {
+        ...r,
+        baseSalary: null,
+        overtimePay: null,
+        commuteAllowance: null,
+        otherAllowance: null,
+        grossSalary: null,
+        healthInsurance: null,
+        pension: null,
+        employmentInsurance: null,
+        incomeTax: null,
+        residentTax: null,
+        totalDeductions: null,
+        netSalary: null,
+        _masked: true,
+      };
     });
   }
 
@@ -221,11 +288,24 @@ export class PayrollService {
     },
     editedBy?: string,
     actorUserId?: string,
+    viewer?: { role: string; employeeId: string },
   ) {
-    const payroll = await this.db.payroll.findUnique({ where: { id: payrollId } });
+    const payroll = await this.db.payroll.findUnique({
+      where: { id: payrollId },
+      include: { employee: { select: { id: true, user: { select: { role: true } } } } },
+    });
     if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
     if (payroll.status === 'confirmed') {
       throw new BadRequestException('確定済みの給与は編集できません');
+    }
+
+    // E: 階層可視性 — manager は admin / 他 manager の給与を編集できない
+    if (viewer && viewer.role === 'manager') {
+      const targetRole = payroll.employee?.user?.role ?? 'employee';
+      const isSelf = payroll.employee?.id === viewer.employeeId;
+      if (!isSelf && (targetRole === 'admin' || targetRole === 'manager')) {
+        throw new ForbiddenException('この社員の給与を編集する権限がありません');
+      }
     }
 
     // 編集可能フィールド

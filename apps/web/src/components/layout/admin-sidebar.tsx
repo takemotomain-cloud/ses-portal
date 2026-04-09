@@ -5,11 +5,11 @@
  * セクション: アラート / 営業 / 人事・労務 / 採用 / 経理・管理 / 設定
  * 1024px以下でハンバーガーメニューに切替。
  *
- * ロールベース表示:
- * - admin: 全セクション表示
- * - sales: 営業セクションのみ
- * - accounting: 経理・管理セクションのみ
- * （Phase 1初期は全表示、ロール制御は段階的に追加）
+ * E: ロールベース表示
+ * - admin:    全セクション表示（給与管理含む）
+ * - manager:  全セクション表示（給与管理含む、ただし admin/他 manager の行はマスク）
+ * - member:   給与管理メニューは非表示（アクセスしても /mypage/payroll へリダイレクト）
+ * - employee: レイアウト自体が /mypage へリダイレクト
  */
 
 'use client';
@@ -21,9 +21,17 @@ import { useAuth } from '@/lib/auth-context';
 import { apiClient } from '@/lib/api-client';
 import { useNavigationGuard } from '@/lib/navigation-guard';
 
+interface NavItem {
+  label: string;
+  href: string;
+  badge?: number;
+  /** 表示対象ロール（未指定 = 全ロール） */
+  roles?: string[];
+}
+
 interface NavSection {
   label: string;
-  items: { label: string; href: string; badge?: number }[];
+  items: NavItem[];
 }
 
 const navSections: NavSection[] = [
@@ -51,7 +59,7 @@ const navSections: NavSection[] = [
     items: [
       { label: '社員一覧', href: '/admin/employees' },
       { label: '勤怠管理', href: '/admin/attendance' },
-      { label: '給与管理', href: '/admin/payroll' },
+      { label: '給与管理', href: '/admin/payroll', roles: ['admin', 'manager'] },
       { label: '承認待ち', href: '/admin/approvals' },
       { label: '通知書（入社前）', href: '/admin/notices' },
       { label: '通知書（無期転換）', href: '/admin/notices-muki' },
@@ -145,12 +153,18 @@ export function AdminSidebar() {
 
         {/* ナビゲーション */}
         <nav className="flex-1">
-          {navSections.map((section) => (
+          {navSections.map((section) => {
+            // E: ロールでフィルタ
+            const visibleItems = section.items.filter(
+              (item) => !item.roles || !user?.role || item.roles.includes(user.role),
+            );
+            if (visibleItems.length === 0) return null;
+            return (
             <div key={section.label} className="px-3 mb-4">
               <div className="text-2xs text-secondary/60 uppercase tracking-widest px-2 mb-1">
                 {section.label}
               </div>
-              {section.items.map((item) => {
+              {visibleItems.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + '/');
                 const dynamicBadge =
                   item.href === '/admin/approvals' ? approvalCount :
@@ -180,7 +194,8 @@ export function AdminSidebar() {
                 );
               })}
             </div>
-          ))}
+            );
+          })}
 
           {/* マイページへのリンク */}
           <div className="px-3 mb-4">

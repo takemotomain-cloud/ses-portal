@@ -13,6 +13,7 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -220,14 +221,34 @@ export class ProfileService {
   /**
    * 変更申請を承認（管理者用）
    * 承認時にemployeesテーブルに変更を反映する
+   *
+   * E: 権限分岐
+   * - 氏名・住所・電話: admin / manager / member 全員が承認可
+   * - 銀行口座（changeType='bank'）: admin / manager のみ承認可（member は 403）
+   * - セルフ承認禁止
    */
-  async approveChangeRequest(requestId: string, approverId: string, actorUserId?: string) {
+  async approveChangeRequest(
+    requestId: string,
+    approverId: string,
+    actorUserId?: string,
+    approverRole?: string,
+  ) {
     const request = await this.db.changeRequest.findUnique({
       where: { id: requestId },
     });
 
     if (!request) throw new NotFoundException('申請が見つかりません');
     if (request.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
+
+    // セルフ承認禁止
+    if (request.employeeId === approverId) {
+      throw new ForbiddenException('自分の申請は自分で承認できません');
+    }
+
+    // 口座変更の承認は admin / manager のみ
+    if (request.changeType === 'bank' && approverRole && approverRole !== 'admin' && approverRole !== 'manager') {
+      throw new ForbiddenException('銀行口座変更の承認にはmanager以上の権限が必要です');
+    }
 
     await this.db.$transaction(async (tx) => {
       // 1. 申請を承認
@@ -266,14 +287,28 @@ export class ProfileService {
 
   /**
    * 変更申請を却下（管理者用）
+   *
+   * E: 却下はセルフ却下禁止のみ。権限は admin/manager/member 全員許可（却下は情報露出がないため）。
    */
-  async rejectChangeRequest(requestId: string, approverId: string, actorUserId?: string) {
+  async rejectChangeRequest(
+    requestId: string,
+    approverId: string,
+    actorUserId?: string,
+    approverRole?: string,
+  ) {
     const request = await this.db.changeRequest.findUnique({
       where: { id: requestId },
     });
 
     if (!request) throw new NotFoundException('申請が見つかりません');
     if (request.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
+
+    if (request.employeeId === approverId) {
+      throw new ForbiddenException('自分の申請は自分で却下できません');
+    }
+
+    // 却下に関しては特に manager 限定はしない（却下は情報を表に出さないため）
+    void approverRole;
 
     await this.db.changeRequest.update({
       where: { id: requestId },

@@ -22,21 +22,21 @@ export class SkillsheetsController {
   constructor(private readonly service: SkillsheetsService) {}
 
   @Get()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'スキルシート一覧（SES事業部社員）' })
   async findAll(@Query('search') search?: string) {
     return this.service.findAllWithEmployees(search);
   }
 
   @Get(':employeeId')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '社員スキルシート取得' })
   async findOne(@Param('employeeId') employeeId: string) {
     return this.service.findByEmployeeId(employeeId);
   }
 
   @Put(':employeeId')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'スキルシート保存' })
   async upsert(
     @Param('employeeId') employeeId: string,
@@ -50,7 +50,7 @@ export class SkillsheetsController {
   }
 
   @Patch(':employeeId/summary')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'サマリ情報保存' })
   async saveSummary(
     @Param('employeeId') employeeId: string,

@@ -37,7 +37,7 @@ export class CandidatesController {
    * 候補者を登録
    */
   @Post()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '候補者を登録' })
   async create(
     @Body() body: {
@@ -71,7 +71,7 @@ export class CandidatesController {
    * 候補者一覧を取得
    */
   @Get()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '候補者一覧' })
   async findAll() {
     return this.candidatesService.findAll();
@@ -79,7 +79,7 @@ export class CandidatesController {
 
   // ---- 採用分析 ----
   @Get('analytics')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '採用経路別分析' })
   async getAnalytics(@Query('year') year?: string) {
     return this.candidatesService.getAnalytics(year ? parseInt(year, 10) : undefined);
@@ -87,7 +87,7 @@ export class CandidatesController {
 
   // ---- 採用経路マスタ ----
   @Get('sources')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '採用経路一覧' })
   async getSources() {
     return this.candidatesService.getSources();
@@ -116,7 +116,7 @@ export class CandidatesController {
 
   // ---- 採用予算 ----
   @Get('budgets')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '採用予算取得' })
   async getBudgets(@Query('year') year: string) {
     return this.candidatesService.getBudgets(parseInt(year, 10) || new Date().getFullYear());

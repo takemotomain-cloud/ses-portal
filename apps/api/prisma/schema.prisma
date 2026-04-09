@@ -175,6 +175,9 @@ model User {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   employeeId       String    @unique @map("employee_id") @db.Uuid
   passwordHash     String    @map("password_hash") @db.VarChar(255)
+  /// admin | manager | member | employee
+  /// 管理側ログイン: admin/manager/member
+  /// employee: SES事業部など管理側非ログイン（/mypage のみ）
   role             String    @default("employee") @db.VarChar(20)
   isLocked         Boolean   @default(false) @map("is_locked")
   failedLoginCount Int       @default(0) @map("failed_login_count")

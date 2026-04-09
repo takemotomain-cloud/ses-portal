@@ -27,7 +27,7 @@ export class AssignmentsController {
    * 新規アサイン登録（admin/salesのみ）
    */
   @Post()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '新規アサイン登録' })
   async create(
     @Body()
@@ -54,7 +54,7 @@ export class AssignmentsController {
    * アサイン一覧（admin/salesのみ）
    */
   @Get()
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'アサイン一覧' })
   async findAll(
     @Query('page') page?: number,
@@ -72,7 +72,7 @@ export class AssignmentsController {
    * 履歴用に rateChangeReason / rateChangeEffectiveFrom を body で受け付ける。
    */
   @Patch(':id')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'アサイン更新' })
   async update(
     @Param('id') id: string,
@@ -104,7 +104,7 @@ export class AssignmentsController {
    * アサイン単価改定履歴を取得（M3）
    */
   @Get(':id/rate-history')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '単価改定履歴' })
   async getRateHistory(@Param('id') id: string) {
     return this.assignmentsService.getRateHistory(id);
@@ -114,7 +114,7 @@ export class AssignmentsController {
    * 稼働終了（admin/salesのみ）
    */
   @Post(':id/end')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '稼働終了' })
   async endAssignment(
     @Param('id') id: string,
@@ -124,7 +124,7 @@ export class AssignmentsController {
   }
 
   @Patch(':id/extend')
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '契約延長' })
   async extendAssignment(
     @Param('id') id: string,

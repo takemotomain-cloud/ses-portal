@@ -9,7 +9,7 @@
  *     <ProtectedContent />
  *   </AuthGuard>
  *
- *   <AuthGuard requiredRoles={['admin', 'sales']}>
+ *   <AuthGuard requiredRoles={['admin', 'manager', 'member']}>
  *     <AdminOnlyContent />
  *   </AuthGuard>
  *

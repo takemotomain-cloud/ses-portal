@@ -21,6 +21,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
@@ -262,19 +263,63 @@ export class ExpenseService {
   }
 
   /**
+   * 階層承認チェック（E: 権限・ロール定義）
+   *
+   * approver と requester の employeeId / ロールから、承認/却下操作が許されるかを判定する。
+   * セルフ承認禁止。member は controller で弾かれる想定だが防御的にここでも拒否する。
+   */
+  private async assertCanActOnRequest(
+    requesterEmployeeId: string,
+    approverEmployeeId: string,
+    approverRole: string,
+  ): Promise<void> {
+    // セルフ承認禁止
+    if (requesterEmployeeId === approverEmployeeId) {
+      throw new ForbiddenException('自分の申請は自分で処理できません');
+    }
+
+    // 申請者の User ロールを取得（User レコードが無い場合は 'employee' とみなす）
+    const requesterUser = await this.db.user.findFirst({
+      where: { employeeId: requesterEmployeeId },
+      select: { role: true },
+    });
+    const requesterRole = requesterUser?.role ?? 'employee';
+
+    if (approverRole === 'admin') {
+      return; // admin は全員処理可
+    }
+    if (approverRole === 'manager') {
+      // manager は admin / 他 manager の申請を処理できない
+      if (requesterRole === 'admin' || requesterRole === 'manager') {
+        throw new ForbiddenException('この申請を処理する権限がありません');
+      }
+      return;
+    }
+    // member / employee など
+    throw new ForbiddenException('この申請を処理する権限がありません');
+  }
+
+  /**
    * 承認
    */
-  async approve(requestId: string, approverId: string, actorUserId?: string) {
+  async approve(
+    requestId: string,
+    approverEmployeeId: string,
+    actorUserId?: string,
+    approverRole?: string,
+  ) {
     const request = await this.db.expenseRequest.findUnique({ where: { id: requestId } });
     if (!request) throw new NotFoundException('経費申請が見つかりません');
     if (request.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
 
+    await this.assertCanActOnRequest(request.employeeId, approverEmployeeId, approverRole ?? 'admin');
+
     await this.db.expenseRequest.update({
       where: { id: requestId },
-      data: { status: 'approved', approverId, approvedAt: new Date() },
+      data: { status: 'approved', approverId: approverEmployeeId, approvedAt: new Date() },
     });
 
-    this.logger.log(`Expense request ${requestId} approved by ${approverId}`);
+    this.logger.log(`Expense request ${requestId} approved by ${approverEmployeeId}`);
 
     await this.auditService.log({
       userId: actorUserId,
@@ -294,17 +339,24 @@ export class ExpenseService {
   /**
    * 却下
    */
-  async reject(requestId: string, approverId: string, actorUserId?: string) {
+  async reject(
+    requestId: string,
+    approverEmployeeId: string,
+    actorUserId?: string,
+    approverRole?: string,
+  ) {
     const request = await this.db.expenseRequest.findUnique({ where: { id: requestId } });
     if (!request) throw new NotFoundException('経費申請が見つかりません');
     if (request.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
 
+    await this.assertCanActOnRequest(request.employeeId, approverEmployeeId, approverRole ?? 'admin');
+
     await this.db.expenseRequest.update({
       where: { id: requestId },
-      data: { status: 'rejected', approverId, approvedAt: new Date() },
+      data: { status: 'rejected', approverId: approverEmployeeId, approvedAt: new Date() },
     });
 
-    this.logger.log(`Expense request ${requestId} rejected by ${approverId}`);
+    this.logger.log(`Expense request ${requestId} rejected by ${approverEmployeeId}`);
 
     await this.auditService.log({
       userId: actorUserId,

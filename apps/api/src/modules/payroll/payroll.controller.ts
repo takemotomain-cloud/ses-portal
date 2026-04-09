@@ -40,7 +40,7 @@ export class PayrollController {
 
   @Get('payroll/rate-master')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '料率マスタを取得' })
   async getRateMaster() {
     return this.payrollService.getRateMaster();
@@ -48,7 +48,7 @@ export class PayrollController {
 
   @Patch('payroll/rate-master')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '料率マスタを更新' })
   async updateRateMaster(
     @CurrentUser() user: RequestUser,
@@ -66,18 +66,22 @@ export class PayrollController {
 
   @Get('payroll/:year/:month')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '全社員の月次給与一覧（管理者用）' })
   async getMonthlyPayroll(
+    @CurrentUser() user: RequestUser,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.payrollService.getMonthlyPayroll(year, month);
+    return this.payrollService.getMonthlyPayroll(year, month, {
+      role: user.role,
+      employeeId: user.employeeId,
+    });
   }
 
   @Post('payroll/:year/:month/calc')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与計算を実行（管理者用）' })
   async calculate(
     @Param('year', ParseIntPipe) year: number,
@@ -88,7 +92,7 @@ export class PayrollController {
 
   @Post('payroll/:year/:month/confirm')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与を確定する（管理者用）' })
   async confirm(
     @CurrentUser() user: RequestUser,
@@ -104,7 +108,7 @@ export class PayrollController {
 
   @Patch('payroll/record/:id')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与レコードを直接編集（編集履歴を残す）' })
   async updatePayrollRecord(
     @Param('id') id: string,
@@ -123,12 +127,15 @@ export class PayrollController {
       reason?: string;
     },
   ) {
-    return this.payrollService.updatePayrollRecord(id, body, user.employeeId, user.userId);
+    return this.payrollService.updatePayrollRecord(id, body, user.employeeId, user.userId, {
+      role: user.role,
+      employeeId: user.employeeId,
+    });
   }
 
   @Get('payroll/record/:id/history')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'accounting')
+  @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与レコードの編集履歴を取得' })
   async getPayrollEditHistory(@Param('id') id: string) {
     return this.payrollService.getPayrollEditHistory(id);

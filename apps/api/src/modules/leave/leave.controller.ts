@@ -49,7 +49,7 @@ export class LeaveController {
 
   @Get('pending')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '承認待ち有給申請一覧（管理者用）' })
   async getPending() {
     return this.leaveService.getPendingRequests();
@@ -57,7 +57,7 @@ export class LeaveController {
 
   @Post(':id/approve')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '有給申請を承認' })
   async approve(
     @Param('id', ParseUUIDPipe) id: string,
@@ -69,7 +69,7 @@ export class LeaveController {
 
   @Post(':id/reject')
   @UseGuards(RolesGuard)
-  @Roles('admin', 'sales')
+  @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '有給申請を却下' })
   async reject(
     @Param('id', ParseUUIDPipe) id: string,

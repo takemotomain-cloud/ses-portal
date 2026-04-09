@@ -68,7 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           employeeCode: employee.employeeCode,
           name: `${employee.lastName} ${employee.firstName}`,
           email: employee.email,
-          role: '' as any,
+          // E: employees.findOne が user.role を返すようになった
+          role: (employee.user?.role ?? 'employee') as any,
           employeeStatus: employee.status,
           resignDate: employee.resignDate
             ? String(employee.resignDate).slice(0, 10)
