@@ -24,10 +24,20 @@ export class ExpenseController {
   constructor(private readonly expenseService: ExpenseService) {}
 
   @Post('request')
-  @ApiOperation({ summary: '経費申請（明細付き）' })
+  @ApiOperation({ summary: '交通費申請（都度 / 定期 混在可、明細付き）' })
   async createRequest(
     @CurrentUser() user: RequestUser,
-    @Body() body: { targetMonth: string; items: { expenseDate: string; departure: string; destination: string; amount: number }[] },
+    @Body() body: {
+      targetMonth: string;
+      items: {
+        kind?: 'onetime' | 'monthly_pass' | 'three_month_pass';
+        expenseDate: string;
+        passEndDate?: string;
+        departure: string;
+        destination: string;
+        amount: number;
+      }[];
+    },
   ) {
     return this.expenseService.createRequest(user.employeeId, body);
   }
@@ -51,7 +61,7 @@ export class ExpenseController {
   @Roles('admin', 'accounting')
   @ApiOperation({ summary: '経費申請を承認' })
   async approve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.expenseService.approve(id, user.employeeId);
+    await this.expenseService.approve(id, user.employeeId, user.userId);
     return { message: '承認しました' };
   }
 
@@ -60,7 +70,7 @@ export class ExpenseController {
   @Roles('admin', 'accounting')
   @ApiOperation({ summary: '経費申請を却下' })
   async reject(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.expenseService.reject(id, user.employeeId);
+    await this.expenseService.reject(id, user.employeeId, user.userId);
     return { message: '却下しました' };
   }
 }

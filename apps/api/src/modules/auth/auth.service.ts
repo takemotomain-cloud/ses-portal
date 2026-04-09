@@ -26,6 +26,7 @@ import { DatabaseService } from '../../database/database.service';
 import { MAX_LOGIN_ATTEMPTS, BCRYPT_ROUNDS } from '@ses-portal/shared';
 import type { AuthUser, LoginResponse } from '@ses-portal/shared';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditService } from '../audit-logs/audit.service';
 
 @Injectable()
 export class AuthService {
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly db: DatabaseService,
     private readonly jwtService: JwtService,
     private readonly notifications: NotificationsService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -52,7 +54,11 @@ export class AuthService {
    * @returns JWT + ユーザー情報
    * @throws UnauthorizedException 認証失敗時
    */
-  async login(email: string, password: string): Promise<LoginResponse> {
+  async login(
+    email: string,
+    password: string,
+    meta: { ipAddress?: string; userAgent?: string } = {},
+  ): Promise<LoginResponse> {
     // 1. ユーザー検索（employeesとJOIN）
     const user = await this.db.user.findFirst({
       where: {
@@ -80,6 +86,13 @@ export class AuthService {
     // セキュリティ: 「メールが存在しない」とは明かさない
     if (!user) {
       this.logger.warn(`Login attempt with unknown email: ${email}`);
+      await this.auditService.log({
+        action: 'auth.login_failure',
+        targetTable: 'users',
+        newValue: { email, reason: 'unknown_email' },
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
       throw new UnauthorizedException(
         'メールアドレスまたはパスワードが正しくありません',
       );
@@ -88,6 +101,15 @@ export class AuthService {
     // 2. アカウントロック確認
     if (user.isLocked) {
       this.logger.warn(`Login attempt on locked account: ${email}`);
+      await this.auditService.log({
+        userId: user.id,
+        action: 'auth.login_failure',
+        targetTable: 'users',
+        targetId: user.id,
+        newValue: { email, reason: 'locked' },
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
       throw new UnauthorizedException(
         'アカウントがロックされています。管理者に連絡してください',
       );
@@ -146,6 +168,16 @@ export class AuthService {
         `Failed login attempt (${newFailCount}/${MAX_LOGIN_ATTEMPTS}): ${email}`,
       );
 
+      await this.auditService.log({
+        userId: user.id,
+        action: 'auth.login_failure',
+        targetTable: 'users',
+        targetId: user.id,
+        newValue: { email, reason: 'bad_password', failedCount: newFailCount, locked: shouldLock },
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
+
       throw new UnauthorizedException(
         'メールアドレスまたはパスワードが正しくありません',
       );
@@ -180,8 +212,36 @@ export class AuthService {
       role: user.role,
     });
 
+    await this.auditService.log({
+      userId: user.id,
+      action: 'auth.login_success',
+      targetTable: 'users',
+      targetId: user.id,
+      newValue: { email, role: user.role },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
     this.logger.log(`Successful login: ${email} (role: ${user.role})`);
 
     return { accessToken, user: authUser };
+  }
+
+  /**
+   * ログアウト（監査ログのみ記録。クライアント側でトークン破棄する運用）
+   */
+  async logout(
+    userId: string,
+    meta: { ipAddress?: string; userAgent?: string } = {},
+  ): Promise<void> {
+    await this.auditService.log({
+      userId,
+      action: 'auth.logout',
+      targetTable: 'users',
+      targetId: userId,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    this.logger.log(`Logout: user=${userId}`);
   }
 }

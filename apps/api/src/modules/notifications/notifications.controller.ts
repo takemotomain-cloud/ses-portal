@@ -1,12 +1,13 @@
 import {
-  Controller, Get, Post, Param, Query, Body,
+  Controller, Get, Post, Delete, Param, Query, Body,
   UseGuards, ParseUUIDPipe, UseInterceptors, UploadedFile,
+  BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { extname, join, basename } from 'path';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -62,6 +63,33 @@ export class NotificationsController {
     }
     const imageUrl = `/uploads/notifications/${file.filename}`;
     return { imageUrl };
+  }
+
+  /**
+   * R2: お知らせ用画像削除
+   *
+   * URL 末尾のファイル名を受け取り、`uploads/notifications/` 配下から物理削除する。
+   * ディレクトリトラバーサル対策として basename で正規化する。
+   */
+  @Delete('upload-image/:filename')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'お知らせ用画像削除（管理者）' })
+  async deleteImage(@Param('filename') filename: string) {
+    const safe = basename(filename);
+    if (!safe || safe.includes('..') || safe.includes('/')) {
+      throw new BadRequestException('不正なファイル名です');
+    }
+    const filePath = join(uploadDir, safe);
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('ファイルが見つかりません');
+    }
+    try {
+      unlinkSync(filePath);
+    } catch (err: any) {
+      throw new BadRequestException(`削除に失敗しました: ${err?.message ?? err}`);
+    }
+    return { ok: true, filename: safe };
   }
 
   @Post('send')

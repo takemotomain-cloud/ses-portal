@@ -222,4 +222,32 @@ export class BusinessCardsController {
     const imagePath = await this.service.processAndSaveCardImage(id, file.buffer);
     return { imagePath };
   }
+
+  /**
+   * R2: 名刺画像を削除
+   */
+  @Delete(':id/card-image')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '名刺画像削除' })
+  async deleteCardImage(@Param('id') id: string) {
+    await this.service.deleteCardImage(id);
+    return { ok: true };
+  }
+
+  /**
+   * R2: 商談ログの名刺画像を1枚削除
+   */
+  @Delete('logs/:logId/images')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '商談ログ名刺画像削除' })
+  async deleteLogImage(
+    @Param('logId') logId: string,
+    @Body() body: { imagePath: string },
+  ) {
+    if (!body?.imagePath) {
+      throw new BadRequestException('imagePath は必須です');
+    }
+    await this.service.deleteLogCardImage(logId, body.imagePath);
+    return { ok: true };
+  }
 }

@@ -37,6 +37,17 @@ interface EmployeeDetail {
   resignDate: string | null;
   baseSalary: number | null;
   rewardRate: number | null;
+  contractHours: number | null;
+  fixedOvertime: number | null;
+  rateHealthInsurance: number | string | null;
+  rateEmployeePension: number | string | null;
+  rateEmploymentInsurance: number | string | null;
+  rateIncomeTax: number | string | null;
+  rateResidentTaxFixed: number | null;
+  commuteStyle: string | null;
+  leaveGrantMethod: string | null;
+  transferredLeaveDays: number | string | null;
+  transferredLeaveGrantedDate: string | null;
   hasBonus: boolean;
   bankName: string | null;
   bankBranch: string | null;
@@ -77,6 +88,17 @@ interface EditForm {
   emergencyPhone: string;
   baseSalary: string;
   rewardRate: string;
+  contractHours: string;
+  fixedOvertime: string;
+  rateHealthInsurance: string;
+  rateEmployeePension: string;
+  rateEmploymentInsurance: string;
+  rateIncomeTax: string;
+  rateResidentTaxFixed: string;
+  commuteStyle: string;
+  leaveGrantMethod: string;
+  transferredLeaveDays: string;
+  transferredLeaveGrantedDate: string;
   bankName: string;
   bankBranch: string;
   bankAccountType: string;
@@ -219,6 +241,17 @@ export default function EmployeeEditPage() {
     emergencyPhone: '',
     baseSalary: '',
     rewardRate: '',
+    contractHours: '',
+    fixedOvertime: '',
+    rateHealthInsurance: '',
+    rateEmployeePension: '',
+    rateEmploymentInsurance: '',
+    rateIncomeTax: '',
+    rateResidentTaxFixed: '',
+    commuteStyle: '',
+    leaveGrantMethod: 'hire_date',
+    transferredLeaveDays: '',
+    transferredLeaveGrantedDate: '',
     bankName: '',
     bankBranch: '',
     bankAccountType: '普通',
@@ -265,6 +298,17 @@ export default function EmployeeEditPage() {
           emergencyPhone: d.emergencyContacts?.[0]?.phone || '',
           baseSalary: d.baseSalary !== null && d.baseSalary !== undefined ? String(d.baseSalary) : '',
           rewardRate: d.rewardRate !== null && d.rewardRate !== undefined ? `${d.rewardRate}%` : '',
+          contractHours: d.contractHours !== null && d.contractHours !== undefined ? String(d.contractHours) : '',
+          fixedOvertime: d.fixedOvertime !== null && d.fixedOvertime !== undefined ? String(d.fixedOvertime) : '',
+          rateHealthInsurance: d.rateHealthInsurance !== null && d.rateHealthInsurance !== undefined ? String(Number(d.rateHealthInsurance) * 100) : '',
+          rateEmployeePension: d.rateEmployeePension !== null && d.rateEmployeePension !== undefined ? String(Number(d.rateEmployeePension) * 100) : '',
+          rateEmploymentInsurance: d.rateEmploymentInsurance !== null && d.rateEmploymentInsurance !== undefined ? String(Number(d.rateEmploymentInsurance) * 100) : '',
+          rateIncomeTax: d.rateIncomeTax !== null && d.rateIncomeTax !== undefined ? String(Number(d.rateIncomeTax) * 100) : '',
+          rateResidentTaxFixed: d.rateResidentTaxFixed !== null && d.rateResidentTaxFixed !== undefined ? String(d.rateResidentTaxFixed) : '',
+          commuteStyle: d.commuteStyle || '',
+          leaveGrantMethod: d.leaveGrantMethod || 'hire_date',
+          transferredLeaveDays: d.transferredLeaveDays !== null && d.transferredLeaveDays !== undefined ? String(d.transferredLeaveDays) : '',
+          transferredLeaveGrantedDate: d.transferredLeaveGrantedDate ? String(d.transferredLeaveGrantedDate).slice(0, 10) : '',
           bankName: d.bankName || '',
           bankBranch: d.bankBranch || '',
           bankAccountType: accountTypeLabel[d.bankAccountType || ''] || '普通',
@@ -333,6 +377,17 @@ export default function EmployeeEditPage() {
         gender: genderReverse[form.gender] || form.gender,
         baseSalary: form.baseSalary ? Number(String(form.baseSalary).replace(/,/g, '')) : undefined,
         rewardRate: form.rewardRate ? Number(String(form.rewardRate).replace(/%/g, '')) : undefined,
+        contractHours: form.contractHours ? Number(form.contractHours) : null,
+        fixedOvertime: form.fixedOvertime ? Number(form.fixedOvertime) : null,
+        rateHealthInsurance: form.rateHealthInsurance ? Number(form.rateHealthInsurance) / 100 : null,
+        rateEmployeePension: form.rateEmployeePension ? Number(form.rateEmployeePension) / 100 : null,
+        rateEmploymentInsurance: form.rateEmploymentInsurance ? Number(form.rateEmploymentInsurance) / 100 : null,
+        rateIncomeTax: form.rateIncomeTax ? Number(form.rateIncomeTax) / 100 : null,
+        rateResidentTaxFixed: form.rateResidentTaxFixed ? Number(form.rateResidentTaxFixed) : null,
+        commuteStyle: form.commuteStyle || null,
+        leaveGrantMethod: form.leaveGrantMethod || null,
+        transferredLeaveDays: form.transferredLeaveDays ? Number(form.transferredLeaveDays) : null,
+        transferredLeaveGrantedDate: form.transferredLeaveGrantedDate || null,
         bankName: form.bankName,
         bankBranch: form.bankBranch,
         bankAccountType: accountTypeReverse[form.bankAccountType] || form.bankAccountType,
@@ -719,10 +774,126 @@ export default function EmployeeEditPage() {
               <input
                 type="text"
                 className={inputCls}
-                placeholder="72%"
+                placeholder="空白なら計算しない"
                 value={form.rewardRate}
                 onChange={set('rewardRate')}
               />
+              <div className="text-[10px] text-secondary mt-[3px]">
+                ※ 空白の場合は還元率計算を行いません
+              </div>
+            </div>
+          </div>
+
+          {/* 所定労働時間 / 固定残業時間 */}
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label className={labelCls}>所定労働時間（時間/月）</label>
+              <input
+                type="number"
+                className={inputCls}
+                placeholder="168"
+                value={form.contractHours}
+                onChange={set('contractHours')}
+              />
+              <div className="text-[10px] text-secondary mt-[3px]">
+                ※ 未入力時はデフォルト168h/月で計算
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>固定残業時間（時間/月）</label>
+              <input
+                type="number"
+                className={inputCls}
+                placeholder="20"
+                value={form.fixedOvertime}
+                onChange={set('fixedOvertime')}
+              />
+              <div className="text-[10px] text-secondary mt-[3px]">
+                ※ 未入力時はデフォルト20h/月で計算
+              </div>
+            </div>
+          </div>
+
+          {/* J1: 社員別料率上書き */}
+          <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
+            <div className="text-xs font-medium text-primary mb-2">
+              料率の社員別上書き（空白の場合はデフォルト値を使用）
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              <div>
+                <label className={labelCls}>健康保険(%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={inputCls}
+                  placeholder="デフォルト"
+                  value={form.rateHealthInsurance}
+                  onChange={set('rateHealthInsurance')}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>厚生年金(%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={inputCls}
+                  placeholder="デフォルト"
+                  value={form.rateEmployeePension}
+                  onChange={set('rateEmployeePension')}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>雇用保険(%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={inputCls}
+                  placeholder="デフォルト"
+                  value={form.rateEmploymentInsurance}
+                  onChange={set('rateEmploymentInsurance')}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>所得税(%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className={inputCls}
+                  placeholder="デフォルト"
+                  value={form.rateIncomeTax}
+                  onChange={set('rateIncomeTax')}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>住民税(円)</label>
+                <input
+                  type="number"
+                  step="1"
+                  className={inputCls}
+                  placeholder="デフォルト"
+                  value={form.rateResidentTaxFixed}
+                  onChange={set('rateResidentTaxFixed')}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 通勤スタイル */}
+          <div className="mb-2">
+            <label className={labelCls}>通勤スタイル</label>
+            <select
+              className={selectCls}
+              style={{ width: 240 }}
+              value={form.commuteStyle}
+              onChange={set('commuteStyle')}
+            >
+              <option value="">未設定</option>
+              <option value="onetime">都度（申請の度）</option>
+              <option value="monthly">1ヶ月定期</option>
+              <option value="three_month">3ヶ月定期</option>
+            </select>
+            <div className="text-[10px] text-secondary mt-[3px]">
+              ※ 定期設定時は申請漏れアラートが自動表示されます
             </div>
           </div>
 
@@ -783,6 +954,60 @@ export default function EmployeeEditPage() {
               {hasBonus ? 'あり' : 'なし'}
             </button>
           </div>
+        </div>
+
+        {/* ===== 有給設定 ===== */}
+        <div className="card p-5 mb-3">
+          <div className="text-sm font-medium mb-3">有給設定</div>
+
+          {/* 付与方式 */}
+          <div className="mb-2">
+            <label className={labelCls}>付与方式</label>
+            <select
+              className={selectCls}
+              style={{ width: 240 }}
+              value={form.leaveGrantMethod}
+              onChange={set('leaveGrantMethod')}
+            >
+              <option value="hire_date">入社日基準</option>
+              <option value="transferred">前職引継ぎ</option>
+            </select>
+            <div className="text-[10px] text-secondary mt-[3px]">
+              ※ 入社日基準=労基法の勤続年数に従って付与 / 前職引継ぎ=前職の残日数を引き継ぐ
+            </div>
+          </div>
+
+          {/* 引継ぎ情報（前職引継ぎ選択時のみ表示） */}
+          {form.leaveGrantMethod === 'transferred' && (
+            <div className="grid grid-cols-2 gap-2 mb-0">
+              <div>
+                <label className={labelCls}>引継ぎ残日数</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  className={inputCls}
+                  placeholder="10"
+                  value={form.transferredLeaveDays}
+                  onChange={set('transferredLeaveDays')}
+                />
+                <div className="text-[10px] text-secondary mt-[3px]">
+                  ※ 半休対応のため0.5刻みで入力可
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>前職付与日</label>
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={form.transferredLeaveGrantedDate}
+                  onChange={set('transferredLeaveGrantedDate')}
+                />
+                <div className="text-[10px] text-secondary mt-[3px]">
+                  ※ 不明な場合は転籍日を入力
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ===== 書類（Google Drive） ===== */}

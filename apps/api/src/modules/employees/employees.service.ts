@@ -16,6 +16,8 @@
 
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { LeaveService } from '../leave/leave.service';
+import { AuditService } from '../audit-logs/audit.service';
 import { PAGINATION } from '@ses-portal/shared';
 import * as bcrypt from 'bcrypt';
 
@@ -25,7 +27,11 @@ const BCRYPT_ROUNDS = 12;
 export class EmployeesService {
   private readonly logger = new Logger(EmployeesService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly leaveService: LeaveService,
+    private readonly auditService: AuditService,
+  ) {}
 
   /**
    * 社員一覧を取得
@@ -301,11 +307,17 @@ export class EmployeesService {
     gender?: string;
     baseSalary?: number;
     rewardRate?: number;
+    contractHours?: number;
+    fixedOvertime?: number;
+    commuteStyle?: 'onetime' | 'monthly' | 'three_month' | null;
+    leaveGrantMethod?: 'hire_date' | 'transferred' | null;
+    transferredLeaveDays?: number;
+    transferredLeaveGrantedDate?: string;
     bankName?: string;
     bankBranch?: string;
     bankAccountType?: string;
     bankAccountNumber?: string;
-  }) {
+  }, actorUserId?: string) {
     // 重複チェック
     const existingEmail = await this.db.employee.findFirst({
       where: { email: data.email, deletedAt: null },
@@ -380,6 +392,14 @@ export class EmployeesService {
           schoolName: data.schoolName || null,
           baseSalary: data.baseSalary || null,
           rewardRate: data.rewardRate || null,
+          contractHours: data.contractHours ?? null,
+          fixedOvertime: data.fixedOvertime ?? null,
+          commuteStyle: data.commuteStyle || null,
+          leaveGrantMethod: data.leaveGrantMethod || 'hire_date',
+          transferredLeaveDays: data.transferredLeaveDays ?? null,
+          transferredLeaveGrantedDate: data.transferredLeaveGrantedDate
+            ? new Date(data.transferredLeaveGrantedDate)
+            : null,
           bankName: data.bankName || null,
           bankBranch: data.bankBranch || null,
           bankAccountType: data.bankAccountType || null,
@@ -400,6 +420,36 @@ export class EmployeesService {
     });
 
     this.logger.log(`社員を登録しました: ${employee.employeeCode} ${employee.lastName} ${employee.firstName}`);
+
+    // L2: 社員追加時に有給を自動付与
+    try {
+      const grantMethod = (data.leaveGrantMethod || 'hire_date') as 'hire_date' | 'transferred';
+      await this.leaveService.grantInitialLeave(employee.id, {
+        grantMethod,
+        hireDate: new Date(data.hireDate),
+        transferredDays: data.transferredLeaveDays,
+        transferredGrantedDate: data.transferredLeaveGrantedDate
+          ? new Date(data.transferredLeaveGrantedDate)
+          : undefined,
+      });
+    } catch (err) {
+      this.logger.error(`有給の自動付与に失敗: employee=${employee.id}`, err as any);
+    }
+
+    // T2: 監査ログ
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'employee.create',
+      targetTable: 'employees',
+      targetId: employee.id,
+      newValue: {
+        employeeCode: employee.employeeCode,
+        lastName: employee.lastName,
+        firstName: employee.firstName,
+        email: employee.email,
+        departmentId: employee.departmentId,
+      },
+    });
 
     return { id: employee.id, employeeCode: employee.employeeCode };
   }
@@ -430,6 +480,18 @@ export class EmployeesService {
     gender?: string;
     baseSalary?: number;
     rewardRate?: number;
+    contractHours?: number | null;
+    fixedOvertime?: number | null;
+    // J1: 社員別料率上書き
+    rateHealthInsurance?: number | null;
+    rateEmployeePension?: number | null;
+    rateEmploymentInsurance?: number | null;
+    rateIncomeTax?: number | null;
+    rateResidentTaxFixed?: number | null;
+    commuteStyle?: 'onetime' | 'monthly' | 'three_month' | null;
+    leaveGrantMethod?: 'hire_date' | 'transferred' | null;
+    transferredLeaveDays?: number | null;
+    transferredLeaveGrantedDate?: string | null;
     bankName?: string;
     bankBranch?: string;
     bankAccountType?: string;
@@ -438,7 +500,7 @@ export class EmployeesService {
     qualifications?: any;
     hasBonus?: boolean;
     resignDate?: string | null;
-  }) {
+  }, actorUserId?: string) {
     // 存在確認
     const existing = await this.db.employee.findFirst({
       where: { id, deletedAt: null },
@@ -484,6 +546,21 @@ export class EmployeesService {
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.baseSalary !== undefined) updateData.baseSalary = data.baseSalary;
     if (data.rewardRate !== undefined) updateData.rewardRate = data.rewardRate;
+    if (data.contractHours !== undefined) updateData.contractHours = data.contractHours;
+    if (data.fixedOvertime !== undefined) updateData.fixedOvertime = data.fixedOvertime;
+    if (data.rateHealthInsurance !== undefined) updateData.rateHealthInsurance = data.rateHealthInsurance;
+    if (data.rateEmployeePension !== undefined) updateData.rateEmployeePension = data.rateEmployeePension;
+    if (data.rateEmploymentInsurance !== undefined) updateData.rateEmploymentInsurance = data.rateEmploymentInsurance;
+    if (data.rateIncomeTax !== undefined) updateData.rateIncomeTax = data.rateIncomeTax;
+    if (data.rateResidentTaxFixed !== undefined) updateData.rateResidentTaxFixed = data.rateResidentTaxFixed;
+    if (data.commuteStyle !== undefined) updateData.commuteStyle = data.commuteStyle;
+    if (data.leaveGrantMethod !== undefined) updateData.leaveGrantMethod = data.leaveGrantMethod;
+    if (data.transferredLeaveDays !== undefined) updateData.transferredLeaveDays = data.transferredLeaveDays;
+    if (data.transferredLeaveGrantedDate !== undefined) {
+      updateData.transferredLeaveGrantedDate = data.transferredLeaveGrantedDate
+        ? new Date(data.transferredLeaveGrantedDate)
+        : null;
+    }
     if (data.bankName !== undefined) updateData.bankName = data.bankName;
     if (data.bankBranch !== undefined) updateData.bankBranch = data.bankBranch;
     if (data.bankAccountType !== undefined) updateData.bankAccountType = data.bankAccountType;
@@ -502,7 +579,218 @@ export class EmployeesService {
 
     this.logger.log(`社員を更新しました: ${updated.employeeCode} ${updated.lastName} ${updated.firstName}`);
 
+    // T2: 監査ログ（変更前→変更後）
+    const oldSnapshot: any = {};
+    const newSnapshot: any = {};
+    for (const key of Object.keys(updateData)) {
+      oldSnapshot[key] = (existing as any)[key] ?? null;
+      newSnapshot[key] = (updated as any)[key] ?? null;
+    }
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'employee.update',
+      targetTable: 'employees',
+      targetId: id,
+      oldValue: oldSnapshot,
+      newValue: newSnapshot,
+    });
+
     return { id: updated.id };
+  }
+
+  /**
+   * 論理削除済み社員一覧を取得（P1 復活フロー用）
+   */
+  async findDeleted() {
+    const data = await this.db.employee.findMany({
+      where: { deletedAt: { not: null } },
+      select: {
+        id: true,
+        employeeCode: true,
+        lastName: true,
+        firstName: true,
+        status: true,
+        employmentType: true,
+        hireDate: true,
+        resignDate: true,
+        deletedAt: true,
+        department: { select: { name: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+
+    return {
+      data: data.map((e) => ({
+        id: e.id,
+        employeeCode: e.employeeCode,
+        lastName: e.lastName,
+        firstName: e.firstName,
+        status: e.status,
+        employmentType: e.employmentType,
+        hireDate: e.hireDate,
+        resignDate: e.resignDate,
+        deletedAt: e.deletedAt,
+        departmentName: e.department?.name || '',
+      })),
+      total: data.length,
+    };
+  }
+
+  /**
+   * 社員を論理削除
+   *
+   * deletedAt にタイムスタンプをセットする。実レコードは残すため
+   * 紐づく過去データ（勤怠・給与・アサインなど）は保護される。
+   */
+  async softDelete(id: string, actorUserId?: string) {
+    const existing = await this.db.employee.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!existing) {
+      throw new NotFoundException('社員が見つかりません');
+    }
+
+    await this.db.employee.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    this.logger.log(`社員を論理削除しました: ${existing.employeeCode} ${existing.lastName} ${existing.firstName}`);
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'employee.soft_delete',
+      targetTable: 'employees',
+      targetId: id,
+      oldValue: { employeeCode: existing.employeeCode, email: existing.email },
+    });
+
+    return { id, deleted: true };
+  }
+
+  /**
+   * 論理削除済み社員を復活（P1）
+   *
+   * deletedAt を null に戻す。復活対象が存在しない or 既にアクティブなら 404。
+   * メール重複・社員番号重複が発生した場合はエラー（復活ブロック）。
+   */
+  /**
+   * マイナンバー閲覧（admin 限定、監査ログ必須・T2）
+   *
+   * 取得した時点でアクセスログを残す。マスクなしの値を返すので、
+   * UI 側は明示的に「閲覧」ボタンを押した時のみ呼び出すこと。
+   */
+  async getMyNumber(id: string, actorUserId?: string) {
+    const target = await this.db.employee.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        employeeCode: true,
+        lastName: true,
+        firstName: true,
+        myNumber: true,
+      },
+    });
+    if (!target) {
+      throw new NotFoundException('社員が見つかりません');
+    }
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'pii.mynumber_view',
+      targetTable: 'employees',
+      targetId: id,
+    });
+
+    return {
+      id: target.id,
+      employeeCode: target.employeeCode,
+      name: `${target.lastName} ${target.firstName}`,
+      myNumber: target.myNumber || null,
+    };
+  }
+
+  /**
+   * 銀行口座閲覧（admin 限定、監査ログ必須・T2）
+   */
+  async getBankAccount(id: string, actorUserId?: string) {
+    const target = await this.db.employee.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        employeeCode: true,
+        lastName: true,
+        firstName: true,
+        bankName: true,
+        bankBranch: true,
+        bankAccountType: true,
+        bankAccountNumber: true,
+        bankAccountHolder: true,
+      },
+    });
+    if (!target) {
+      throw new NotFoundException('社員が見つかりません');
+    }
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'pii.bank_view',
+      targetTable: 'employees',
+      targetId: id,
+    });
+
+    return {
+      id: target.id,
+      employeeCode: target.employeeCode,
+      name: `${target.lastName} ${target.firstName}`,
+      bankName: target.bankName,
+      bankBranch: target.bankBranch,
+      bankAccountType: target.bankAccountType,
+      bankAccountNumber: target.bankAccountNumber,
+      bankAccountHolder: target.bankAccountHolder,
+    };
+  }
+
+  async restore(id: string, actorUserId?: string) {
+    const target = await this.db.employee.findUnique({ where: { id } });
+    if (!target) {
+      throw new NotFoundException('社員が見つかりません');
+    }
+    if (target.deletedAt === null) {
+      throw new BadRequestException('この社員は削除されていません');
+    }
+
+    // 復活時にメール / 社員番号がアクティブな他社員と衝突していないかチェック
+    const emailConflict = await this.db.employee.findFirst({
+      where: { email: target.email, deletedAt: null, id: { not: id } },
+    });
+    if (emailConflict) {
+      throw new BadRequestException('同じメールアドレスのアクティブ社員が存在するため復活できません');
+    }
+
+    const codeConflict = await this.db.employee.findFirst({
+      where: { employeeCode: target.employeeCode, deletedAt: null, id: { not: id } },
+    });
+    if (codeConflict) {
+      throw new BadRequestException('同じ社員番号のアクティブ社員が存在するため復活できません');
+    }
+
+    await this.db.employee.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+
+    this.logger.log(`社員を復活しました: ${target.employeeCode} ${target.lastName} ${target.firstName}`);
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'employee.restore',
+      targetTable: 'employees',
+      targetId: id,
+      newValue: { employeeCode: target.employeeCode, email: target.email },
+    });
+
+    return { id, restored: true };
   }
 
   /**

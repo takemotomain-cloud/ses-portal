@@ -630,6 +630,23 @@ export default function AdminDealsPage() {
     }
   };
 
+  /**
+   * R2: 商談ログの名刺画像を削除
+   */
+  const handleLogImageDelete = async (logId: string, imagePath: string) => {
+    if (!confirm('この名刺画像を削除しますか？')) return;
+    try {
+      await apiClient(`/business-cards/logs/${logId}/images`, {
+        method: 'DELETE',
+        body: JSON.stringify({ imagePath }),
+      });
+      toast('名刺画像を削除しました');
+      fetchCards();
+    } catch (err: any) {
+      toast(err?.message || '削除に失敗しました');
+    }
+  };
+
   /* ---- 会社情報編集 ---- */
   const startEditCompany = () => {
     if (!selectedGroup) return;
@@ -1013,13 +1030,23 @@ export default function AdminDealsPage() {
                             {parseCardImages(log.cardImages).length > 0 && (
                               <div className="flex flex-wrap gap-2 mt-3">
                                 {parseCardImages(log.cardImages).map((img, imgIdx) => (
-                                  <img
-                                    key={imgIdx}
-                                    src={img}
-                                    alt="名刺"
-                                    className="h-20 rounded border border-border/30 shadow-sm cursor-pointer hover:opacity-80 hover:shadow-md transition-all"
-                                    onClick={() => setLightboxImage(img)}
-                                  />
+                                  <div key={imgIdx} className="relative group">
+                                    <img
+                                      src={img}
+                                      alt="名刺"
+                                      className="h-20 rounded border border-border/30 shadow-sm cursor-pointer hover:opacity-80 hover:shadow-md transition-all"
+                                      onClick={() => setLightboxImage(img)}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); handleLogImageDelete(log.id, img); }}
+                                      className="absolute -top-2 -right-2 w-5 h-5 bg-status-red-bg text-status-red-text rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 hover:bg-status-red-text hover:text-white transition-all"
+                                      aria-label="画像を削除"
+                                      title="画像を削除"
+                                    >
+                                      &#10005;
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                             )}

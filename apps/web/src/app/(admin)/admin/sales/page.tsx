@@ -200,6 +200,108 @@ export default function AdminSalesPage() {
   const [sendMailEmpSearch, setSendMailEmpSearch] = useState('');
   const [showSendMailEmpDropdown, setShowSendMailEmpDropdown] = useState(false);
 
+  // N3: 送信失敗（failed）提案メール一覧 + 再送
+  interface FailedProposal {
+    id: string;
+    clientId: string;
+    clientName: string;
+    projectName: string | null;
+    employees: { id: string; name: string }[];
+    createdAt: string;
+    toEmail: string | null;
+    subject?: string | null;
+  }
+  const [failedProposals, setFailedProposals] = useState<FailedProposal[]>([]);
+  const [showFailedModal, setShowFailedModal] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  const fetchFailedProposals = useCallback(async () => {
+    try {
+      const res = await apiClient<{ count: number; rows: FailedProposal[] }>('/proposals/failed');
+      setFailedProposals(Array.isArray(res?.rows) ? res.rows : []);
+    } catch {
+      setFailedProposals([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFailedProposals();
+  }, [fetchFailedProposals]);
+
+  const handleResendFailed = async (id: string) => {
+    const target = failedProposals.find(p => p.id === id);
+    if (!target) return;
+    if (!target.toEmail) {
+      toast('宛先メールアドレスが不明なため再送できません');
+      return;
+    }
+    if (!confirm(`${target.clientName} への提案メールを再送しますか？`)) return;
+    setResendingId(id);
+    try {
+      const res = await apiClient<any>(`/proposals/${id}/send`, {
+        method: 'POST',
+        body: JSON.stringify({ toEmail: target.toEmail }),
+      });
+      if (res?.status === 'sent') {
+        toast('再送に成功しました');
+        setFailedProposals(prev => prev.filter(p => p.id !== id));
+      } else {
+        toast('再送に失敗しました');
+      }
+    } catch (err: any) {
+      toast(err?.message || '再送に失敗しました');
+    } finally {
+      setResendingId(null);
+    }
+  };
+
+  // N2: 重複送信確認ダイアログ
+  const [duplicateDialog, setDuplicateDialog] = useState<{
+    duplicates: Array<{
+      id: string;
+      clientId: string;
+      projectName?: string | null;
+      sentAt?: string | null;
+      createdAt?: string;
+      status?: string;
+      overlappingEmployeeIds?: string[];
+    }>;
+    onConfirm: () => void;
+  } | null>(null);
+
+  /**
+   * 重複送信チェックを実行し、重複があれば確認ダイアログを表示。
+   * 無ければ即 proceed() を実行する。
+   */
+  const checkDuplicateAndConfirm = async (
+    payload: { clientId: string; employeeIds: string[]; projectName?: string },
+    proceed: () => void,
+  ) => {
+    try {
+      const res = await apiClient<{ count: number; duplicates: any[] }>('/proposals/check-duplicate', {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: payload.clientId,
+          employeeIds: payload.employeeIds,
+          projectName: payload.projectName,
+        }),
+      });
+      if (res.count > 0) {
+        setDuplicateDialog({
+          duplicates: res.duplicates,
+          onConfirm: () => {
+            setDuplicateDialog(null);
+            proceed();
+          },
+        });
+        return;
+      }
+    } catch {
+      // チェック失敗時はそのまま続行（送信自体は止めない）
+    }
+    proceed();
+  };
+
   const loadData = useCallback(async () => {
     try {
       const [assignRes, empRes, clientRes, skillsheetEmps] = await Promise.all([
@@ -478,8 +580,21 @@ export default function AdminSalesPage() {
     }
   };
 
-  // メール送信
+  // メール送信（重複チェック付き）
   const handleSendProposal = async () => {
+    if (!proposalClientId || proposalAllEmpIds.length === 0 || !proposalToEmail) return;
+    if (!proposalTarget) return;
+    await checkDuplicateAndConfirm(
+      {
+        clientId: proposalClientId,
+        employeeIds: proposalAllEmpIds,
+        projectName: proposalProject || undefined,
+      },
+      () => void executeSendProposal(),
+    );
+  };
+
+  const executeSendProposal = async () => {
     if (!proposalClientId || proposalAllEmpIds.length === 0 || !proposalToEmail) return;
     if (!proposalTarget) return;
     setProposalSending(true);
@@ -530,6 +645,18 @@ export default function AdminSalesPage() {
       toast('クライアントを選択してください');
       return;
     }
+    await checkDuplicateAndConfirm(
+      {
+        clientId: proposalClientId,
+        employeeIds: proposalAllEmpIds,
+        projectName: proposalProject || undefined,
+      },
+      () => void executeAddProposal(),
+    );
+  };
+
+  const executeAddProposal = async () => {
+    if (!proposalTarget || !proposalClientId) return;
     const selectedClient = allClients.find(c => c.id === proposalClientId);
     const clientName = selectedClient?.name || proposalClientId;
 
@@ -628,6 +755,22 @@ export default function AdminSalesPage() {
 
   const handleSendMailForDraft = async () => {
     if (!sendMailTarget || !sendMailForm.toEmail) return;
+    if (!sendMailTarget.clientId) {
+      await executeSendMailForDraft();
+      return;
+    }
+    await checkDuplicateAndConfirm(
+      {
+        clientId: sendMailTarget.clientId,
+        employeeIds: sendMailAllEmpIds,
+        projectName: sendMailTarget.projectName || undefined,
+      },
+      () => void executeSendMailForDraft(),
+    );
+  };
+
+  const executeSendMailForDraft = async () => {
+    if (!sendMailTarget || !sendMailForm.toEmail) return;
     setSendMailLoading(true);
     try {
       const res = await apiClient<any>(`/proposals/${sendMailTarget.proposalId}/send`, {
@@ -723,6 +866,23 @@ export default function AdminSalesPage() {
           <div className="text-3xl font-medium text-status-amber-text">{isCurrentMonth ? kpis.undecided : '--'}<span className="text-base font-normal ml-1">名</span></div>
         </div>
       </div>
+
+      {/* N3: 送信失敗バッジ（クリックでモーダル） */}
+      {failedProposals.length > 0 && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => setShowFailedModal(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-status-red-text/30 bg-status-red-bg text-status-red-text text-sm hover:bg-status-red-text hover:text-white transition-colors"
+          >
+            <span>&#9888;</span>
+            <span>提案メール送信失敗</span>
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-status-red-text text-white text-xs font-medium">
+              {failedProposals.length}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* 今月確定一覧 */}
       {monthConfirmed.length > 0 && (
@@ -1312,6 +1472,130 @@ export default function AdminSalesPage() {
                   className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
                 >
                   {sendMailLoading ? '送信中...' : '提案を追加＆メール送信'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* N2: 重複送信確認ダイアログ */}
+      {duplicateDialog && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-[110]" onClick={() => setDuplicateDialog(null)} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[520px] bg-card border border-border rounded-xl z-[120] shadow-xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium text-[#b45309]">⚠ 重複送信の確認</h2>
+              <button onClick={() => setDuplicateDialog(null)} className="text-secondary hover:text-primary text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-secondary">
+                過去90日以内に、同じクライアント・同じ社員への提案が
+                <span className="font-semibold text-primary mx-1">{duplicateDialog.duplicates.length}</span>
+                件見つかりました。本当に送信しますか？
+              </div>
+              <div className="bg-[#FFFBEB] border border-[#F0C674] rounded-md p-3 space-y-2 max-h-[260px] overflow-y-auto">
+                {duplicateDialog.duplicates.map((d) => {
+                  const dateStr = d.sentAt || d.createdAt;
+                  const formatted = dateStr ? new Date(dateStr).toLocaleDateString('ja-JP') : '--';
+                  const empCount = d.overlappingEmployeeIds?.length || 0;
+                  return (
+                    <div key={d.id} className="text-xs text-secondary border-b border-[#F0C674]/30 pb-2 last:border-b-0 last:pb-0">
+                      <div className="flex gap-2">
+                        <span className="text-secondary/60">送信日:</span>
+                        <span className="font-medium">{formatted}</span>
+                        <span className="text-secondary/60 ml-2">状態:</span>
+                        <span>{d.status === 'sent' ? '送信済' : d.status === 'draft' ? '下書き' : d.status}</span>
+                      </div>
+                      {d.projectName && (
+                        <div className="flex gap-2 mt-1">
+                          <span className="text-secondary/60">案件:</span>
+                          <span>{d.projectName}</span>
+                        </div>
+                      )}
+                      <div className="flex gap-2 mt-1">
+                        <span className="text-secondary/60">重複社員数:</span>
+                        <span>{empCount}名</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setDuplicateDialog(null)}
+                  className="btn-outline flex-1 text-sm py-2"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => duplicateDialog.onConfirm()}
+                  className="btn-primary flex-1 text-sm py-2"
+                >
+                  それでも送信する
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* N3: 送信失敗一覧モーダル */}
+      {showFailedModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-[300]" onClick={() => setShowFailedModal(false)} />
+          <div className="fixed inset-0 z-[301] flex items-center justify-center p-4">
+            <div className="bg-card rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-5 border-b border-border/30">
+                <h3 className="text-lg font-medium">送信失敗した提案メール</h3>
+                <button
+                  onClick={() => setShowFailedModal(false)}
+                  className="text-xl text-secondary hover:text-primary px-2 py-1 rounded hover:bg-page"
+                >
+                  &#10005;
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5">
+                {failedProposals.length === 0 ? (
+                  <div className="text-center text-sm text-secondary py-8">失敗した提案メールはありません</div>
+                ) : (
+                  <div className="space-y-3">
+                    {failedProposals.map(p => {
+                      const d = new Date(p.createdAt);
+                      const dateStr = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                      return (
+                        <div key={p.id} className="border border-border/30 rounded-lg p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-primary">{p.clientName}</div>
+                              {p.projectName && <div className="text-xs text-secondary mt-0.5">案件: {p.projectName}</div>}
+                              {p.employees && p.employees.length > 0 && (
+                                <div className="text-xs text-secondary mt-0.5">対象: {p.employees.map(e => e.name).join('、')}</div>
+                              )}
+                              {p.toEmail && <div className="text-xs text-secondary mt-0.5">宛先: {p.toEmail}</div>}
+                              <div className="text-xs text-secondary mt-0.5">作成日時: {dateStr}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleResendFailed(p.id)}
+                              disabled={resendingId === p.id}
+                              className="btn-primary text-xs px-3 py-1.5 flex-shrink-0 disabled:opacity-60"
+                            >
+                              {resendingId === p.id ? '送信中...' : '再送'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="p-4 border-t border-border/30 flex justify-end">
+                <button
+                  onClick={() => { setShowFailedModal(false); fetchFailedProposals(); }}
+                  className="btn-outline text-sm px-4 py-2"
+                >
+                  閉じる
                 </button>
               </div>
             </div>

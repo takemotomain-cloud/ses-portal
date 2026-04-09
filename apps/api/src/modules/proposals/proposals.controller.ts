@@ -92,10 +92,41 @@ export class ProposalsController {
     return this.service.preview(body);
   }
 
+  /**
+   * 重複送信チェック（N2）
+   *
+   * フロントエンドは送信前にこのエンドポイントを呼び、件数があれば
+   * 「過去X件の重複送信があります。本当に送信しますか？」のダイアログを表示する。
+   */
+  @Post('check-duplicate')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '同一クライアント・社員・案件の重複送信チェック' })
+  async checkDuplicate(
+    @Body() body: {
+      clientId: string;
+      employeeIds: string[];
+      projectName?: string;
+    },
+  ) {
+    const duplicates = await this.service.findRecentSimilar(body);
+    return { count: duplicates.length, duplicates };
+  }
+
   @Get('history')
   @Roles('admin', 'sales')
   @ApiOperation({ summary: 'クライアント別送信履歴' })
   async history(@Query('clientId') clientId: string) {
     return this.service.findByClient(clientId);
+  }
+
+  /**
+   * 送信失敗の提案一覧（N3: 再送 UI 用）
+   */
+  @Get('failed')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '送信失敗した提案一覧' })
+  async failed() {
+    const rows = await this.service.findFailed();
+    return { count: rows.length, rows };
   }
 }

@@ -81,6 +81,23 @@ model Employee {
   schoolName        String?   @map("school_name") @db.VarChar(100)
   baseSalary        Int?      @map("base_salary")
   rewardRate        Decimal?  @map("reward_rate") @db.Decimal(5, 2)
+  // J2: 所定労働時間・固定残業時間を社員別に設定（単位: 時間/月、null = デフォルト値を使用）
+  contractHours     Int?      @map("contract_hours")
+  fixedOvertime     Int?      @map("fixed_overtime")
+  // 交通費申請システム: 社員の通勤スタイル（onetime / monthly / three_month / null）
+  commuteStyle      String?   @map("commute_style") @db.VarChar(20)
+  // L1: 有給付与方式（hire_date = 入社日基準 / transferred = 前職引継ぎ）
+  leaveGrantMethod  String?   @map("leave_grant_method") @db.VarChar(20)
+  // L1: 前職引継ぎ時の初期残日数（transferred の場合のみ）
+  transferredLeaveDays    Decimal?  @map("transferred_leave_days") @db.Decimal(4, 1)
+  // L1: 前職での有給付与日（transferred の場合のみ、不明なら入社日をデフォルトとして使う）
+  transferredLeaveGrantedDate DateTime? @map("transferred_leave_granted_date") @db.Date
+  // J1: 社員別料率上書き（null の場合は RateMaster のデフォルトを使用）
+  rateHealthInsurance      Decimal?  @map("rate_health_insurance") @db.Decimal(6, 4)
+  rateEmployeePension      Decimal?  @map("rate_employee_pension") @db.Decimal(6, 4)
+  rateEmploymentInsurance  Decimal?  @map("rate_employment_insurance") @db.Decimal(6, 4)
+  rateIncomeTax            Decimal?  @map("rate_income_tax") @db.Decimal(6, 4)
+  rateResidentTaxFixed     Int?      @map("rate_resident_tax_fixed")
   bankName          String?   @map("bank_name") @db.VarChar(100)
   bankBranch        String?   @map("bank_branch") @db.VarChar(100)
   bankAccountType   String?   @map("bank_account_type") @db.VarChar(10)
@@ -340,11 +357,37 @@ model Assignment {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  employee Employee @relation(fields: [employeeId], references: [id])
-  client   Client   @relation(fields: [clientId], references: [id])
-  project  Project?  @relation(fields: [projectId], references: [id])
+  employee     Employee                @relation(fields: [employeeId], references: [id])
+  client       Client                  @relation(fields: [clientId], references: [id])
+  project      Project?                @relation(fields: [projectId], references: [id])
+  rateHistory  AssignmentRateHistory[]
 
   @@map("assignments")
+}
+
+// ----------------------------------------
+// アサイン単価改定履歴（M3）
+// ----------------------------------------
+// contractPrice / settlementLower / settlementUpper の変更を履歴として残す。
+// 単価改定を行うたびに1レコード追加する。
+// ----------------------------------------
+model AssignmentRateHistory {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assignmentId       String   @map("assignment_id") @db.Uuid
+  effectiveFrom      DateTime @map("effective_from") @db.Date
+  contractPrice      Int      @map("contract_price")
+  settlementLower    Int      @map("settlement_lower")
+  settlementUpper    Int      @map("settlement_upper")
+  // 変更理由（任意）
+  reason             String?  @db.VarChar(200)
+  // 変更実施者
+  changedBy          String?  @map("changed_by") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, effectiveFrom])
+  @@map("assignment_rate_history")
 }
 
 // ----------------------------------------
@@ -464,7 +507,12 @@ model ExpenseRequest {
 model ExpenseItem {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   expenseRequestId String   @map("expense_request_id") @db.Uuid
+  // 申請種別: onetime (都度) / monthly_pass (1ヶ月定期) / three_month_pass (3ヶ月定期)
+  kind             String   @default("onetime") @db.VarChar(20)
+  // 都度: 利用日 / 定期: 定期券の開始日
   expenseDate      DateTime @map("expense_date") @db.Date
+  // 定期券の終了日（kind が定期の場合のみセット）
+  passEndDate      DateTime? @map("pass_end_date") @db.Date
   departure        String   @db.VarChar(100)
   destination      String   @db.VarChar(100)
   amount           Int
@@ -630,9 +678,9 @@ model YearendAdjustment {
 model AuditLog {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId      String?  @map("user_id") @db.Uuid
-  action      String   @db.VarChar(20)
+  action      String   @db.VarChar(50)
   targetTable String   @map("target_table") @db.VarChar(100)
-  targetId    String   @map("target_id") @db.Uuid
+  targetId    String?  @map("target_id") @db.Uuid
   oldValue    Json?    @map("old_value")
   newValue    Json?    @map("new_value")
   ipAddress   String?  @map("ip_address") @db.Inet
@@ -641,6 +689,8 @@ model AuditLog {
 
   user User? @relation(fields: [userId], references: [id])
 
+  @@index([userId, createdAt])
+  @@index([targetTable, targetId])
   @@map("audit_logs")
 }
 
@@ -1002,4 +1052,40 @@ model MonthlyShift {
 
   @@unique([employeeId, yearMonth])
   @@map("monthly_shifts")
+}
+
+// ----------------------------------------
+// J6: 給与レコードの編集履歴
+// 管理画面で給与を直接編集した場合、誰がいつ何を変更したかを残す。
+// ----------------------------------------
+model PayrollEditHistory {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollId   String   @map("payroll_id") @db.Uuid
+  editedBy    String?  @map("edited_by") @db.Uuid
+  fieldName   String   @map("field_name") @db.VarChar(50)
+  oldValue    Int?     @map("old_value")
+  newValue    Int?     @map("new_value")
+  reason      String?  @db.VarChar(200)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([payrollId, createdAt])
+  @@map("payroll_edit_history")
+}
+
+// ----------------------------------------
+// J1: 料率マスタ（給与計算に使用するデフォルト料率）
+// 単一レコードのみ想定（id = 'default'）。
+// 社員別の上書きは Employee.rate* フィールドで行う。
+// ----------------------------------------
+model RateMaster {
+  id                      String   @id @default("default") @db.VarChar(20)
+  healthInsurance         Decimal  @default(0.05) @map("health_insurance") @db.Decimal(6, 4)
+  employeePension         Decimal  @default(0.0915) @map("employee_pension") @db.Decimal(6, 4)
+  employmentInsurance     Decimal  @default(0.006) @map("employment_insurance") @db.Decimal(6, 4)
+  incomeTax               Decimal  @default(0.033) @map("income_tax") @db.Decimal(6, 4)
+  residentTaxFixed        Int      @default(18000) @map("resident_tax_fixed")
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  updatedBy               String?  @map("updated_by") @db.Uuid
+
+  @@map("rate_master")
 }

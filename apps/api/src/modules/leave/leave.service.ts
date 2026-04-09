@@ -32,6 +32,97 @@ export class LeaveService {
   ) {}
 
   /**
+   * 労基法第39条に基づく勤続年数別の有給付与日数
+   * 通常労働者（週5日以上 or 週30時間以上）を前提
+   */
+  private laborLawLeaveDays(monthsOfService: number): number {
+    if (monthsOfService < 6) return 0;
+    if (monthsOfService < 18) return 10;
+    if (monthsOfService < 30) return 11;
+    if (monthsOfService < 42) return 12;
+    if (monthsOfService < 54) return 14;
+    if (monthsOfService < 66) return 16;
+    if (monthsOfService < 78) return 18;
+    return 20;
+  }
+
+  /**
+   * 社員作成時の有給自動付与（L2）
+   *
+   * leaveGrantMethod に従って初期 leave_balance レコードを作成する。
+   * - 'hire_date': 入社日基準で労基法の付与スケジュールに従って付与
+   *   （6ヶ月未満は0日なのでレコード作成しない）
+   * - 'transferred': 引継ぎ残日数をそのまま付与
+   *
+   * @param employeeId 社員UUID
+   * @param opts 付与方式・入社日・引継ぎ情報
+   */
+  async grantInitialLeave(
+    employeeId: string,
+    opts: {
+      grantMethod: 'hire_date' | 'transferred';
+      hireDate: Date;
+      transferredDays?: number;
+      transferredGrantedDate?: Date;
+    },
+  ) {
+    if (opts.grantMethod === 'transferred') {
+      const days = opts.transferredDays ?? 0;
+      if (days <= 0) return null;
+
+      const grantedDate = opts.transferredGrantedDate ?? opts.hireDate;
+      const expiryDate = new Date(grantedDate);
+      expiryDate.setFullYear(expiryDate.getFullYear() + 2);
+
+      return this.db.leaveBalance.create({
+        data: {
+          employeeId,
+          grantedDate,
+          expiryDate,
+          grantedDays: days,
+          usedDays: 0,
+          remainingDays: days,
+        },
+      });
+    }
+
+    // hire_date 方式
+    const today = new Date();
+    const monthsOfService =
+      (today.getFullYear() - opts.hireDate.getFullYear()) * 12 +
+      (today.getMonth() - opts.hireDate.getMonth());
+
+    const days = this.laborLawLeaveDays(monthsOfService);
+    if (days <= 0) return null;
+
+    // 最新の付与は基準日の属する勤続年数ロットで算出
+    // grantedDate: 入社日から6ヶ月後、もしくは最新の年度付与日
+    const grantedDate = new Date(opts.hireDate);
+    grantedDate.setMonth(grantedDate.getMonth() + 6);
+    // 6ヶ月を超えて年度が進んでいれば、最新の基準日に合わせる
+    while (grantedDate <= today) {
+      const next = new Date(grantedDate);
+      next.setFullYear(next.getFullYear() + 1);
+      if (next > today) break;
+      grantedDate.setFullYear(grantedDate.getFullYear() + 1);
+    }
+
+    const expiryDate = new Date(grantedDate);
+    expiryDate.setFullYear(expiryDate.getFullYear() + 2);
+
+    return this.db.leaveBalance.create({
+      data: {
+        employeeId,
+        grantedDate,
+        expiryDate,
+        grantedDays: days,
+        usedDays: 0,
+        remainingDays: days,
+      },
+    });
+  }
+
+  /**
    * 有給残日数を取得（消滅日が未来のロットのみ）
    */
   async getBalance(employeeId: string) {

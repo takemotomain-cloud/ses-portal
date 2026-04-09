@@ -29,8 +29,26 @@ export class ProfileController {
     return this.profileService.getProfile(user.employeeId);
   }
 
+  @Post('name')
+  @ApiOperation({ summary: '氏名変更申請（承認必須）' })
+  async requestNameChange(
+    @CurrentUser() user: RequestUser,
+    @Body() body: { lastName: string; firstName: string; lastNameKana?: string; firstNameKana?: string },
+  ) {
+    return this.profileService.requestNameChange(user.employeeId, body);
+  }
+
+  @Post('phone')
+  @ApiOperation({ summary: '電話番号の即時更新（承認不要）' })
+  async updatePhone(
+    @CurrentUser() user: RequestUser,
+    @Body() body: { phone: string },
+  ) {
+    return this.profileService.updatePhone(user.employeeId, body.phone);
+  }
+
   @Post('address')
-  @ApiOperation({ summary: '住所変更申請' })
+  @ApiOperation({ summary: '住所変更申請（承認必須）' })
   async requestAddressChange(
     @CurrentUser() user: RequestUser,
     @Body() body: { postalCode: string; address: string; moveDate?: string },
@@ -39,7 +57,7 @@ export class ProfileController {
   }
 
   @Post('bank')
-  @ApiOperation({ summary: '口座変更申請' })
+  @ApiOperation({ summary: '口座変更申請（承認必須）' })
   async requestBankChange(
     @CurrentUser() user: RequestUser,
     @Body() body: { bankName: string; bankBranch: string; bankAccountType: string; bankAccountNumber: string; bankAccountHolder: string },
@@ -73,7 +91,7 @@ export class ProfileController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.profileService.approveChangeRequest(id, user.employeeId);
+    await this.profileService.approveChangeRequest(id, user.employeeId, user.userId);
     return { message: '承認しました' };
   }
 
@@ -85,7 +103,7 @@ export class ProfileController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.profileService.rejectChangeRequest(id, user.employeeId);
+    await this.profileService.rejectChangeRequest(id, user.employeeId, user.userId);
     return { message: '却下しました' };
   }
 }

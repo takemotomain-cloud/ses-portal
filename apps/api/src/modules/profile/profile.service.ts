@@ -19,6 +19,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { DatabaseService } from '../../database/database.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditService } from '../audit-logs/audit.service';
 import { BCRYPT_ROUNDS } from '@ses-portal/shared';
 
 @Injectable()
@@ -28,6 +29,7 @@ export class ProfileService {
   constructor(
     private readonly db: DatabaseService,
     private readonly notifications: NotificationsService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -52,6 +54,86 @@ export class ProfileService {
     // マイナンバーは除外
     const { myNumber, ...profile } = emp;
     return profile;
+  }
+
+  /**
+   * 氏名変更申請（Q1: 承認必須）
+   *
+   * 婚姻・養子縁組などで氏名が変わる場合に申請。承認後に employees テーブルに反映。
+   */
+  async requestNameChange(employeeId: string, data: {
+    lastName: string;
+    firstName: string;
+    lastNameKana?: string;
+    firstNameKana?: string;
+  }) {
+    if (!data.lastName?.trim() || !data.firstName?.trim()) {
+      throw new BadRequestException('姓と名は必須です');
+    }
+
+    const current = await this.db.employee.findUnique({
+      where: { id: employeeId },
+      select: {
+        lastName: true,
+        firstName: true,
+        lastNameKana: true,
+        firstNameKana: true,
+      },
+    });
+
+    const result = await this.db.changeRequest.create({
+      data: {
+        employeeId,
+        changeType: 'name',
+        oldValue: current as any,
+        newValue: data as any,
+        status: 'pending',
+      },
+    });
+
+    this.notifications.notifyAdmins('個人情報変更', '氏名変更申請が提出されました。').catch(() => {});
+    return result;
+  }
+
+  /**
+   * 電話番号の即時更新（Q1: 即時反映）
+   *
+   * 電話番号は承認フローを経由せず、社員本人の操作で即時更新する。
+   * 監査ログ目的で変更履歴を change_requests に approved ステータスで記録する。
+   */
+  async updatePhone(employeeId: string, phone: string) {
+    const trimmed = (phone || '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('電話番号を入力してください');
+    }
+
+    const current = await this.db.employee.findUnique({
+      where: { id: employeeId },
+      select: { phone: true },
+    });
+
+    await this.db.$transaction(async (tx) => {
+      await tx.employee.update({
+        where: { id: employeeId },
+        data: { phone: trimmed },
+      });
+
+      // 変更履歴として change_requests に approved で記録（監査ログ用途）
+      await tx.changeRequest.create({
+        data: {
+          employeeId,
+          changeType: 'phone',
+          oldValue: current as any,
+          newValue: { phone: trimmed } as any,
+          status: 'approved',
+          approverId: employeeId, // 自己承認（即時反映）
+          approvedAt: new Date(),
+        },
+      });
+    });
+
+    this.logger.log(`電話番号を即時更新: employee=${employeeId}`);
+    return { phone: trimmed, immediate: true };
   }
 
   /**
@@ -139,7 +221,7 @@ export class ProfileService {
    * 変更申請を承認（管理者用）
    * 承認時にemployeesテーブルに変更を反映する
    */
-  async approveChangeRequest(requestId: string, approverId: string) {
+  async approveChangeRequest(requestId: string, approverId: string, actorUserId?: string) {
     const request = await this.db.changeRequest.findUnique({
       where: { id: requestId },
     });
@@ -169,13 +251,23 @@ export class ProfileService {
     });
 
     this.logger.log(`Change request ${requestId} approved by ${approverId}`);
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'profile.change_approve',
+      targetTable: 'change_requests',
+      targetId: requestId,
+      oldValue: request.oldValue as any,
+      newValue: { ...(request.newValue as any), changeType: request.changeType, employeeId: request.employeeId },
+    });
+
     this.notifications.create({ employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が承認されました。' }).catch(() => {});
   }
 
   /**
    * 変更申請を却下（管理者用）
    */
-  async rejectChangeRequest(requestId: string, approverId: string) {
+  async rejectChangeRequest(requestId: string, approverId: string, actorUserId?: string) {
     const request = await this.db.changeRequest.findUnique({
       where: { id: requestId },
     });
@@ -193,6 +285,15 @@ export class ProfileService {
     });
 
     this.logger.log(`Change request ${requestId} rejected by ${approverId}`);
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'profile.change_reject',
+      targetTable: 'change_requests',
+      targetId: requestId,
+      newValue: { changeType: request.changeType, employeeId: request.employeeId },
+    });
+
     this.notifications.create({ employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が却下されました。' }).catch(() => {});
   }
 

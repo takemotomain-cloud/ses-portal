@@ -13,12 +13,16 @@
 
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { AuditService } from '../audit-logs/audit.service';
 
 @Injectable()
 export class PayrollService {
   private readonly logger = new Logger(PayrollService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly auditService: AuditService,
+  ) {}
 
   /**
    * 社員自身の給与明細を取得
@@ -60,6 +64,13 @@ export class PayrollService {
   async calculateMonthly(year: number, month: number) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
 
+    // J1: 料率マスタを取得（存在しなければデフォルト値で作成）
+    const rateMaster = await this.db.rateMaster.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: { id: 'default' },
+    });
+
     const employees = await this.db.employee.findMany({
       where: { status: 'active', deletedAt: null },
       include: {
@@ -71,15 +82,25 @@ export class PayrollService {
 
     for (const emp of employees) {
       const assignment = emp.assignments[0];
-      const rewardRate = emp.rewardRate ? Number(emp.rewardRate) / 100 : 0.7;
 
-      // 基本給 = 契約単価 × 還元率（アサインがない場合はemployeesのbase_salary）
-      const baseSalary = assignment
+      // J4: 還元率は社員別設定。空白(null)の場合は還元率計算をスキップし、baseSalary をそのまま使う
+      const rewardRateRaw = emp.rewardRate !== null && emp.rewardRate !== undefined
+        ? Number(emp.rewardRate)
+        : null;
+      const rewardRate = rewardRateRaw !== null ? rewardRateRaw / 100 : null;
+
+      // 基本給 = 契約単価 × 還元率（rewardRate が null または アサインがない場合は emp.baseSalary）
+      const baseSalary = (assignment && rewardRate !== null)
         ? Math.round(assignment.contractPrice * rewardRate)
         : (emp.baseSalary || 0);
 
-      // 残業手当（勤怠データから計算。簡易版: 時給 × 残業時間 × 1.25）
-      const hourlyRate = Math.round(baseSalary / 160); // 月160時間想定
+      // J2: 所定労働時間・固定残業時間は社員別設定。未設定時はデフォルト値
+      const contractHours = emp.contractHours ?? 168;
+      const fixedOvertime = emp.fixedOvertime ?? 20;
+
+      // 残業手当計算式: (基本給 ÷ 所定時間) × 1.25 × max(0, 実残業 - 固定残業)
+      // 固定残業時間分は既に基本給に含まれている想定なので、それを超えた分のみ別途支給
+      const hourlyRate = contractHours > 0 ? baseSalary / contractHours : 0;
       const attendances = await this.db.attendance.findMany({
         where: {
           employeeId: emp.id,
@@ -89,18 +110,46 @@ export class PayrollService {
           },
         },
       });
-      const totalOT = attendances.reduce((s, a) => s + (a.overtimeMinutes || 0), 0);
-      const overtimePay = Math.round(hourlyRate * (totalOT / 60) * 1.25);
+      const totalOtHours = attendances.reduce((s, a) => s + (a.overtimeMinutes || 0), 0) / 60;
+      const extraOtHours = Math.max(0, totalOtHours - fixedOvertime);
+      const overtimePay = Math.round(hourlyRate * 1.25 * extraOtHours);
 
-      const commuteAllowance = 12000; // 仮固定。経費精算データから取得予定
+      // 通勤手当: 当月承認済みの経費申請を合算
+      const approvedExpenses = await this.db.expenseItem.findMany({
+        where: {
+          expenseRequest: {
+            employeeId: emp.id,
+            targetMonth,
+            status: 'approved',
+          },
+        },
+      });
+      const commuteAllowance = approvedExpenses.reduce((s, it) => s + (it.amount || 0), 0);
       const grossSalary = baseSalary + overtimePay + commuteAllowance;
 
+      // J1: 料率は「社員別上書き（あれば） > RateMaster（デフォルト）」の優先順
+      const healthRate = emp.rateHealthInsurance !== null && emp.rateHealthInsurance !== undefined
+        ? Number(emp.rateHealthInsurance)
+        : Number(rateMaster.healthInsurance);
+      const pensionRate = emp.rateEmployeePension !== null && emp.rateEmployeePension !== undefined
+        ? Number(emp.rateEmployeePension)
+        : Number(rateMaster.employeePension);
+      const empInsRate = emp.rateEmploymentInsurance !== null && emp.rateEmploymentInsurance !== undefined
+        ? Number(emp.rateEmploymentInsurance)
+        : Number(rateMaster.employmentInsurance);
+      const incomeTaxRate = emp.rateIncomeTax !== null && emp.rateIncomeTax !== undefined
+        ? Number(emp.rateIncomeTax)
+        : Number(rateMaster.incomeTax);
+      const residentTaxFixed = emp.rateResidentTaxFixed !== null && emp.rateResidentTaxFixed !== undefined
+        ? emp.rateResidentTaxFixed
+        : rateMaster.residentTaxFixed;
+
       // 控除（簡易計算。本番では標準報酬月額テーブルを参照）
-      const healthInsurance = Math.round(grossSalary * 0.05);
-      const pension = Math.round(grossSalary * 0.0915);
-      const employmentInsurance = Math.round(grossSalary * 0.006);
-      const incomeTax = Math.round(grossSalary * 0.033);
-      const residentTax = 18000; // 仮固定
+      const healthInsurance = Math.round(grossSalary * healthRate);
+      const pension = Math.round(grossSalary * pensionRate);
+      const employmentInsurance = Math.round(grossSalary * empInsRate);
+      const incomeTax = Math.round(grossSalary * incomeTaxRate);
+      const residentTax = residentTaxFixed;
       const totalDeductions = healthInsurance + pension + employmentInsurance + incomeTax + residentTax;
       const netSalary = grossSalary - totalDeductions;
 
@@ -130,13 +179,221 @@ export class PayrollService {
   /**
    * 給与を確定する（管理者用）
    */
-  async confirmPayroll(year: number, month: number) {
+  async confirmPayroll(year: number, month: number, actorUserId?: string) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
     const result = await this.db.payroll.updateMany({
       where: { targetMonth, status: 'draft' },
       data: { status: 'confirmed' },
     });
     this.logger.log(`Payroll confirmed for ${targetMonth}: ${result.count} records`);
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'payroll.confirm',
+      targetTable: 'payrolls',
+      newValue: { targetMonth, confirmedCount: result.count },
+    });
+
     return { confirmedCount: result.count };
+  }
+
+  /* ==============================================================
+   * J6: 給与レコードの直接編集 + 編集履歴
+   * ============================================================== */
+
+  /**
+   * 特定の給与レコードを直接編集。差分を PayrollEditHistory に記録し、
+   * 総支給/控除/手取りを再計算する。status='confirmed' は編集不可。
+   */
+  async updatePayrollRecord(
+    payrollId: string,
+    data: {
+      baseSalary?: number;
+      overtimePay?: number;
+      commuteAllowance?: number;
+      otherAllowance?: number;
+      healthInsurance?: number;
+      pension?: number;
+      employmentInsurance?: number;
+      incomeTax?: number;
+      residentTax?: number;
+      reason?: string;
+    },
+    editedBy?: string,
+    actorUserId?: string,
+  ) {
+    const payroll = await this.db.payroll.findUnique({ where: { id: payrollId } });
+    if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
+    if (payroll.status === 'confirmed') {
+      throw new BadRequestException('確定済みの給与は編集できません');
+    }
+
+    // 編集可能フィールド
+    const editableFields: (keyof typeof data)[] = [
+      'baseSalary', 'overtimePay', 'commuteAllowance', 'otherAllowance',
+      'healthInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
+    ];
+
+    // 差分検出
+    const changes: Array<{ field: string; oldVal: number; newVal: number }> = [];
+    for (const f of editableFields) {
+      if (data[f] === undefined) continue;
+      const oldVal = (payroll as any)[f] ?? 0;
+      const newVal = data[f] as number;
+      if (oldVal !== newVal) {
+        changes.push({ field: f, oldVal, newVal });
+      }
+    }
+
+    if (changes.length === 0) {
+      return { updated: false, payroll };
+    }
+
+    // 新しい値を組み立て
+    const newBase = data.baseSalary ?? payroll.baseSalary;
+    const newOt = data.overtimePay ?? payroll.overtimePay;
+    const newCommute = data.commuteAllowance ?? payroll.commuteAllowance;
+    const newOther = data.otherAllowance ?? payroll.otherAllowance;
+    const grossSalary = newBase + newOt + newCommute + newOther;
+
+    const newHealth = data.healthInsurance ?? payroll.healthInsurance;
+    const newPension = data.pension ?? payroll.pension;
+    const newEmpIns = data.employmentInsurance ?? payroll.employmentInsurance;
+    const newIncome = data.incomeTax ?? payroll.incomeTax;
+    const newResident = data.residentTax ?? payroll.residentTax;
+    const totalDeductions = newHealth + newPension + newEmpIns + newIncome + newResident;
+    const netSalary = grossSalary - totalDeductions;
+
+    // トランザクションで更新 + 履歴追加
+    const updated = await this.db.$transaction(async (tx) => {
+      const up = await tx.payroll.update({
+        where: { id: payrollId },
+        data: {
+          baseSalary: newBase,
+          overtimePay: newOt,
+          commuteAllowance: newCommute,
+          otherAllowance: newOther,
+          grossSalary,
+          healthInsurance: newHealth,
+          pension: newPension,
+          employmentInsurance: newEmpIns,
+          incomeTax: newIncome,
+          residentTax: newResident,
+          totalDeductions,
+          netSalary,
+        },
+      });
+      for (const ch of changes) {
+        await tx.payrollEditHistory.create({
+          data: {
+            payrollId,
+            editedBy,
+            fieldName: ch.field,
+            oldValue: ch.oldVal,
+            newValue: ch.newVal,
+            reason: data.reason,
+          },
+        });
+      }
+      return up;
+    });
+
+    this.logger.log(`Payroll ${payrollId} edited: ${changes.length} fields changed by ${editedBy ?? 'unknown'}`);
+
+    await this.auditService.log({
+      userId: actorUserId,
+      action: 'payroll.edit',
+      targetTable: 'payrolls',
+      targetId: payrollId,
+      oldValue: changes.reduce((acc, ch) => ({ ...acc, [ch.field]: ch.oldVal }), {}),
+      newValue: changes.reduce((acc, ch) => ({ ...acc, [ch.field]: ch.newVal }), {}),
+    });
+
+    return { updated: true, payroll: updated, changedFields: changes.length };
+  }
+
+  /**
+   * 給与レコードの編集履歴を取得
+   */
+  async getPayrollEditHistory(payrollId: string) {
+    const history = await this.db.payrollEditHistory.findMany({
+      where: { payrollId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 編集者名を付与
+    const editorIds = Array.from(new Set(history.map(h => h.editedBy).filter((v): v is string => !!v)));
+    const editors = editorIds.length > 0
+      ? await this.db.employee.findMany({
+          where: { id: { in: editorIds } },
+          select: { id: true, lastName: true, firstName: true },
+        })
+      : [];
+    const editorMap = new Map(editors.map(e => [e.id, `${e.lastName} ${e.firstName}`]));
+
+    return history.map(h => ({
+      ...h,
+      editorName: h.editedBy ? (editorMap.get(h.editedBy) || '不明') : 'システム',
+    }));
+  }
+
+  /* ==============================================================
+   * J1: 料率マスタ CRUD（管理者用）
+   * ============================================================== */
+
+  /**
+   * 料率マスタを取得。存在しなければデフォルト値で作成して返す。
+   */
+  async getRateMaster() {
+    const master = await this.db.rateMaster.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: { id: 'default' },
+    });
+    return {
+      healthInsurance: Number(master.healthInsurance),
+      employeePension: Number(master.employeePension),
+      employmentInsurance: Number(master.employmentInsurance),
+      incomeTax: Number(master.incomeTax),
+      residentTaxFixed: master.residentTaxFixed,
+      updatedAt: master.updatedAt,
+      updatedBy: master.updatedBy,
+    };
+  }
+
+  /**
+   * 料率マスタを更新（管理者用）
+   */
+  async updateRateMaster(
+    data: {
+      healthInsurance?: number;
+      employeePension?: number;
+      employmentInsurance?: number;
+      incomeTax?: number;
+      residentTaxFixed?: number;
+    },
+    updatedBy?: string,
+  ) {
+    const update: any = {};
+    if (data.healthInsurance !== undefined) update.healthInsurance = data.healthInsurance;
+    if (data.employeePension !== undefined) update.employeePension = data.employeePension;
+    if (data.employmentInsurance !== undefined) update.employmentInsurance = data.employmentInsurance;
+    if (data.incomeTax !== undefined) update.incomeTax = data.incomeTax;
+    if (data.residentTaxFixed !== undefined) update.residentTaxFixed = data.residentTaxFixed;
+    if (updatedBy) update.updatedBy = updatedBy;
+
+    const updated = await this.db.rateMaster.upsert({
+      where: { id: 'default' },
+      update,
+      create: { id: 'default', ...update },
+    });
+    return {
+      healthInsurance: Number(updated.healthInsurance),
+      employeePension: Number(updated.employeePension),
+      employmentInsurance: Number(updated.employmentInsurance),
+      incomeTax: Number(updated.incomeTax),
+      residentTaxFixed: updated.residentTaxFixed,
+      updatedAt: updated.updatedAt,
+    };
   }
 }

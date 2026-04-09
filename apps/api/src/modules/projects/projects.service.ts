@@ -123,7 +123,7 @@ export class ProjectsService {
     supplyChain?: string | null;
     note?: string | null;
   }) {
-    await this.findOne(id);
+    const existing = await this.findOne(id);
 
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
@@ -140,19 +140,52 @@ export class ProjectsService {
     if (data.supplyChain !== undefined) updateData.supplyChain = data.supplyChain;
     if (data.note !== undefined) updateData.note = data.note;
 
-    return this.db.project.update({
+    const updated = await this.db.project.update({
       where: { id },
       data: updateData,
     });
+
+    // M1: 案件の endDate が過去 or 本日以前に設定された場合、紐づくアクティブなアサインを自動で ended 化
+    const newEndDate = updateData.endDate ?? existing.endDate;
+    if (newEndDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(newEndDate);
+      end.setHours(0, 0, 0, 0);
+
+      if (end <= today) {
+        const closed = await this.db.assignment.updateMany({
+          where: {
+            projectId: id,
+            status: 'active',
+            deletedAt: null,
+          },
+          data: {
+            status: 'ended',
+            endReason: 'project_ended',
+            endDate: end,
+          },
+        });
+        if (closed.count > 0) {
+          this.logger.log(`M1: 案件終了に伴いアサイン ${closed.count} 件を ended 化（project=${id}）`);
+        }
+      }
+    }
+
+    return updated;
   }
 
-  /** 案件削除（論理削除） */
+  /**
+   * 案件削除（論理削除）
+   *
+   * M4: 関連アサインは残す（過去の稼働実績・給与履歴保護のため）
+   */
   async remove(id: string) {
     await this.findOne(id);
     await this.db.project.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
-    this.logger.log(`案件削除: ${id}`);
+    this.logger.log(`案件削除: ${id}（関連アサインは保持）`);
   }
 }

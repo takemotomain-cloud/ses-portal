@@ -66,12 +66,17 @@ export class AssignmentsController {
 
   /**
    * アサイン更新（admin/salesのみ）
+   *
+   * M3: contractPrice / settlementLower / settlementUpper の変更があった場合、
+   * 自動的に改定履歴（AssignmentRateHistory）に1レコード追加される。
+   * 履歴用に rateChangeReason / rateChangeEffectiveFrom を body で受け付ける。
    */
   @Patch(':id')
   @Roles('admin', 'sales')
   @ApiOperation({ summary: 'アサイン更新' })
   async update(
     @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
     @Body()
     body: {
       projectName?: string;
@@ -85,9 +90,24 @@ export class AssignmentsController {
       projectId?: string;
       startDate?: string;
       endDate?: string;
+      rateChangeReason?: string;
+      rateChangeEffectiveFrom?: string;
     },
   ) {
-    return this.assignmentsService.update(id, body);
+    return this.assignmentsService.update(id, {
+      ...body,
+      rateChangedBy: user.employeeId,
+    });
+  }
+
+  /**
+   * アサイン単価改定履歴を取得（M3）
+   */
+  @Get(':id/rate-history')
+  @Roles('admin', 'sales')
+  @ApiOperation({ summary: '単価改定履歴' })
+  async getRateHistory(@Param('id') id: string) {
+    return this.assignmentsService.getRateHistory(id);
   }
 
   /**

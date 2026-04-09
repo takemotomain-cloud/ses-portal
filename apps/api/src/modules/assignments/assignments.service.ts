@@ -116,6 +116,9 @@ export class AssignmentsService {
 
   /**
    * アサイン更新
+   *
+   * M3: 単価系フィールド（contractPrice / settlementLower / settlementUpper）に変更があった場合、
+   * AssignmentRateHistory に改定履歴を1件追加する。
    */
   async update(id: string, data: {
     projectName?: string;
@@ -130,7 +133,20 @@ export class AssignmentsService {
     startDate?: string;
     endDate?: string | null;
     supplyChain?: string | null;
+    rateChangeReason?: string;
+    rateChangeEffectiveFrom?: string;
+    rateChangedBy?: string;
   }) {
+    // 現行の単価を取得（改定履歴判定用）
+    const existing = await this.db.assignment.findUnique({
+      where: { id },
+      select: {
+        contractPrice: true,
+        settlementLower: true,
+        settlementUpper: true,
+      },
+    });
+
     const updateData: Record<string, any> = {};
     if (data.projectName !== undefined) updateData.projectName = data.projectName;
     if (data.contractPrice !== undefined) updateData.contractPrice = data.contractPrice;
@@ -144,17 +160,55 @@ export class AssignmentsService {
     if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
     if (data.endDate !== undefined) updateData.endDate = data.endDate ? new Date(data.endDate) : null;
 
-    return this.db.assignment.update({
-      where: { id },
-      data: updateData,
-      include: {
-        employee: {
-          select: { id: true, lastName: true, firstName: true, employeeCode: true },
+    // M3: 単価改定があったら履歴を追加
+    const rateChanged =
+      existing &&
+      ((data.contractPrice !== undefined && data.contractPrice !== existing.contractPrice) ||
+        (data.settlementLower !== undefined && data.settlementLower !== existing.settlementLower) ||
+        (data.settlementUpper !== undefined && data.settlementUpper !== existing.settlementUpper));
+
+    return this.db.$transaction(async (tx) => {
+      const updated = await tx.assignment.update({
+        where: { id },
+        data: updateData,
+        include: {
+          employee: {
+            select: { id: true, lastName: true, firstName: true, employeeCode: true },
+          },
+          client: {
+            select: { id: true, name: true },
+          },
         },
-        client: {
-          select: { id: true, name: true },
-        },
-      },
+      });
+
+      if (rateChanged && existing) {
+        await tx.assignmentRateHistory.create({
+          data: {
+            assignmentId: id,
+            effectiveFrom: data.rateChangeEffectiveFrom
+              ? new Date(data.rateChangeEffectiveFrom)
+              : new Date(),
+            contractPrice: data.contractPrice ?? existing.contractPrice,
+            settlementLower: data.settlementLower ?? existing.settlementLower,
+            settlementUpper: data.settlementUpper ?? existing.settlementUpper,
+            reason: data.rateChangeReason ?? null,
+            changedBy: data.rateChangedBy ?? null,
+          },
+        });
+        this.logger.log(`M3: アサイン単価改定履歴を追加 (assignment=${id})`);
+      }
+
+      return updated;
+    });
+  }
+
+  /**
+   * アサインの単価改定履歴を取得（M3）
+   */
+  async getRateHistory(assignmentId: string) {
+    return this.db.assignmentRateHistory.findMany({
+      where: { assignmentId },
+      orderBy: { effectiveFrom: 'desc' },
     });
   }
 

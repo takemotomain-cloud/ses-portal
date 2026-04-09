@@ -312,7 +312,19 @@ export default function AnnouncementsPage() {
                   className="max-h-48 rounded-lg border border-border"
                 />
                 <button
-                  onClick={() => { setImageUrl(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  onClick={async () => {
+                    // R2: 物理ファイルも削除
+                    const filename = imageUrl.split('/').pop();
+                    if (filename) {
+                      try {
+                        await apiClient(`/notifications/upload-image/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                      } catch {
+                        /* 既に消えている等は無視 */
+                      }
+                    }
+                    setImageUrl(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
                   className="absolute -top-2 -right-2 w-6 h-6 bg-status-red-bg text-status-red-text
                              rounded-full flex items-center justify-center text-xs hover:bg-status-red-text hover:text-white transition-colors"
                 >

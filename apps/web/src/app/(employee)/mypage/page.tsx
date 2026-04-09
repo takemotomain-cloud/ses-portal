@@ -232,15 +232,15 @@ export default function MyPage() {
             </div>
           ))}
 
-          {/* 交通費未入力 */}
+          {/* 交通費（定期券）未申請 */}
           {alerts.expenseMissing && (
             <div
               onClick={() => router.push('/mypage/expense')}
               className="bg-card border border-border/40 rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-page transition-colors active:opacity-80"
             >
-              <span className="text-[11px] font-bold text-white rounded px-2 py-0.5 flex-shrink-0" style={{ background: '#e8380d' }}>未入力</span>
-              <p className="flex-1 text-[13px] text-primary min-w-0">先月分の交通費が未入力です</p>
-              <span className="text-xs text-secondary flex-shrink-0">入力する ›</span>
+              <span className="text-[11px] font-bold text-white rounded px-2 py-0.5 flex-shrink-0" style={{ background: '#e8380d' }}>未申請</span>
+              <p className="flex-1 text-[13px] text-primary min-w-0">定期券の申請はお済みですか？</p>
+              <span className="text-xs text-secondary flex-shrink-0">申請する ›</span>
             </div>
           )}
 

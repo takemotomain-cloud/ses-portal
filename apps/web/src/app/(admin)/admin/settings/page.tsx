@@ -26,12 +26,89 @@ interface PositionRow {
   _count: { employees: number };
 }
 
+interface RateMaster {
+  healthInsurance: number;
+  employeePension: number;
+  employmentInsurance: number;
+  incomeTax: number;
+  residentTaxFixed: number;
+  updatedAt?: string;
+}
+
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState(0);
-  const tabs = ['部署・役職', 'ロール管理', '操作ログ'];
+  const tabs = ['部署・役職', 'ロール管理', '料率設定', '操作ログ'];
   const { toast, ToastUI } = useToast();
   const [departments, setDepartments] = useState<DeptNode[]>([]);
   const [positions, setPositions] = useState<PositionRow[]>([]);
+
+  /* ---------- J1: 料率マスタ ---------- */
+  const [rateMaster, setRateMaster] = useState<RateMaster | null>(null);
+  const [rateForm, setRateForm] = useState({
+    healthInsurance: '',
+    employeePension: '',
+    employmentInsurance: '',
+    incomeTax: '',
+    residentTaxFixed: '',
+  });
+  const [rateSaving, setRateSaving] = useState(false);
+
+  const fetchRateMaster = useCallback(async () => {
+    try {
+      const data = await apiClient<RateMaster>('/payroll/rate-master');
+      setRateMaster(data);
+      setRateForm({
+        healthInsurance: String(data.healthInsurance * 100),
+        employeePension: String(data.employeePension * 100),
+        employmentInsurance: String(data.employmentInsurance * 100),
+        incomeTax: String(data.incomeTax * 100),
+        residentTaxFixed: String(data.residentTaxFixed),
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRateMaster();
+  }, [fetchRateMaster]);
+
+  const handleSaveRateMaster = async () => {
+    const health = parseFloat(rateForm.healthInsurance);
+    const pension = parseFloat(rateForm.employeePension);
+    const empIns = parseFloat(rateForm.employmentInsurance);
+    const income = parseFloat(rateForm.incomeTax);
+    const residentFixed = parseInt(rateForm.residentTaxFixed, 10);
+
+    if ([health, pension, empIns, income].some((v) => isNaN(v) || v < 0 || v > 100)) {
+      toast('料率は 0〜100(%) の範囲で入力してください');
+      return;
+    }
+    if (isNaN(residentFixed) || residentFixed < 0) {
+      toast('住民税は 0 以上の整数で入力してください');
+      return;
+    }
+
+    setRateSaving(true);
+    try {
+      const updated = await apiClient<RateMaster>('/payroll/rate-master', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          healthInsurance: health / 100,
+          employeePension: pension / 100,
+          employmentInsurance: empIns / 100,
+          incomeTax: income / 100,
+          residentTaxFixed: residentFixed,
+        }),
+      });
+      setRateMaster(updated);
+      toast('料率を保存しました');
+    } catch (err: any) {
+      toast(err?.message || '保存に失敗しました');
+    } finally {
+      setRateSaving(false);
+    }
+  };
 
   const fetchDepartments = useCallback(async () => {
     try {
@@ -215,8 +292,63 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      {/* 操作ログ */}
+      {/* J1: 料率設定 */}
       {activeTab === 2 && (
+        <div className="card p-5 max-w-[720px]">
+          <div className="text-md font-medium mb-1">給与計算の料率設定</div>
+          <div className="text-xs text-secondary mb-4">
+            ここで設定した料率がデフォルトとして給与計算に使用されます。
+            社員ごとに上書きしたい場合は「社員詳細 → 契約・給与」タブで個別設定が可能です。
+          </div>
+          <div className="space-y-3">
+            {[
+              { key: 'healthInsurance', label: '健康保険料率（%）', unit: '%' },
+              { key: 'employeePension', label: '厚生年金料率（%）', unit: '%' },
+              { key: 'employmentInsurance', label: '雇用保険料率（%）', unit: '%' },
+              { key: 'incomeTax', label: '所得税率（%）', unit: '%' },
+              { key: 'residentTaxFixed', label: '住民税（固定額／円）', unit: '円' },
+            ].map((row) => (
+              <div key={row.key} className="flex items-center gap-3">
+                <label className="text-sm text-secondary min-w-[180px]">{row.label}</label>
+                <input
+                  type="number"
+                  step={row.key === 'residentTaxFixed' ? '1' : '0.01'}
+                  value={(rateForm as any)[row.key]}
+                  onChange={(e) =>
+                    setRateForm((prev) => ({ ...prev, [row.key]: e.target.value }))
+                  }
+                  className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-40 focus:border-primary focus:outline-none"
+                />
+                <span className="text-xs text-secondary">{row.unit}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-4 mt-4 border-t border-border/20">
+            <button
+              onClick={handleSaveRateMaster}
+              disabled={rateSaving}
+              className="btn-primary text-sm py-2 px-4 disabled:opacity-50"
+            >
+              {rateSaving ? '保存中...' : '保存'}
+            </button>
+            <button
+              onClick={fetchRateMaster}
+              className="btn-outline text-sm py-2 px-4"
+              disabled={rateSaving}
+            >
+              リセット
+            </button>
+            {rateMaster?.updatedAt && (
+              <span className="text-xs text-secondary ml-auto self-center">
+                最終更新: {new Date(rateMaster.updatedAt).toLocaleString('ja-JP')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 操作ログ */}
+      {activeTab === 3 && (
         <div className="card p-0">
           {(() => {
             const logs: { time: string; user: string; action: string; badge?: string; badgeLabel?: string }[] = [];

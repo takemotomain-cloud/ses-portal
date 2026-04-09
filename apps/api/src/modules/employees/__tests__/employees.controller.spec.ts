@@ -149,10 +149,10 @@ describe('EmployeesController', () => {
       };
       mockService.create.mockResolvedValue({ id: 'new-id', employeeCode: 'EMP-100' });
 
-      const result = await controller.create(body);
+      const result = await controller.create(adminUser, body);
 
       expect(result).toEqual({ id: 'new-id', employeeCode: 'EMP-100' });
-      expect(mockService.create).toHaveBeenCalledWith(body);
+      expect(mockService.create).toHaveBeenCalledWith(body, adminUser.userId);
     });
   });
 
@@ -163,10 +163,10 @@ describe('EmployeesController', () => {
     it('社員情報を更新する', async () => {
       mockService.update.mockResolvedValue({ id: 'emp-001' });
 
-      const result = await controller.update('emp-001', { lastName: '鈴木' });
+      const result = await controller.update('emp-001', adminUser, { lastName: '鈴木' });
 
       expect(result).toEqual({ id: 'emp-001' });
-      expect(mockService.update).toHaveBeenCalledWith('emp-001', { lastName: '鈴木' });
+      expect(mockService.update).toHaveBeenCalledWith('emp-001', { lastName: '鈴木' }, adminUser.userId);
     });
   });
 

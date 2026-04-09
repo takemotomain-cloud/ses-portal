@@ -18,6 +18,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -63,6 +64,44 @@ export class EmployeesController {
   }
 
   /**
+   * 論理削除済み社員一覧（P1 復活フロー用）
+   * 注意: /deleted は /:id より先に定義
+   */
+  @Get('deleted')
+  @Roles('admin')
+  @ApiOperation({ summary: '削除済み社員一覧' })
+  async findDeleted() {
+    return this.employeesService.findDeleted();
+  }
+
+  /**
+   * マイナンバー閲覧（T2: 監査ログ必須）
+   * 注意: /:id/mynumber は /:id より先に定義
+   */
+  @Get(':id/mynumber')
+  @Roles('admin')
+  @ApiOperation({ summary: 'マイナンバー閲覧（監査ログ記録）' })
+  async getMyNumber(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.employeesService.getMyNumber(id, user.userId);
+  }
+
+  /**
+   * 銀行口座閲覧（T2: 監査ログ必須）
+   */
+  @Get(':id/bank')
+  @Roles('admin')
+  @ApiOperation({ summary: '銀行口座閲覧（監査ログ記録）' })
+  async getBankAccount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.employeesService.getBankAccount(id, user.userId);
+  }
+
+  /**
    * 社員一覧を取得
    *
    * admin/sales: 全社員を検索・一覧表示可能
@@ -92,7 +131,7 @@ export class EmployeesController {
   @Post()
   @Roles('admin')
   @ApiOperation({ summary: '社員新規登録' })
-  async create(@Body() body: {
+  async create(@CurrentUser() user: RequestUser, @Body() body: {
     lastName: string;
     firstName: string;
     lastNameKana?: string;
@@ -111,12 +150,18 @@ export class EmployeesController {
     address?: string;
     baseSalary?: number;
     rewardRate?: number;
+    contractHours?: number;
+    fixedOvertime?: number;
+    commuteStyle?: 'onetime' | 'monthly' | 'three_month' | null;
+    leaveGrantMethod?: 'hire_date' | 'transferred' | null;
+    transferredLeaveDays?: number;
+    transferredLeaveGrantedDate?: string;
     bankName?: string;
     bankBranch?: string;
     bankAccountType?: string;
     bankAccountNumber?: string;
   }) {
-    return this.employeesService.create(body);
+    return this.employeesService.create(body, user.userId);
   }
 
   /**
@@ -129,6 +174,7 @@ export class EmployeesController {
   @ApiOperation({ summary: '社員情報更新' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       lastName?: string;
       firstName?: string;
@@ -147,6 +193,18 @@ export class EmployeesController {
       gender?: string;
       baseSalary?: number;
       rewardRate?: number;
+      contractHours?: number | null;
+      fixedOvertime?: number | null;
+      // J1: 社員別料率上書き
+      rateHealthInsurance?: number | null;
+      rateEmployeePension?: number | null;
+      rateEmploymentInsurance?: number | null;
+      rateIncomeTax?: number | null;
+      rateResidentTaxFixed?: number | null;
+      commuteStyle?: 'onetime' | 'monthly' | 'three_month' | null;
+      leaveGrantMethod?: 'hire_date' | 'transferred' | null;
+      transferredLeaveDays?: number | null;
+      transferredLeaveGrantedDate?: string | null;
       bankName?: string;
       bankBranch?: string;
       bankAccountType?: string;
@@ -157,7 +215,36 @@ export class EmployeesController {
       resignDate?: string | null;
     },
   ) {
-    return this.employeesService.update(id, body);
+    return this.employeesService.update(id, body, user.userId);
+  }
+
+  /**
+   * 社員を論理削除
+   *
+   * admin限定。deletedAt にタイムスタンプをセットする。
+   * 紐づく過去データ（勤怠・給与・アサイン）は残したまま一覧から外す。
+   */
+  @Delete(':id')
+  @Roles('admin')
+  @ApiOperation({ summary: '社員を論理削除' })
+  async softDelete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.employeesService.softDelete(id, user.userId);
+  }
+
+  /**
+   * 論理削除済み社員を復活（P1）
+   */
+  @Post(':id/restore')
+  @Roles('admin')
+  @ApiOperation({ summary: '削除済み社員を復活' })
+  async restore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.employeesService.restore(id, user.userId);
   }
 
   /**

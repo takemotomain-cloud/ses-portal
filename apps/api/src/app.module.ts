@@ -39,6 +39,8 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { FreeeModule } from './modules/freee/freee.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { LeaveOfAbsenceModule } from './modules/leave-of-absence/leave-of-absence.module';
+import { MailerModule } from './modules/mailer/mailer.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -48,6 +50,8 @@ import { LeaveOfAbsenceModule } from './modules/leave-of-absence/leave-of-absenc
     }),
     ScheduleModule.forRoot(),
     DatabaseModule,
+    MailerModule,
+    AuditLogsModule,
     AuthModule,
     EmployeesModule,
     AttendanceModule,

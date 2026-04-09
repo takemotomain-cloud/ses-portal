@@ -8,7 +8,8 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
-import * as nodemailer from 'nodemailer';
+import { MailerService, MailAttachment } from '../mailer/mailer.service';
+import { SkillsheetPdfService } from './skillsheet-pdf.service';
 
 /** カナ→ローマ字イニシャル変換 */
 const KANA_MAP: Record<string, string> = {
@@ -118,7 +119,11 @@ function buildSummaryText(emp: any, skillsheet: any): string {
 export class ProposalsService {
   private readonly logger = new Logger(ProposalsService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly mailerService: MailerService,
+    private readonly skillsheetPdfService: SkillsheetPdfService,
+  ) {}
 
   /**
    * 提案メール送信
@@ -191,30 +196,32 @@ export class ProposalsService {
     const bodyText = bodyLines.join('\n');
     const subject = `【人材ご提案】エンジニア${countText}のご紹介`;
 
-    // SMTP送信（仮設定: 開発環境では Ethereal / Mailtrap 等を想定）
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER || '',
-        pass: process.env.SMTP_PASS || '',
-      },
-    });
-
-    let sendStatus = 'sent';
+    // N4: スキルシート PDF を Puppeteer で生成して添付
+    let attachments: MailAttachment[] = [];
     try {
-      await transporter.sendMail({
-        from: '"株式会社Lervia" <sales@lervia.co.jp>',
-        to: data.toEmail,
-        subject,
-        text: bodyText,
-        // TODO: PDF添付は Puppeteer でスキルシートPDF生成後に対応
-      });
-      this.logger.log(`提案メール送信成功: ${data.toEmail} (${countText})`);
+      const pdfBuffer = await this.skillsheetPdfService.generateSkillsheetPdf(data.employeeIds);
+      if (pdfBuffer) {
+        const filename = employees.length === 1
+          ? `skillsheet_${summaries[0].initial.replace(/\./g, '')}.pdf`
+          : `skillsheets_${employees.length}names.pdf`;
+        attachments.push({ filename, content: pdfBuffer });
+      }
     } catch (err: any) {
-      this.logger.warn(`SMTP送信失敗（履歴は保存）: ${err?.message}`);
-      sendStatus = 'failed';
+      this.logger.warn(`スキルシート PDF 生成失敗（本文のみ送信）: ${err?.message ?? err}`);
+    }
+
+    // S2: Resend ベースの MailerService で送信
+    const mailResult = await this.mailerService.sendMail({
+      to: data.toEmail,
+      subject,
+      text: bodyText,
+      attachments,
+    });
+    let sendStatus: 'sent' | 'failed' = mailResult.status;
+    if (sendStatus === 'sent') {
+      this.logger.log(`提案メール送信成功: ${data.toEmail} (${countText})`);
+    } else {
+      this.logger.warn(`提案メール送信失敗（履歴は保存）: ${mailResult.error ?? ''}`);
     }
 
     // 送信履歴を保存
@@ -231,6 +238,62 @@ export class ProposalsService {
     });
 
     return { id: record.id, status: sendStatus, subject, bodyText };
+  }
+
+  /**
+   * 重複送信チェック（N2）
+   *
+   * 同一クライアント × 同一社員（少なくとも1人一致）× 同一案件名で、
+   * 過去90日以内に送信済み / draft になっている提案を返す。
+   * フロントエンドは送信前にこの結果を確認し、件数があれば確認ダイアログを表示する。
+   */
+  async findRecentSimilar(params: {
+    clientId: string;
+    employeeIds: string[];
+    projectName?: string;
+  }) {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    // まずクライアント＋期間で絞る
+    const candidates = await this.db.proposalEmail.findMany({
+      where: {
+        clientId: params.clientId,
+        OR: [
+          { sentAt: { gte: ninetyDaysAgo } },
+          { createdAt: { gte: ninetyDaysAgo } },
+        ],
+        status: { in: ['sent', 'draft'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 社員IDが1人でも一致するものをフィルタ
+    const targetEmpSet = new Set(params.employeeIds);
+    const matched = candidates.filter((p) => {
+      const ids = Array.isArray(p.employeeIds) ? (p.employeeIds as string[]) : [];
+      const hasEmpMatch = ids.some((id) => targetEmpSet.has(id));
+      if (!hasEmpMatch) return false;
+      // 案件名が指定されていれば同一案件名のものに限定
+      if (params.projectName && p.projectName) {
+        return p.projectName === params.projectName;
+      }
+      return hasEmpMatch;
+    });
+
+    return matched.map((p) => {
+      const ids = Array.isArray(p.employeeIds) ? (p.employeeIds as string[]) : [];
+      return {
+        id: p.id,
+        toEmail: p.toEmail,
+        subject: p.subject,
+        projectName: p.projectName,
+        status: p.status,
+        sentAt: p.sentAt,
+        createdAt: p.createdAt,
+        overlappingEmployeeIds: ids.filter((id) => targetEmpSet.has(id)),
+      };
+    });
   }
 
   /**
@@ -406,6 +469,54 @@ export class ProposalsService {
           const kana = `${e.lastNameKana || ''} ${e.firstNameKana || ''}`.trim();
           return { id, name: `${e.lastName} ${e.firstName}`, initial: toInitial(kana) };
         }),
+      };
+    });
+  }
+
+  /**
+   * 送信失敗の提案一覧（N3: 再送 UI 用）
+   */
+  async findFailed() {
+    const records = await this.db.proposalEmail.findMany({
+      where: { status: 'failed' },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    // クライアント名と社員名を付与
+    const clientIds = Array.from(new Set(records.map(r => r.clientId)));
+    const allEmpIds = new Set<string>();
+    records.forEach(r => {
+      const ids = Array.isArray(r.employeeIds) ? (r.employeeIds as string[]) : [];
+      ids.forEach(id => allEmpIds.add(id));
+    });
+
+    const [clients, employees] = await Promise.all([
+      this.db.client.findMany({
+        where: { id: { in: clientIds } },
+        select: { id: true, name: true },
+      }),
+      this.db.employee.findMany({
+        where: { id: { in: Array.from(allEmpIds) } },
+        select: { id: true, lastName: true, firstName: true },
+      }),
+    ]);
+    const clientMap = new Map(clients.map(c => [c.id, c.name]));
+    const empMap = new Map(employees.map(e => [e.id, `${e.lastName} ${e.firstName}`]));
+
+    return records.map(r => {
+      const ids = Array.isArray(r.employeeIds) ? (r.employeeIds as string[]) : [];
+      return {
+        id: r.id,
+        clientId: r.clientId,
+        clientName: clientMap.get(r.clientId) ?? '（削除済み）',
+        toEmail: r.toEmail,
+        subject: r.subject,
+        projectName: r.projectName,
+        status: r.status,
+        createdAt: r.createdAt,
+        sentAt: r.sentAt,
+        employees: ids.map(id => ({ id, name: empMap.get(id) ?? '不明' })),
       };
     });
   }

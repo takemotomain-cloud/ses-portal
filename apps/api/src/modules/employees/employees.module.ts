@@ -14,8 +14,11 @@ import { Module } from '@nestjs/common';
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
 import { EmployeesCron } from './employees.cron';
+import { LeaveModule } from '../leave/leave.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
+  imports: [LeaveModule, NotificationsModule],
   controllers: [EmployeesController],
   providers: [EmployeesService, EmployeesCron],
   exports: [EmployeesService],

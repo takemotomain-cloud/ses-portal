@@ -642,13 +642,76 @@ export class AttendanceService {
     });
     const shiftUnconfirmed = !shift;
 
-    // 3. 交通費未入力（月初〜10日の間のみチェック、前月分）
+    // 3. 交通費（定期券）未申請アラート
+    //
+    // 社員マスタの commuteStyle に応じて判定:
+    //   - onetime     : アラートなし（過去3ヶ月遡れるので救済可能）
+    //   - monthly     : 毎月15日/月末に判定、当月の定期 or 都度申請が1件もなければアラート
+    //   - three_month : 毎月15日/月末に判定、現在月をカバーする定期 or 当月の都度申請が1件もなければアラート
+    //
+    // 判定日: 当月15日以降 or 月末日
     let expenseMissing = false;
-    if (now.getDate() <= 10) {
-      const expense = await this.db.expenseRequest.findFirst({
-        where: { employeeId, targetMonth: prevYearMonth },
-      });
-      expenseMissing = !expense;
+    const employee = await this.db.employee.findUnique({
+      where: { id: employeeId },
+      select: { commuteStyle: true },
+    });
+
+    if (employee && (employee.commuteStyle === 'monthly' || employee.commuteStyle === 'three_month')) {
+      const dayOfMonth = now.getDate();
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const shouldCheck = dayOfMonth >= 15 || dayOfMonth === lastDay;
+
+      if (shouldCheck) {
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+        // 当月の都度申請
+        const onetimeInMonth = await this.db.expenseItem.findFirst({
+          where: {
+            kind: 'onetime',
+            expenseDate: { gte: monthStart, lte: monthEnd },
+            expenseRequest: {
+              employeeId,
+              status: { in: ['pending', 'approved'] },
+            },
+          },
+          select: { id: true },
+        });
+
+        let passCovered = false;
+        if (employee.commuteStyle === 'monthly') {
+          // 1ヶ月定期: 当月に開始される定期券
+          const monthlyPass = await this.db.expenseItem.findFirst({
+            where: {
+              kind: 'monthly_pass',
+              expenseDate: { gte: monthStart, lte: monthEnd },
+              expenseRequest: {
+                employeeId,
+                status: { in: ['pending', 'approved'] },
+              },
+            },
+            select: { id: true },
+          });
+          passCovered = !!monthlyPass;
+        } else {
+          // 3ヶ月定期: 有効期間が現在月をカバーする定期券（先行申請もカバー）
+          const threeMonthPass = await this.db.expenseItem.findFirst({
+            where: {
+              kind: 'three_month_pass',
+              expenseDate: { lte: monthEnd },
+              passEndDate: { gte: monthStart },
+              expenseRequest: {
+                employeeId,
+                status: { in: ['pending', 'approved'] },
+              },
+            },
+            select: { id: true },
+          });
+          passCovered = !!threeMonthPass;
+        }
+
+        expenseMissing = !passCovered && !onetimeInMonth;
+      }
     }
 
     // 4. 勤怠漏れ（月末経過後 = 前月のシフト計画 vs 実績の差分）

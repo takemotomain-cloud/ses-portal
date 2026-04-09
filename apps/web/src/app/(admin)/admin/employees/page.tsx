@@ -101,7 +101,15 @@ export default function AdminEmployeesPage() {
     <div>
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">社員一覧</h1>
-        <button onClick={() => router.push('/admin/employees/new')} className="btn-primary text-sm py-2">新規社員登録</button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push('/admin/employees/deleted')}
+            className="btn-outline text-sm py-2"
+          >
+            削除済み社員
+          </button>
+          <button onClick={() => router.push('/admin/employees/new')} className="btn-primary text-sm py-2">新規社員登録</button>
+        </div>
       </div>
 
       {/* KPI */}
