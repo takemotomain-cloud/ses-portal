@@ -34,6 +34,32 @@ export class AttendanceService {
   ) {}
 
   /**
+   * 今日の打刻状況を取得
+   *
+   * マイページ初期表示で「出勤中」「未出勤」を判定するために使う。
+   * レコードが存在しない場合は両方 null を返す。
+   */
+  async getToday(employeeId: string): Promise<{ clockIn: string | null; clockOut: string | null }> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const record = await this.db.attendance.findUnique({
+      where: {
+        employeeId_workDate: {
+          employeeId,
+          workDate: today,
+        },
+      },
+      select: { clockIn: true, clockOut: true },
+    });
+
+    return {
+      clockIn: record?.clockIn ? record.clockIn.toISOString() : null,
+      clockOut: record?.clockOut ? record.clockOut.toISOString() : null,
+    };
+  }
+
+  /**
    * 出勤打刻
    *
    * 1日に2回出勤打刻はできない（UNIQUE制約で防止）。

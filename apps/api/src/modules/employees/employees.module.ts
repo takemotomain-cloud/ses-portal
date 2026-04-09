@@ -13,10 +13,11 @@
 import { Module } from '@nestjs/common';
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
+import { EmployeesCron } from './employees.cron';
 
 @Module({
   controllers: [EmployeesController],
-  providers: [EmployeesService],
+  providers: [EmployeesService, EmployeesCron],
   exports: [EmployeesService],
 })
 export class EmployeesModule {}

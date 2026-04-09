@@ -41,6 +41,12 @@ import { Roles } from '../../common/decorators/roles.decorator';
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
+  @Get('today')
+  @ApiOperation({ summary: '今日の打刻状況' })
+  async getToday(@CurrentUser() user: RequestUser) {
+    return this.attendanceService.getToday(user.employeeId);
+  }
+
   @Post('clock-in')
   @ApiOperation({ summary: '出勤打刻' })
   async clockIn(@CurrentUser() user: RequestUser) {

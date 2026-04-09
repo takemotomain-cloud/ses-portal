@@ -113,9 +113,23 @@ export default function MyPage() {
 
   // お知らせ取得
   useEffect(() => {
-    apiClient<Notice[]>('/notifications')
+    apiClient<Notice[]>('/notifications?audience=employee')
       .then(setNotices)
       .catch(() => setNotices([]));
+  }, []);
+
+  // 今日の打刻状況を取得（マウント時に初期化）
+  // 出勤済み かつ 退勤未済 → 'clocked_in'、それ以外 → 'idle'
+  useEffect(() => {
+    apiClient<{ clockIn: string | null; clockOut: string | null }>('/attendance/today')
+      .then((res) => {
+        if (res.clockIn && !res.clockOut) {
+          setClockStatus('clocked_in');
+        } else {
+          setClockStatus('idle');
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // アラート取得
@@ -364,57 +378,66 @@ export default function MyPage() {
             })}
           </p>
 
-          <div className={`inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full mb-5 ${
-            clockStatus === 'clocked_in'
-              ? 'bg-status-green-bg text-status-green-text'
-              : 'bg-border-light text-secondary'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${
-              clockStatus === 'clocked_in' ? 'bg-status-green-text' : 'bg-secondary'
-            }`} />
-            {clockStatus === 'clocked_in' ? '出勤中' : '未出勤'}
-          </div>
+          {(user as any)?.employeeStatus === 'resigned' ? (
+            <div className="inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full mb-2 bg-border-light text-secondary">
+              <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
+              退職済み
+            </div>
+          ) : (
+            <>
+              <div className={`inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full mb-5 ${
+                clockStatus === 'clocked_in'
+                  ? 'bg-status-green-bg text-status-green-text'
+                  : 'bg-border-light text-secondary'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  clockStatus === 'clocked_in' ? 'bg-status-green-text' : 'bg-secondary'
+                }`} />
+                {clockStatus === 'clocked_in' ? '出勤中' : '未出勤'}
+              </div>
 
-          {clockMessage && (
-            <p className="text-sm text-status-green-text mb-3">{clockMessage}</p>
+              {clockMessage && (
+                <p className="text-sm text-status-green-text mb-3">{clockMessage}</p>
+              )}
+
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={async () => {
+                    try {
+                      await apiClient('/attendance/clock-in', { method: 'POST' });
+                      setClockStatus('clocked_in');
+                      setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に出勤しました`);
+                    } catch {
+                      setClockStatus('clocked_in');
+                      setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に出勤しました`);
+                    }
+                    setTimeout(() => setClockMessage(null), 3000);
+                  }}
+                  disabled={clockStatus === 'clocked_in'}
+                  className="flex-1 max-w-[140px] py-3 rounded-lg bg-primary text-white text-md font-semibold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-35"
+                >
+                  出勤
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      await apiClient('/attendance/clock-out', { method: 'POST' });
+                      setClockStatus('idle');
+                      setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に退勤しました`);
+                    } catch {
+                      setClockStatus('idle');
+                      setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に退勤しました`);
+                    }
+                    setTimeout(() => setClockMessage(null), 3000);
+                  }}
+                  disabled={clockStatus === 'idle'}
+                  className="flex-1 max-w-[140px] py-3 rounded-lg border border-border text-primary text-md font-medium transition-colors hover:bg-page disabled:opacity-35"
+                >
+                  退勤
+                </button>
+              </div>
+            </>
           )}
-
-          <div className="flex gap-3 justify-center">
-            <button
-              onClick={async () => {
-                try {
-                  await apiClient('/attendance/clock-in', { method: 'POST' });
-                  setClockStatus('clocked_in');
-                  setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に出勤しました`);
-                } catch {
-                  setClockStatus('clocked_in');
-                  setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に出勤しました`);
-                }
-                setTimeout(() => setClockMessage(null), 3000);
-              }}
-              disabled={clockStatus === 'clocked_in'}
-              className="flex-1 max-w-[140px] py-3 rounded-lg bg-primary text-white text-md font-semibold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-35"
-            >
-              出勤
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  await apiClient('/attendance/clock-out', { method: 'POST' });
-                  setClockStatus('idle');
-                  setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に退勤しました`);
-                } catch {
-                  setClockStatus('idle');
-                  setClockMessage(`${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に退勤しました`);
-                }
-                setTimeout(() => setClockMessage(null), 3000);
-              }}
-              disabled={clockStatus === 'idle'}
-              className="flex-1 max-w-[140px] py-3 rounded-lg border border-border text-primary text-md font-medium transition-colors hover:bg-page disabled:opacity-35"
-            >
-              退勤
-            </button>
-          </div>
         </div>
       </div>
 

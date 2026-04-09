@@ -154,6 +154,7 @@ export class EmployeesController {
       station?: string;
       qualifications?: any;
       hasBonus?: boolean;
+      resignDate?: string | null;
     },
   ) {
     return this.employeesService.update(id, body);

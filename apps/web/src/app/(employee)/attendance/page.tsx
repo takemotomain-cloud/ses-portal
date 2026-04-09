@@ -451,11 +451,11 @@ export default function AttendancePage() {
           </div>
 
           {/* 勤怠テーブル（フルカレンダー） */}
-          <div className="card p-0">
+          <div className="card p-0 overflow-x-auto">
             {loading ? (
               <div className="px-4 py-8 text-center text-sm text-secondary">読み込み中...</div>
             ) : (
-              <table className="w-full">
+              <table className="w-full min-w-[560px]">
                 <thead>
                   <tr className="border-b border-border">
                     {['日付', '出勤', '退勤', '休憩', '稼働', '残業'].map(h => (

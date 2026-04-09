@@ -60,6 +60,7 @@ interface EditForm {
   firstNameKana: string;
   employeeCode: string;
   hireDate: string;
+  resignDate: string;
   department: string;
   employmentType: string;
   status: string;
@@ -201,6 +202,7 @@ export default function EmployeeEditPage() {
     firstNameKana: '',
     employeeCode: '',
     hireDate: '',
+    resignDate: '',
     department: 'SES事業部',
     employmentType: '正社員',
     status: '在籍',
@@ -227,11 +229,13 @@ export default function EmployeeEditPage() {
 
   const [hasBonus, setHasBonus] = useState(false);
   const [originalDeptId, setOriginalDeptId] = useState<string | null>(null);
+  const [originalStatus, setOriginalStatus] = useState<string>('active');
   const [qualifications, setQualifications] = useState<string[]>([]);
   const [newQualification, setNewQualification] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revertModal, setRevertModal] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -244,6 +248,7 @@ export default function EmployeeEditPage() {
           firstNameKana: d.firstNameKana || '',
           employeeCode: d.employeeCode || '',
           hireDate: fmtDateForDisplay(d.hireDate),
+          resignDate: d.resignDate ? String(d.resignDate).slice(0, 10) : '',
           department: d.department?.name || 'SES事業部',
           employmentType: empTypeLabel[d.employmentType] || '正社員',
           status: statusLabel[d.status] || '在籍',
@@ -269,6 +274,7 @@ export default function EmployeeEditPage() {
         });
         setHasBonus(d.hasBonus ?? false);
         setOriginalDeptId(d.department?.id || null);
+        setOriginalStatus(d.status);
         setQualifications(Array.isArray(d.qualifications) ? d.qualifications : []);
       })
       .catch((err) => {
@@ -286,15 +292,39 @@ export default function EmployeeEditPage() {
 
   const handleSubmit = async () => {
     if (submitting) return;
+    const newStatus = statusReverse[form.status] || form.status;
+
+    // 退職にする場合は退職日が必須
+    if (newStatus === 'resigned' && !form.resignDate) {
+      toast('退職ステータスにする場合は退職日を入力してください');
+      return;
+    }
+
+    // 退職→アクティブに戻す場合は退職日クリア有無を確認
+    if (originalStatus === 'resigned' && newStatus !== 'resigned' && form.resignDate) {
+      setRevertModal(true);
+      return;
+    }
+
+    await doSubmit({});
+  };
+
+  const doSubmit = async (override: { clearResignDate?: boolean }) => {
     setSubmitting(true);
     try {
+      const newStatus = statusReverse[form.status] || form.status;
+      const resignDateToSend = override.clearResignDate
+        ? null
+        : (form.resignDate ? form.resignDate : null);
+
       const payload: Record<string, any> = {
         lastName: form.lastName,
         firstName: form.firstName,
         lastNameKana: form.lastNameKana,
         firstNameKana: form.firstNameKana,
         employmentType: empTypeReverse[form.employmentType] || form.employmentType,
-        status: statusReverse[form.status] || form.status,
+        status: newStatus,
+        resignDate: resignDateToSend,
         education: educationReverse[form.education] || form.education,
         schoolName: form.schoolName,
         email: form.email,
@@ -327,6 +357,7 @@ export default function EmployeeEditPage() {
       toast(err?.message || '保存に失敗しました');
     } finally {
       setSubmitting(false);
+      setRevertModal(false);
     }
   };
 
@@ -477,6 +508,21 @@ export default function EmployeeEditPage() {
               </select>
               <div className="text-[10px] text-secondary mt-[3px]">
                 ※ 在籍/待機中は稼働管理と自動連動（本開発時）
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>
+                退職日
+                {form.status === '退職' && requiredMark}
+              </label>
+              <input
+                type="date"
+                className={inputCls}
+                value={form.resignDate}
+                onChange={set('resignDate')}
+              />
+              <div className="text-[10px] text-secondary mt-[3px]">
+                ※ 退職日翌日0時にステータスが自動で「退職」になります
               </div>
             </div>
             <div>
@@ -825,6 +871,41 @@ export default function EmployeeEditPage() {
           戻る
         </button>
       </div>
+
+      {/* 退職→在籍 復帰モーダル */}
+      {revertModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-md font-semibold mb-3">ステータスを在籍に戻します</h3>
+            <p className="text-sm text-secondary mb-5">
+              現在の退職日（{form.resignDate}）はどう扱いますか？
+            </p>
+            <div className="flex gap-2 justify-end flex-wrap">
+              <button
+                onClick={() => setRevertModal(false)}
+                className="btn-outline text-sm py-2"
+                disabled={submitting}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={() => doSubmit({ clearResignDate: false })}
+                className="btn-outline text-sm py-2"
+                disabled={submitting}
+              >
+                退職日を残す
+              </button>
+              <button
+                onClick={() => doSubmit({ clearResignDate: true })}
+                className="btn-primary text-sm py-2"
+                disabled={submitting}
+              >
+                退職日をクリアする
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ToastUI />
     </div>

@@ -16,19 +16,31 @@ export class NotificationsService {
 
   constructor(private readonly db: DatabaseService) {}
 
+  /**
+   * audience に応じた category 絞り込み条件を返す
+   * - admin: 管理者向け（category='system'）のみ
+   * - employee: 社員向け（category!='system' = announcement / null など）のみ
+   * - 未指定: 全件
+   */
+  private buildAudienceWhere(audience?: 'admin' | 'employee') {
+    if (audience === 'admin') return { category: 'system' };
+    if (audience === 'employee') return { category: { not: 'system' } };
+    return {};
+  }
+
   /** 社員の通知一覧（未読優先、新しい順） */
-  async getMyNotifications(employeeId: string, limit?: number) {
+  async getMyNotifications(employeeId: string, limit?: number, audience?: 'admin' | 'employee') {
     return this.db.notification.findMany({
-      where: { employeeId },
+      where: { employeeId, ...this.buildAudienceWhere(audience) },
       orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
       take: (limit && limit > 0) ? limit : 20,
     });
   }
 
   /** 未読件数を取得 */
-  async getUnreadCount(employeeId: string): Promise<number> {
+  async getUnreadCount(employeeId: string, audience?: 'admin' | 'employee'): Promise<number> {
     return this.db.notification.count({
-      where: { employeeId, isRead: false },
+      where: { employeeId, isRead: false, ...this.buildAudienceWhere(audience) },
     });
   }
 
@@ -41,9 +53,9 @@ export class NotificationsService {
   }
 
   /** 全件既読にする */
-  async markAllAsRead(employeeId: string) {
+  async markAllAsRead(employeeId: string, audience?: 'admin' | 'employee') {
     await this.db.notification.updateMany({
-      where: { employeeId, isRead: false },
+      where: { employeeId, isRead: false, ...this.buildAudienceWhere(audience) },
       data: { isRead: true, readAt: new Date() },
     });
   }

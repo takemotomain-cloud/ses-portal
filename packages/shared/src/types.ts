@@ -245,6 +245,8 @@ export interface AuthUser {
   name: string;
   email: string;
   role: UserRole;
+  employeeStatus: EmployeeStatus;
+  resignDate: string | null;
 }
 
 // ============================================================

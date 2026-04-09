@@ -69,6 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: `${employee.lastName} ${employee.firstName}`,
           email: employee.email,
           role: '' as any,
+          employeeStatus: employee.status,
+          resignDate: employee.resignDate
+            ? String(employee.resignDate).slice(0, 10)
+            : null,
           department: employee.department?.name || '',
           hasBonus: employee.hasBonus ?? false,
         } as any);

@@ -99,14 +99,21 @@ export class NotificationsController {
 
   @Get()
   @ApiOperation({ summary: '自分の通知一覧' })
-  async getMyNotifications(@CurrentUser() user: RequestUser, @Query('limit') limit?: number) {
-    return this.notificationsService.getMyNotifications(user.employeeId, limit);
+  async getMyNotifications(
+    @CurrentUser() user: RequestUser,
+    @Query('limit') limit?: number,
+    @Query('audience') audience?: 'admin' | 'employee',
+  ) {
+    return this.notificationsService.getMyNotifications(user.employeeId, limit, audience);
   }
 
   @Get('unread-count')
   @ApiOperation({ summary: '未読件数' })
-  async getUnreadCount(@CurrentUser() user: RequestUser) {
-    const count = await this.notificationsService.getUnreadCount(user.employeeId);
+  async getUnreadCount(
+    @CurrentUser() user: RequestUser,
+    @Query('audience') audience?: 'admin' | 'employee',
+  ) {
+    const count = await this.notificationsService.getUnreadCount(user.employeeId, audience);
     return { count };
   }
 
@@ -119,8 +126,11 @@ export class NotificationsController {
 
   @Post('read-all')
   @ApiOperation({ summary: '全件既読にする' })
-  async markAllAsRead(@CurrentUser() user: RequestUser) {
-    await this.notificationsService.markAllAsRead(user.employeeId);
+  async markAllAsRead(
+    @CurrentUser() user: RequestUser,
+    @Query('audience') audience?: 'admin' | 'employee',
+  ) {
+    await this.notificationsService.markAllAsRead(user.employeeId, audience);
     return { message: 'すべて既読にしました' };
   }
 }

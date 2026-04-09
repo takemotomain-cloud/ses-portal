@@ -32,6 +32,7 @@ const navSections: NavSection[] = [
     items: [
       { label: '本日', href: '/admin/alerts/today' },
       { label: '今月', href: '/admin/alerts/month' },
+      { label: '通知', href: '/admin/notifications' },
     ],
   },
   {
@@ -94,20 +95,24 @@ export function AdminSidebar() {
   const { confirmNavigation } = useNavigationGuard();
 
   const [approvalCount, setApprovalCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // 承認待ち件数をAPIから取得
+  // 承認待ち件数 / 未読通知件数 を API から取得
   useEffect(() => {
     async function fetchCounts() {
       try {
-        const [leaves, expenses, changes, delayCerts] = await Promise.all([
+        const [leaves, expenses, changes, delayCerts, unread] = await Promise.all([
           apiClient<any[]>('/leave/pending').catch(() => []),
           apiClient<any[]>('/expense/pending').catch(() => []),
           apiClient<any[]>('/profile/change-requests/pending').catch(() => []),
           apiClient<any[]>('/delay-certificates/pending').catch(() => []),
+          apiClient<{ count: number }>('/notifications/unread-count?audience=admin').catch(() => ({ count: 0 })),
         ]);
         setApprovalCount(leaves.length + expenses.length + changes.length + delayCerts.length);
+        setUnreadCount(unread.count || 0);
       } catch {
         setApprovalCount(0);
+        setUnreadCount(0);
       }
     }
     fetchCounts();
@@ -147,7 +152,9 @@ export function AdminSidebar() {
               </div>
               {section.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + '/');
-                const dynamicBadge = item.href === '/admin/approvals' ? approvalCount : 0;
+                const dynamicBadge =
+                  item.href === '/admin/approvals' ? approvalCount :
+                  item.href === '/admin/notifications' ? unreadCount : 0;
                 return (
                   <a
                     key={item.href}

@@ -55,7 +55,7 @@ export default function AdminEmployeesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const { toast, ToastUI } = useToast();
@@ -134,10 +134,10 @@ export default function AdminEmployeesPage() {
           onChange={(e) => handleStatus(e.target.value)}
           className="border border-border rounded-md px-3 py-[7px] text-sm outline-none bg-card appearance-none"
         >
-          <option value="">ステータス: すべて</option>
           <option value="active">在籍</option>
           <option value="leave">休職中</option>
           <option value="resigned">退職</option>
+          <option value="">すべて</option>
         </select>
         <span className="text-sm text-secondary self-center">{total}名</span>
       </div>

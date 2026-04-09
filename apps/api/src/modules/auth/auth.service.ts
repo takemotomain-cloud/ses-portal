@@ -25,6 +25,7 @@ import * as bcrypt from 'bcrypt';
 import { DatabaseService } from '../../database/database.service';
 import { MAX_LOGIN_ATTEMPTS, BCRYPT_ROUNDS } from '@ses-portal/shared';
 import type { AuthUser, LoginResponse } from '@ses-portal/shared';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AuthService {
@@ -33,6 +34,7 @@ export class AuthService {
   constructor(
     private readonly db: DatabaseService,
     private readonly jwtService: JwtService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -68,6 +70,7 @@ export class AuthService {
             firstName: true,
             email: true,
             status: true,
+            resignDate: true,
           },
         },
       },
@@ -90,11 +93,31 @@ export class AuthService {
       );
     }
 
-    // 退職済み社員のログインを拒否
+    // 退職済み社員: 退職日 + 2ヶ月までは閲覧目的でログイン許可、以降はロック
     if (user.employee.status === 'resigned') {
-      throw new UnauthorizedException(
-        'このアカウントは無効です',
-      );
+      const resignDate = user.employee.resignDate;
+      const cutoff = resignDate ? new Date(resignDate) : null;
+      if (cutoff) cutoff.setMonth(cutoff.getMonth() + 2);
+
+      if (!cutoff || new Date() >= cutoff) {
+        // 2ヶ月経過 → ログイン不可。初回検出時に管理者通知 + isLocked を立てる
+        if (!user.isLocked) {
+          await this.db.user.update({
+            where: { id: user.id },
+            data: { isLocked: true },
+          });
+          this.notifications
+            .notifyAdmins(
+              'アカウント停止',
+              `${user.employee.lastName} ${user.employee.firstName} のアカウントが退職後2ヶ月経過のためログイン停止されました`,
+            )
+            .catch(() => {});
+        }
+        throw new UnauthorizedException(
+          'このアカウントは無効になっています。管理者にお問い合わせください',
+        );
+      }
+      // 2ヶ月以内 → ログイン許可（出退勤ボタン等は別途UI側で制限）
     }
 
     // 3. パスワード検証
@@ -145,6 +168,10 @@ export class AuthService {
       name: `${user.employee.lastName} ${user.employee.firstName}`,
       email: user.employee.email,
       role: user.role as AuthUser['role'],
+      employeeStatus: user.employee.status as AuthUser['employeeStatus'],
+      resignDate: user.employee.resignDate
+        ? user.employee.resignDate.toISOString().slice(0, 10)
+        : null,
     };
 
     const accessToken = this.jwtService.sign({

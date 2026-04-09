@@ -437,6 +437,7 @@ export class EmployeesService {
     station?: string;
     qualifications?: any;
     hasBonus?: boolean;
+    resignDate?: string | null;
   }) {
     // 存在確認
     const existing = await this.db.employee.findFirst({
@@ -454,6 +455,14 @@ export class EmployeesService {
       if (emailExists) {
         throw new BadRequestException('このメールアドレスは既に使用されています');
       }
+    }
+
+    // 退職処理のバリデーション
+    // status='resigned' に変更する場合、退職日が必須
+    const newStatus = data.status ?? existing.status;
+    const newResignDate = data.resignDate !== undefined ? data.resignDate : (existing.resignDate ? existing.resignDate.toISOString().slice(0, 10) : null);
+    if (newStatus === 'resigned' && !newResignDate) {
+      throw new BadRequestException('退職ステータスにする場合は退職日を入力してください');
     }
 
     // 更新データを組み立て（undefinedのフィールドは除外）
@@ -482,6 +491,9 @@ export class EmployeesService {
     if (data.station !== undefined) updateData.station = data.station;
     if (data.qualifications !== undefined) updateData.qualifications = data.qualifications;
     if (data.hasBonus !== undefined) updateData.hasBonus = data.hasBonus;
+    if (data.resignDate !== undefined) {
+      updateData.resignDate = data.resignDate ? new Date(data.resignDate) : null;
+    }
 
     const updated = await this.db.employee.update({
       where: { id },

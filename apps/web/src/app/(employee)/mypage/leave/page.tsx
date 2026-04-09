@@ -55,7 +55,6 @@ export default function LeaveRequestPage() {
     full_day: '全休',
     am_half: '午前半休',
     pm_half: '午後半休',
-    special: '特別休暇',
   };
 
   // 取得日数計算
@@ -136,7 +135,6 @@ export default function LeaveRequestPage() {
             <option value="full_day">全休</option>
             <option value="am_half">午前半休</option>
             <option value="pm_half">午後半休</option>
-            <option value="special">特別休暇</option>
           </select>
         </div>
 

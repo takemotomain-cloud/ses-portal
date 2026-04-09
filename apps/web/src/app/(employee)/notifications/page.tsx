@@ -42,7 +42,7 @@ export default function NotificationsPage() {
   const [selected, setSelected] = useState<Notice | null>(null);
 
   useEffect(() => {
-    apiClient<Notice[]>('/notifications')
+    apiClient<Notice[]>('/notifications?audience=employee')
       .then(setNotices)
       .catch(() => setNotices([]))
       .finally(() => setLoading(false));
