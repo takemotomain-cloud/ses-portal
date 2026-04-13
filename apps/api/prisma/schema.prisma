@@ -80,6 +80,9 @@ model Employee {
   education         String?   @db.VarChar(30)
   schoolName        String?   @map("school_name") @db.VarChar(100)
   baseSalary        Int?      @map("base_salary")
+  fixedOvertimePay  Int?      @map("fixed_overtime_pay")
+  isExecutive       Boolean   @default(false) @map("is_executive")
+  salaryGradeId     String?   @map("salary_grade_id") @db.Uuid
   rewardRate        Decimal?  @map("reward_rate") @db.Decimal(5, 2)
   // J2: 所定労働時間・固定残業時間を社員別に設定（単位: 時間/月、null = デフォルト値を使用）
   contractHours     Int?      @map("contract_hours")
@@ -103,7 +106,7 @@ model Employee {
   bankAccountType   String?   @map("bank_account_type") @db.VarChar(10)
   bankAccountNumber String?   @map("bank_account_number") @db.VarChar(20)
   bankAccountHolder String?   @map("bank_account_holder") @db.VarChar(100)
-  myNumber          String?   @map("my_number") @db.VarChar(12)
+  myNumber          String?   @map("my_number")
   hasBonus          Boolean   @default(false) @map("has_bonus")
   station           String?   @db.VarChar(100)
   qualifications    Json?     @default("[]")
@@ -114,6 +117,7 @@ model Employee {
 
   department         Department          @relation(fields: [departmentId], references: [id])
   position           Position?           @relation(fields: [positionId], references: [id])
+  salaryGrade        SalaryGrade?        @relation(fields: [salaryGradeId], references: [id])
   user               User?
   emergencyContacts  EmergencyContact[]
   dependents         Dependent[]
@@ -593,10 +597,19 @@ model Payroll {
   employeeId          String   @map("employee_id") @db.Uuid
   targetMonth         String   @map("target_month") @db.VarChar(7)
   baseSalary          Int      @map("base_salary")
+  fixedOvertimePay    Int      @default(0) @map("fixed_overtime_pay")
+  fixedOvertimeHours  Int?     @map("fixed_overtime_hours")
+  absenceDeduction    Int      @default(0) @map("absence_deduction")
   overtimePay         Int      @default(0) @map("overtime_pay")
+  regularOvertimePay  Int      @default(0) @map("regular_overtime_pay")
+  excessOvertimePay   Int      @default(0) @map("excess_overtime_pay")
+  lateNightPay        Int      @default(0) @map("late_night_pay")
+  holidayPay          Int      @default(0) @map("holiday_pay")
   commuteAllowance    Int      @default(0) @map("commute_allowance")
   otherAllowance      Int      @default(0) @map("other_allowance")
   grossSalary         Int      @map("gross_salary")
+  standardRemunerationGrade   Int?  @map("standard_remuneration_grade")
+  standardMonthlyRemuneration Int?  @map("standard_monthly_remuneration")
   healthInsurance     Int      @default(0) @map("health_insurance")
   pension             Int      @default(0)
   employmentInsurance Int      @default(0) @map("employment_insurance")
@@ -604,6 +617,9 @@ model Payroll {
   residentTax         Int      @default(0) @map("resident_tax")
   totalDeductions     Int      @map("total_deductions")
   netSalary           Int      @map("net_salary")
+  businessDays        Int?     @map("business_days")
+  actualWorkDays      Int?     @map("actual_work_days")
+  overtimeWarnings    Json?    @map("overtime_warnings")
   status              String   @default("draft") @db.VarChar(20)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -1129,6 +1145,27 @@ model RateMaster {
   updatedBy               String?  @map("updated_by") @db.Uuid
 
   @@map("rate_master")
+}
+
+// ----------------------------------------
+// 給与テーブル（等級マスタ）
+// SES事業部 / 管理部の給与テーブル。社員が選択すると baseSalary / fixedOvertimePay が自動セットされる。
+// ----------------------------------------
+model SalaryGrade {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  department        String   @db.VarChar(20)          // 'ses' | 'admin'
+  grade             Int                                // 等級 or 連番
+  overtimeType      Int      @map("overtime_type")     // 固定残業時間: 20 or 40
+  grossSalary       Int      @map("gross_salary")      // 総支給額
+  baseSalary        Int      @map("base_salary")       // 基本給
+  fixedOvertimePay  Int      @map("fixed_overtime_pay") // 固定残業手当
+  positionAllowance Int      @default(0) @map("position_allowance") // 役職手当（管理部主任以上）
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  employees Employee[]
+
+  @@unique([department, grade, overtimeType])
+  @@map("salary_grades")
 }
 
 // ----------------------------------------

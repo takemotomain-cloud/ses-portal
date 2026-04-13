@@ -1,11 +1,13 @@
 /**
  * Payroll Service — 給与計算ビジネスロジック
  *
- * SES特有の給与体系:
- *   月額給与 = 契約単価 × 還元率
- *   残業手当 = 精算幅超過分 × 時給
+ * 給与体系:
+ *   基本給・固定残業代は社員マスタ（給与テーブル）から取得
+ *   超過残業手当 = (基本給 ÷ 所定時間) × 1.25 × max(0, 実残業 - 固定残業)
+ *   欠勤控除 = 基本給 ÷ 所定労働日数 × 欠勤日数（ノーワークノーペイ）
+ *   管理監督者(isExecutive) = 残業代なし
  *
- * ワークフロー: 勤怠締め → 給与計算 → 明細確認 → 確定 → 振込
+ * ワークフロー: 勤怠締め → 給与計算 → 確認・修正 → 確定・通知 → 振込
  *
  * セキュリティ: 給与データは管理者・経理のみ閲覧可能。
  * 社員は自分の給与明細のみ閲覧可能（GET /salary/:year/:month）。
@@ -14,6 +16,12 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { AuditService } from '../audit-logs/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { isHoliday } from '@holiday-jp/holiday_jp';
+import { findGrade, calcHealthInsurance, calcPension } from './tables/standard-remuneration';
+import { calcWithholdingTax } from './tables/income-tax-table';
+import { calculateOvertimeBreakdown } from './utils/overtime-calculator';
+import { checkOvertimeLimits } from './utils/overtime-limit-checker';
 
 @Injectable()
 export class PayrollService {
@@ -22,7 +30,24 @@ export class PayrollService {
   constructor(
     private readonly db: DatabaseService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  /**
+   * 月の所定労働日数を算出（土日 + 日本の祝日を除外）
+   */
+  private getBusinessDays(year: number, month: number): number {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    let count = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const d = new Date(year, month - 1, day);
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue;
+      if (isHoliday(d)) continue;
+      count++;
+    }
+    return count;
+  }
 
   /**
    * 勤怠確定ステータスを返す（フロント用）
@@ -123,7 +148,7 @@ export class PayrollService {
   async getMonthlyPayroll(
     year: number,
     month: number,
-    viewer?: { role: string; employeeId: string },
+    viewer?: { role: string; employeeId: string; userId?: string },
   ) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
     const records = await this.db.payroll.findMany({
@@ -141,6 +166,16 @@ export class PayrollService {
       },
       orderBy: { employee: { employeeCode: 'asc' } },
     });
+
+    // 監査ログ: 給与一覧閲覧
+    if (viewer?.userId) {
+      this.auditService.log({
+        userId: viewer.userId,
+        action: 'payroll.view',
+        targetTable: 'payrolls',
+        newValue: { targetMonth, viewerRole: viewer.role },
+      }).catch(() => {}); // fire-and-forget
+    }
 
     // viewer 未指定 or admin は無加工
     if (!viewer || viewer.role === 'admin') {
@@ -230,27 +265,57 @@ export class PayrollService {
 
     let processedCount = 0;
 
+    // 所定労働日数（土日祝除く）
+    const businessDays = this.getBusinessDays(year, month);
+
+    // 扶養人数を一括取得（N+1回避）
+    const empIds = employees.map(e => e.id);
+    const depCounts = await this.db.dependent.groupBy({
+      by: ['employeeId'],
+      where: { isActive: true, deletedAt: null, employeeId: { in: empIds } },
+      _count: true,
+    });
+    const depCountMap = new Map(depCounts.map(d => [d.employeeId, d._count]));
+
+    // 年間残業時間を算出するために過去11ヶ月分のpayrollを取得
+    const pastMonths: string[] = [];
+    for (let i = 1; i <= 11; i++) {
+      const m = month - i;
+      const y = m <= 0 ? year - 1 : year;
+      const mm = m <= 0 ? m + 12 : m;
+      pastMonths.push(`${y}-${String(mm).padStart(2, '0')}`);
+    }
+    const pastPayrolls = await this.db.payroll.findMany({
+      where: { employeeId: { in: empIds }, targetMonth: { in: pastMonths } },
+      select: { employeeId: true, overtimePay: true, regularOvertimePay: true, excessOvertimePay: true, lateNightPay: true, holidayPay: true },
+    });
+    // 社員ごとの過去残業時間（概算: 過去payrollのovertimePay合計から逆算は不正確なので、勤怠ベースで算出）
+    const pastAttendances = await this.db.attendance.findMany({
+      where: {
+        employeeId: { in: empIds },
+        workDate: {
+          gte: new Date(year - 1, month - 1, 1), // 12ヶ月前
+          lt: new Date(year, month - 1, 1),       // 当月初日の前
+        },
+      },
+      select: { employeeId: true, overtimeMinutes: true },
+    });
+    const yearlyOtMap = new Map<string, number>();
+    for (const att of pastAttendances) {
+      yearlyOtMap.set(att.employeeId, (yearlyOtMap.get(att.employeeId) ?? 0) + (att.overtimeMinutes || 0));
+    }
+
     for (const emp of employees) {
-      const assignment = emp.assignments[0];
+      // 基本給・固定残業代は社員マスタから取得
+      const baseSalary = emp.baseSalary || 0;
+      const fixedOvertimePay = (emp as any).fixedOvertimePay || 0;
+      const isExecutive = (emp as any).isExecutive === true;
 
-      // J4: 還元率は社員別設定。空白(null)の場合は還元率計算をスキップし、baseSalary をそのまま使う
-      const rewardRateRaw = emp.rewardRate !== null && emp.rewardRate !== undefined
-        ? Number(emp.rewardRate)
-        : null;
-      const rewardRate = rewardRateRaw !== null ? rewardRateRaw / 100 : null;
-
-      // 基本給 = 契約単価 × 還元率（rewardRate が null または アサインがない場合は emp.baseSalary）
-      const baseSalary = (assignment && rewardRate !== null)
-        ? Math.round(assignment.contractPrice * rewardRate)
-        : (emp.baseSalary || 0);
-
-      // J2: 所定労働時間・固定残業時間は社員別設定。未設定時はデフォルト値
+      // 所定労働時間・固定残業時間
       const contractHours = emp.contractHours ?? 168;
       const fixedOvertime = emp.fixedOvertime ?? 20;
 
-      // 残業手当計算式: (基本給 ÷ 所定時間) × 1.25 × max(0, 実残業 - 固定残業)
-      // 固定残業時間分は既に基本給に含まれている想定なので、それを超えた分のみ別途支給
-      const hourlyRate = contractHours > 0 ? baseSalary / contractHours : 0;
+      // 勤怠データ取得
       const attendances = await this.db.attendance.findMany({
         where: {
           employeeId: emp.id,
@@ -260,9 +325,51 @@ export class PayrollService {
           },
         },
       });
-      const totalOtHours = attendances.reduce((s, a) => s + (a.overtimeMinutes || 0), 0) / 60;
-      const extraOtHours = Math.max(0, totalOtHours - fixedOvertime);
-      const overtimePay = Math.round(hourlyRate * 1.25 * extraOtHours);
+
+      // 出勤日数（normal/confirmed/paid_leave/clockInあり）
+      const actualWorkDays = attendances.filter(
+        a => a.status === 'normal' || a.status === 'confirmed' || a.status === 'paid_leave' || a.clockIn !== null,
+      ).length;
+
+      // 欠勤控除: baseSalary ÷ 所定労働日数 × 欠勤日数（切り上げ = 労働者有利）
+      const absenceDays = Math.max(0, businessDays - actualWorkDays);
+      const absenceDeduction = absenceDays > 0 && businessDays > 0
+        ? Math.ceil(baseSalary / businessDays * absenceDays)
+        : 0;
+
+      // --- 残業内訳計算（管理監督者はスキップ）---
+      let overtimePay = 0;
+      let regularOvertimePay = 0;
+      let excessOvertimePay = 0;
+      let lateNightPay = 0;
+      let holidayPay = 0;
+      let overtimeWarnings: string[] | null = null;
+
+      if (!isExecutive) {
+        const hourlyRate = contractHours > 0 ? baseSalary / contractHours : 0;
+
+        // 残業内訳を計算
+        const otBreakdown = calculateOvertimeBreakdown(attendances as any);
+
+        // 固定残業分を差し引いた通常残業
+        const regularOtHours = Math.max(0, otBreakdown.regularOtMinutes / 60 - fixedOvertime);
+        regularOvertimePay = Math.round(hourlyRate * 1.25 * regularOtHours);
+        excessOvertimePay = Math.round(hourlyRate * 1.50 * otBreakdown.excessOtMinutes / 60);
+        lateNightPay = Math.round(hourlyRate * 0.25 * otBreakdown.lateNightMinutes / 60);
+        holidayPay = Math.round(hourlyRate * 1.35 * otBreakdown.holidayMinutes / 60);
+        overtimePay = regularOvertimePay + excessOvertimePay + lateNightPay + holidayPay;
+
+        // 36協定チェック
+        const monthlyOtMinutes = otBreakdown.regularOtMinutes + otBreakdown.excessOtMinutes
+          + otBreakdown.lateNightMinutes + otBreakdown.holidayMinutes;
+        const monthlyOtHours = monthlyOtMinutes / 60;
+        const pastYearlyMinutes = yearlyOtMap.get(emp.id) ?? 0;
+        const yearlyOtHours = (pastYearlyMinutes + monthlyOtMinutes) / 60;
+        const limitCheck = checkOvertimeLimits(monthlyOtHours, yearlyOtHours);
+        if (limitCheck.warnings.length > 0) {
+          overtimeWarnings = limitCheck.warnings;
+        }
+      }
 
       // 通勤手当: 当月承認済みの経費申請を合算
       const approvedExpenses = await this.db.expenseItem.findMany({
@@ -275,47 +382,85 @@ export class PayrollService {
         },
       });
       const commuteAllowance = approvedExpenses.reduce((s, it) => s + (it.amount || 0), 0);
-      const grossSalary = baseSalary + overtimePay + commuteAllowance;
 
-      // J1: 料率は「社員別上書き（あれば） > RateMaster（デフォルト）」の優先順
-      const healthRate = emp.rateHealthInsurance !== null && emp.rateHealthInsurance !== undefined
-        ? Number(emp.rateHealthInsurance)
-        : Number(rateMaster.healthInsurance);
-      const pensionRate = emp.rateEmployeePension !== null && emp.rateEmployeePension !== undefined
-        ? Number(emp.rateEmployeePension)
-        : Number(rateMaster.employeePension);
+      // 総支給額 = 基本給 + 固定残業手当 - 欠勤控除 + 超過残業手当 + 通勤手当
+      const grossSalary = baseSalary + fixedOvertimePay - absenceDeduction + overtimePay + commuteAllowance;
+
+      // --- 社会保険料: 標準報酬月額テーブル or 社員別上書き ---
+      let healthInsurance: number;
+      let pension: number;
+      if (emp.rateHealthInsurance === null || emp.rateHealthInsurance === undefined) {
+        // 標準報酬月額テーブルから算出（報酬月額 = 基本給 + 固定残業手当）
+        const monthlyRemuneration = baseSalary + fixedOvertimePay;
+        const gradeInfo = findGrade(monthlyRemuneration);
+        healthInsurance = calcHealthInsurance(gradeInfo.standardAmount);
+        pension = calcPension(gradeInfo.standardAmount);
+      } else {
+        healthInsurance = Math.round(grossSalary * Number(emp.rateHealthInsurance));
+        const pensionRate = emp.rateEmployeePension !== null && emp.rateEmployeePension !== undefined
+          ? Number(emp.rateEmployeePension) : Number(rateMaster.employeePension);
+        pension = Math.round(grossSalary * pensionRate);
+      }
+
+      // 雇用保険: grossSalary × 料率
       const empInsRate = emp.rateEmploymentInsurance !== null && emp.rateEmploymentInsurance !== undefined
         ? Number(emp.rateEmploymentInsurance)
         : Number(rateMaster.employmentInsurance);
-      const incomeTaxRate = emp.rateIncomeTax !== null && emp.rateIncomeTax !== undefined
-        ? Number(emp.rateIncomeTax)
-        : Number(rateMaster.incomeTax);
+      const employmentInsurance = Math.round(grossSalary * empInsRate);
+
+      // --- 所得税: 源泉徴収税額表 or 社員別上書き ---
+      let incomeTax: number;
+      if (emp.rateIncomeTax === null || emp.rateIncomeTax === undefined) {
+        // 課税対象額 = 総支給 - 社会保険料控除
+        const taxableIncome = grossSalary - healthInsurance - pension - employmentInsurance;
+        const dependents = depCountMap.get(emp.id) ?? 0;
+        incomeTax = calcWithholdingTax(taxableIncome, dependents);
+      } else {
+        incomeTax = Math.round(grossSalary * Number(emp.rateIncomeTax));
+      }
+
+      // 住民税: 固定額
       const residentTaxFixed = emp.rateResidentTaxFixed !== null && emp.rateResidentTaxFixed !== undefined
         ? emp.rateResidentTaxFixed
         : rateMaster.residentTaxFixed;
-
-      // 控除（簡易計算。本番では標準報酬月額テーブルを参照）
-      const healthInsurance = Math.round(grossSalary * healthRate);
-      const pension = Math.round(grossSalary * pensionRate);
-      const employmentInsurance = Math.round(grossSalary * empInsRate);
-      const incomeTax = Math.round(grossSalary * incomeTaxRate);
       const residentTax = residentTaxFixed;
+
       const totalDeductions = healthInsurance + pension + employmentInsurance + incomeTax + residentTax;
       const netSalary = grossSalary - totalDeductions;
+
+      // 標準報酬月額の等級情報
+      const monthlyRem = baseSalary + fixedOvertimePay;
+      const gradeResult = findGrade(monthlyRem);
 
       // UPSERT
       await this.db.payroll.upsert({
         where: { employeeId_targetMonth: { employeeId: emp.id, targetMonth } },
         create: {
-          employeeId: emp.id, targetMonth, baseSalary, overtimePay, commuteAllowance,
-          otherAllowance: 0, grossSalary, healthInsurance, pension,
-          employmentInsurance, incomeTax, residentTax, totalDeductions, netSalary,
+          employeeId: emp.id, targetMonth, baseSalary, fixedOvertimePay,
+          fixedOvertimeHours: fixedOvertime,
+          absenceDeduction, overtimePay,
+          regularOvertimePay, excessOvertimePay, lateNightPay, holidayPay,
+          commuteAllowance, otherAllowance: 0, grossSalary,
+          standardRemunerationGrade: gradeResult.grade,
+          standardMonthlyRemuneration: gradeResult.standardAmount,
+          healthInsurance, pension, employmentInsurance, incomeTax, residentTax,
+          totalDeductions, netSalary,
+          businessDays, actualWorkDays,
+          overtimeWarnings: overtimeWarnings ? overtimeWarnings : undefined,
           status: 'draft',
         },
         update: {
-          baseSalary, overtimePay, commuteAllowance, grossSalary,
+          baseSalary, fixedOvertimePay,
+          fixedOvertimeHours: fixedOvertime,
+          absenceDeduction, overtimePay,
+          regularOvertimePay, excessOvertimePay, lateNightPay, holidayPay,
+          commuteAllowance, grossSalary,
+          standardRemunerationGrade: gradeResult.grade,
+          standardMonthlyRemuneration: gradeResult.standardAmount,
           healthInsurance, pension, employmentInsurance, incomeTax,
           residentTax, totalDeductions, netSalary,
+          businessDays, actualWorkDays,
+          overtimeWarnings: overtimeWarnings ? overtimeWarnings : undefined,
         },
       });
 
@@ -327,24 +472,46 @@ export class PayrollService {
   }
 
   /**
-   * 給与を確定する（管理者用）
+   * 個別の給与レコードを確定する（管理者用）
+   * 確定時に社員へ通知を送信する。
    */
-  async confirmPayroll(year: number, month: number, actorUserId?: string) {
-    const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
-    const result = await this.db.payroll.updateMany({
-      where: { targetMonth, status: 'draft' },
+  async confirmPayrollRecord(payrollId: string, actorUserId?: string) {
+    const payroll = await this.db.payroll.findUnique({
+      where: { id: payrollId },
+      include: { employee: { select: { id: true, user: { select: { role: true } } } } },
+    });
+    if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
+    if (payroll.status === 'confirmed') {
+      throw new BadRequestException('既に確定済みです');
+    }
+    if (payroll.grossSalary === null) {
+      throw new BadRequestException('給与計算が実行されていません');
+    }
+
+    await this.db.payroll.update({
+      where: { id: payrollId },
       data: { status: 'confirmed' },
     });
-    this.logger.log(`Payroll confirmed for ${targetMonth}: ${result.count} records`);
+
+    // 社員へ通知
+    const [year, month] = payroll.targetMonth.split('-');
+    await this.notificationsService.create({
+      employeeId: payroll.employeeId,
+      title: `${Number(year)}年${Number(month)}月の給与が確定しました`,
+      body: `${Number(year)}年${Number(month)}月分の給与明細が確認できます。`,
+      category: 'payroll',
+    });
 
     await this.auditService.log({
       userId: actorUserId,
       action: 'payroll.confirm',
       targetTable: 'payrolls',
-      newValue: { targetMonth, confirmedCount: result.count },
+      targetId: payrollId,
+      newValue: { targetMonth: payroll.targetMonth },
     });
 
-    return { confirmedCount: result.count };
+    this.logger.log(`Payroll confirmed: ${payrollId}`);
+    return { confirmed: true };
   }
 
   /* ==============================================================
@@ -359,6 +526,8 @@ export class PayrollService {
     payrollId: string,
     data: {
       baseSalary?: number;
+      fixedOvertimePay?: number;
+      absenceDeduction?: number;
       overtimePay?: number;
       commuteAllowance?: number;
       otherAllowance?: number;
@@ -393,7 +562,8 @@ export class PayrollService {
 
     // 編集可能フィールド
     const editableFields: (keyof typeof data)[] = [
-      'baseSalary', 'overtimePay', 'commuteAllowance', 'otherAllowance',
+      'baseSalary', 'fixedOvertimePay', 'absenceDeduction',
+      'overtimePay', 'commuteAllowance', 'otherAllowance',
       'healthInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
     ];
 
@@ -414,10 +584,12 @@ export class PayrollService {
 
     // 新しい値を組み立て
     const newBase = data.baseSalary ?? payroll.baseSalary;
+    const newFixedOt = data.fixedOvertimePay ?? payroll.fixedOvertimePay;
+    const newAbsDed = data.absenceDeduction ?? payroll.absenceDeduction;
     const newOt = data.overtimePay ?? payroll.overtimePay;
     const newCommute = data.commuteAllowance ?? payroll.commuteAllowance;
     const newOther = data.otherAllowance ?? payroll.otherAllowance;
-    const grossSalary = newBase + newOt + newCommute + newOther;
+    const grossSalary = newBase + newFixedOt - newAbsDed + newOt + newCommute + newOther;
 
     const newHealth = data.healthInsurance ?? payroll.healthInsurance;
     const newPension = data.pension ?? payroll.pension;

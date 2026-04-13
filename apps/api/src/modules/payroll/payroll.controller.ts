@@ -76,6 +76,7 @@ export class PayrollController {
     return this.payrollService.getMonthlyPayroll(year, month, {
       role: user.role,
       employeeId: user.employeeId,
+      userId: user.userId,
     });
   }
 
@@ -101,16 +102,15 @@ export class PayrollController {
     return this.payrollService.calculateMonthly(year, month);
   }
 
-  @Post('payroll/:year/:month/confirm')
+  @Post('payroll/record/:id/confirm')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
-  @ApiOperation({ summary: '給与を確定する（管理者用）' })
-  async confirm(
+  @ApiOperation({ summary: '個別の給与レコードを確定する（管理者用）' })
+  async confirmRecord(
+    @Param('id') id: string,
     @CurrentUser() user: RequestUser,
-    @Param('year', ParseIntPipe) year: number,
-    @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.payrollService.confirmPayroll(year, month, user.userId);
+    return this.payrollService.confirmPayrollRecord(id, user.userId);
   }
 
   /* ------------------------------------------------------------------
@@ -127,6 +127,8 @@ export class PayrollController {
     @Body()
     body: {
       baseSalary?: number;
+      fixedOvertimePay?: number;
+      absenceDeduction?: number;
       overtimePay?: number;
       commuteAllowance?: number;
       otherAllowance?: number;

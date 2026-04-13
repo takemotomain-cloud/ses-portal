@@ -20,6 +20,9 @@ import { LeaveService } from '../leave/leave.service';
 import { AuditService } from '../audit-logs/audit.service';
 import { PAGINATION } from '@ses-portal/shared';
 import * as bcrypt from 'bcrypt';
+import { encrypt, decrypt } from '../../common/utils/crypto';
+
+const MYNUMBER_KEY = process.env.MYNUMBER_ENCRYPTION_KEY || '';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -502,6 +505,7 @@ export class EmployeesService {
     qualifications?: any;
     hasBonus?: boolean;
     resignDate?: string | null;
+    myNumber?: string | null;
   }, actorUserId?: string) {
     // 存在確認
     const existing = await this.db.employee.findFirst({
@@ -589,6 +593,11 @@ export class EmployeesService {
     if (data.hasBonus !== undefined) updateData.hasBonus = data.hasBonus;
     if (data.resignDate !== undefined) {
       updateData.resignDate = data.resignDate ? new Date(data.resignDate) : null;
+    }
+    if (data.myNumber !== undefined) {
+      updateData.myNumber = data.myNumber && MYNUMBER_KEY
+        ? encrypt(data.myNumber, MYNUMBER_KEY)
+        : data.myNumber;
     }
 
     const updated = await this.db.employee.update({
@@ -734,11 +743,17 @@ export class EmployeesService {
       targetId: id,
     });
 
+    // myNumberが暗号化されている場合は復号、平文の場合はそのまま返す
+    let myNumberValue = target.myNumber || null;
+    if (myNumberValue && MYNUMBER_KEY && myNumberValue.includes(':')) {
+      myNumberValue = decrypt(myNumberValue, MYNUMBER_KEY) ?? myNumberValue;
+    }
+
     return {
       id: target.id,
       employeeCode: target.employeeCode,
       name: `${target.lastName} ${target.firstName}`,
-      myNumber: target.myNumber || null,
+      myNumber: myNumberValue,
     };
   }
 

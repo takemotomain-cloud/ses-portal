@@ -12,7 +12,7 @@ import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 import { AuthGuard } from '@/components/ui/auth-guard';
 
-const steps = ['勤怠締め', '給与計算', '確認・修正', '確定', '振込・通知'];
+const steps = ['勤怠締め', '給与計算', '確認・修正', '確定・通知', '振込'];
 
 interface ClosureStatus {
   yearMonth: string;
@@ -29,10 +29,19 @@ interface PayrollApiItem {
   employeeId: string;
   employee?: { name?: string; lastName?: string; firstName?: string };
   baseSalary: number | null;
+  fixedOvertimePay: number | null;
+  fixedOvertimeHours: number | null;
+  absenceDeduction: number | null;
   overtimePay: number | null;
+  regularOvertimePay: number | null;
+  excessOvertimePay: number | null;
+  lateNightPay: number | null;
+  holidayPay: number | null;
   commuteAllowance: number | null;
   otherAllowance: number | null;
   grossSalary: number | null;
+  standardRemunerationGrade: number | null;
+  standardMonthlyRemuneration: number | null;
   healthInsurance: number | null;
   pension: number | null;
   employmentInsurance: number | null;
@@ -40,6 +49,9 @@ interface PayrollApiItem {
   residentTax: number | null;
   totalDeductions: number | null;
   netSalary: number | null;
+  businessDays: number | null;
+  actualWorkDays: number | null;
+  overtimeWarnings: string[] | null;
   status: string;
   workingHours?: number;
   unitPrice?: number;
@@ -64,6 +76,9 @@ interface PayrollRow {
   deductionItems: { label: string; amount: number | null }[];
   /** E: マスク行（manager から admin/他 manager の給与行） */
   masked: boolean;
+  businessDays: number | null;
+  actualWorkDays: number | null;
+  warnings: string[];
 }
 
 /** API レスポンスを UI 行に変換 */
@@ -75,6 +90,53 @@ function toRow(item: PayrollApiItem): PayrollRow {
       : `社員 ${item.employeeId}`);
 
   const hours = item.workingHours ?? 0;
+
+  // 検証アラート
+  const warnings: string[] = [];
+  if (
+    item.businessDays !== null && item.actualWorkDays !== null &&
+    item.actualWorkDays < item.businessDays
+  ) {
+    warnings.push(`稼働不足（${item.actualWorkDays}日 / 所定${item.businessDays}日）`);
+  }
+  if (item.commuteAllowance === 0 || item.commuteAllowance === null) {
+    warnings.push('交通費未入力');
+  }
+  // 36協定警告をマージ
+  if (item.overtimeWarnings && Array.isArray(item.overtimeWarnings)) {
+    warnings.push(...item.overtimeWarnings);
+  }
+
+  // 固定残業手当ラベル（時間数があれば表示）
+  const fixedOtLabel = item.fixedOvertimeHours
+    ? `固定残業手当（${item.fixedOvertimeHours}時間分）`
+    : '固定残業手当';
+
+  // 残業内訳（内訳がある場合は展開、なければ合計のみ）
+  const hasOtBreakdown = (item.regularOvertimePay ?? 0) > 0 || (item.excessOvertimePay ?? 0) > 0
+    || (item.lateNightPay ?? 0) > 0 || (item.holidayPay ?? 0) > 0;
+
+  const earningsItems: { label: string; amount: number | null }[] = [
+    { label: '基本給', amount: item.baseSalary },
+    { label: fixedOtLabel, amount: item.fixedOvertimePay },
+    { label: '欠勤控除', amount: item.absenceDeduction ? -(item.absenceDeduction) : 0 },
+  ];
+
+  if (hasOtBreakdown) {
+    earningsItems.push(
+      { label: '通常残業手当（1.25倍）', amount: item.regularOvertimePay },
+      { label: '超過残業手当（1.50倍）', amount: item.excessOvertimePay },
+      { label: '深夜手当（+0.25倍）', amount: item.lateNightPay },
+      { label: '休日手当（1.35倍）', amount: item.holidayPay },
+    );
+  } else {
+    earningsItems.push({ label: '超過残業手当', amount: item.overtimePay });
+  }
+
+  earningsItems.push(
+    { label: '通勤手当', amount: item.commuteAllowance },
+    { label: 'その他手当', amount: item.otherAllowance },
+  );
 
   return {
     id: item.id,
@@ -88,12 +150,10 @@ function toRow(item: PayrollApiItem): PayrollRow {
     hoursWarn: hours > 180 || hours < 140,
     status: item.status ?? 'draft',
     masked: item._masked === true,
-    earnings: [
-      { label: '基本給', amount: item.baseSalary },
-      { label: '残業手当', amount: item.overtimePay },
-      { label: '通勤手当', amount: item.commuteAllowance },
-      { label: 'その他手当', amount: item.otherAllowance },
-    ],
+    businessDays: item.businessDays,
+    actualWorkDays: item.actualWorkDays,
+    warnings,
+    earnings: earningsItems,
     deductionItems: [
       { label: '健康保険', amount: item.healthInsurance },
       { label: '厚生年金', amount: item.pension },
@@ -138,6 +198,8 @@ function buildMonthOptions(): { value: string; label: string; year: number; mont
 
 interface EditFormState {
   baseSalary: string;
+  fixedOvertimePay: string;
+  absenceDeduction: string;
   overtimePay: string;
   commuteAllowance: string;
   otherAllowance: string;
@@ -161,7 +223,9 @@ interface EditHistoryItem {
 
 const fieldLabel: Record<string, string> = {
   baseSalary: '基本給',
-  overtimePay: '残業手当',
+  fixedOvertimePay: '固定残業手当',
+  absenceDeduction: '欠勤控除',
+  overtimePay: '超過残業手当',
   commuteAllowance: '通勤手当',
   otherAllowance: 'その他手当',
   healthInsurance: '健康保険',
@@ -190,7 +254,7 @@ function AdminPayrollPage() {
   /* J6: 直接編集 + 履歴 */
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<EditFormState>({
-    baseSalary: '', overtimePay: '', commuteAllowance: '', otherAllowance: '',
+    baseSalary: '', fixedOvertimePay: '', absenceDeduction: '', overtimePay: '', commuteAllowance: '', otherAllowance: '',
     healthInsurance: '', pension: '', employmentInsurance: '', incomeTax: '', residentTax: '',
     reason: '',
   });
@@ -222,10 +286,14 @@ function AdminPayrollPage() {
     fetchClosureStatus();
   }, [fetchClosureStatus]);
 
-  /** ステップバーの現在位置（勤怠確定状態に連動） */
-  const currentStepIdx = closureStatus?.isClosed
-    ? (payrollData.some(p => p.status === 'confirmed') ? 3 : 2)
-    : 0;
+  /** ステップバーの現在位置 */
+  const currentStepIdx = (() => {
+    if (!closureStatus?.isClosed) return 0;
+    if (payrollData.length === 0 || payrollData.every(p => p.gross === null)) return 1;
+    if (payrollData.every(p => p.status === 'paid')) return 4;
+    if (payrollData.some(p => p.status === 'confirmed')) return 3;
+    return 2;
+  })();
 
   /** 給与データを取得 */
   const fetchPayroll = useCallback(async () => {
@@ -270,7 +338,9 @@ function AdminPayrollPage() {
       String(items.find(i => i.label === label)?.amount ?? 0);
     setEditForm({
       baseSalary: getByLabel(selected.earnings, '基本給'),
-      overtimePay: getByLabel(selected.earnings, '残業手当'),
+      fixedOvertimePay: getByLabel(selected.earnings, '固定残業手当'),
+      absenceDeduction: String(Math.abs(selected.earnings.find(i => i.label === '欠勤控除')?.amount ?? 0)),
+      overtimePay: getByLabel(selected.earnings, '超過残業手当'),
       commuteAllowance: getByLabel(selected.earnings, '通勤手当'),
       otherAllowance: getByLabel(selected.earnings, 'その他手当'),
       healthInsurance: getByLabel(selected.deductionItems, '健康保険'),
@@ -320,6 +390,22 @@ function AdminPayrollPage() {
     }
   };
 
+  /* 個別確定 */
+  const [confirming, setConfirming] = useState(false);
+  const handleConfirmRecord = async () => {
+    if (!selected || selected.status === 'confirmed') return;
+    setConfirming(true);
+    try {
+      await apiClient(`/payroll/record/${selected.id}/confirm`, { method: 'POST' });
+      toast('給与を確定しました');
+      await fetchPayroll();
+    } catch (err: any) {
+      toast(err?.message || '確定に失敗しました');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   /* J6: 編集履歴を取得 */
   const fetchEditHistory = useCallback(async (payrollId: string) => {
     setHistoryLoading(true);
@@ -357,7 +443,6 @@ function AdminPayrollPage() {
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-          <button onClick={() => window.print()} className="btn-outline text-sm py-1.5">明細一括PDF</button>
           <button
             onClick={handleCalc}
             disabled={!closureStatus?.isClosed}
@@ -428,7 +513,15 @@ function AdminPayrollPage() {
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">ステータス</div>
-          <div className="mt-1"><span className="badge badge-info">確認中</span></div>
+          <div className="mt-1">
+            {(() => {
+              if (!closureStatus?.isClosed) return <span className="badge badge-wait">勤怠未確定</span>;
+              if (payrollData.length === 0 || payrollData.every(p => p.gross === null)) return <span className="badge badge-wait">計算待ち</span>;
+              if (payrollData.every(p => p.status === 'confirmed' || p.status === 'paid')) return <span className="badge badge-ok">確定済</span>;
+              if (payrollData.some(p => p.status === 'confirmed')) return <span className="badge badge-info">一部確定</span>;
+              return <span className="badge badge-info">確認中</span>;
+            })()}
+          </div>
         </div>
       </div>
 
@@ -465,7 +558,12 @@ function AdminPayrollPage() {
                   className={rowClass}
                   title={p.masked ? '閲覧権限がありません' : undefined}
                 >
-                  <td className="px-4 py-2.5 text-base font-medium">{p.name}</td>
+                  <td className="px-4 py-2.5 text-base font-medium">
+                    {p.name}
+                    {p.warnings.length > 0 && (
+                      <span className="ml-1.5 text-status-red-text text-sm" title={p.warnings.join('\n')}>⚠</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmt(p.unitPrice)}</td>
                   <td className="px-4 py-2.5 text-base text-right">{p.ratio}%</td>
                   <td className="px-4 py-2.5 text-base text-right tabular-nums">{fmtMasked(p.gross, p.masked)}</td>
@@ -508,7 +606,7 @@ function AdminPayrollPage() {
                   </div>
                   <div>
                     <div className="text-2xs text-secondary uppercase tracking-widest mb-2">支給</div>
-                    {(['baseSalary', 'overtimePay', 'commuteAllowance', 'otherAllowance'] as const).map(k => (
+                    {(['baseSalary', 'fixedOvertimePay', 'absenceDeduction', 'overtimePay', 'commuteAllowance', 'otherAllowance'] as const).map(k => (
                       <div key={k} className="flex items-center justify-between py-1.5 border-b border-border/20 text-sm">
                         <span className="text-secondary">{fieldLabel[k]}</span>
                         <input
@@ -563,6 +661,22 @@ function AdminPayrollPage() {
                 </div>
               ) : (
                 <>
+                  {/* 検証アラート */}
+                  {selected.warnings.length > 0 && (
+                    <div className="bg-status-red-bg border border-status-red-text/20 rounded-md p-3 space-y-1">
+                      {selected.warnings.map((w, i) => (
+                        <div key={i} className="text-sm text-status-red-text flex items-center gap-1.5">
+                          <span>⚠</span><span>{w}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* 出勤日数 */}
+                  {selected.businessDays !== null && (
+                    <div className="text-xs text-secondary">
+                      出勤 {selected.actualWorkDays ?? 0}日 / 所定 {selected.businessDays}日
+                    </div>
+                  )}
                   <div>
                     <div className="text-2xs text-secondary uppercase tracking-widest mb-2">支給</div>
                     {selected.earnings.map(item => (
@@ -584,7 +698,6 @@ function AdminPayrollPage() {
                     <div className="text-2xl font-medium tabular-nums">{fmt(selected.net)}円</div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => window.print()} className="btn-outline flex-1 text-sm py-2">PDF出力</button>
                     <button
                       onClick={openEditMode}
                       disabled={selected.status === 'confirmed'}
@@ -592,6 +705,17 @@ function AdminPayrollPage() {
                     >
                       直接編集
                     </button>
+                    {selected.status === 'confirmed' ? (
+                      <span className="badge badge-ok flex-1 text-center py-2">確定済</span>
+                    ) : (
+                      <button
+                        onClick={handleConfirmRecord}
+                        disabled={confirming || selected.gross === null}
+                        className="btn-primary flex-1 text-sm py-2 disabled:opacity-50"
+                      >
+                        {confirming ? '確定中...' : '確定'}
+                      </button>
+                    )}
                   </div>
 
                   {/* J6: 編集履歴 */}
