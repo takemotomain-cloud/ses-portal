@@ -19,6 +19,8 @@ interface ClosureStatus {
   isClosed: boolean;
   closedAt: string | null;
   hasPostCloseChanges: boolean;
+  sesUnconfirmed?: boolean;
+  internalUnconfirmed?: boolean;
 }
 
 /** API レスポンスの1件分 */
@@ -373,7 +375,13 @@ function AdminPayrollPage() {
           <span className="text-lg">⚠</span>
           <span>
             {targetYear}年{targetMonth}月の勤怠が確定されていません。
-            <a href="/admin/attendance-internal" className="underline font-medium ml-1">社内勤怠管理</a>
+            {closureStatus.sesUnconfirmed && (
+              <a href="/admin/attendance" className="underline font-medium ml-1">勤怠管理</a>
+            )}
+            {closureStatus.sesUnconfirmed && closureStatus.internalUnconfirmed && '・'}
+            {closureStatus.internalUnconfirmed && (
+              <a href="/admin/attendance-internal" className="underline font-medium ml-1">社内勤怠管理</a>
+            )}
             から勤怠を確定してください。
           </span>
         </div>

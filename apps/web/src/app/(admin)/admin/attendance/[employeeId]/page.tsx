@@ -272,6 +272,8 @@ export default function AttendanceDetailPage() {
     ? `${detail.employee.lastName} ${detail.employee.firstName}`
     : '---';
   const employeeCode = detail?.employee?.employeeCode || '';
+  const empRecords = detail?.records ?? [];
+  const empIsConfirmed = empRecords.length > 0 && empRecords.every(r => r.status === 'confirmed');
 
   /* ---- CSV出力 ---- */
 
@@ -330,8 +332,8 @@ export default function AttendanceDetailPage() {
     <div>
       <ToastUI />
 
-      {/* ヘッダー */}
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
+      {/* ヘッダー: 戻るボタン + 名前 + 月切り替え + 確定ボタン */}
+      <div className="flex items-center mb-5 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push('/admin/attendance')}
@@ -339,23 +341,65 @@ export default function AttendanceDetailPage() {
           >
             &larr; 一覧に戻る
           </button>
-          <div>
-            <h1 className="text-2xl font-medium">{employeeName}</h1>
-            {employeeCode && (
-              <div className="text-sm text-secondary">{employeeCode}</div>
-            )}
-          </div>
+          <h1 className="text-2xl font-medium">{employeeName}</h1>
+        </div>
+        <div className="flex-1 flex items-center justify-center gap-2">
+          <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
+          <span className="text-lg font-medium min-w-[120px] text-center">{year}年{month}月</span>
+          <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleCsvExport} className="btn-outline text-sm py-1.5">CSVエクスポート</button>
+          {activeTab === 0 && (
+            <>
+              {empIsConfirmed && !empCorrectionMode ? (
+                <button
+                  onClick={() => {
+                    setEmpCorrectionMode(true);
+                    toast('修正モードに切り替えました');
+                  }}
+                  className="btn-outline text-sm py-2 px-5"
+                >
+                  修正する
+                </button>
+              ) : (
+                <>
+                  {empCorrectionMode && (
+                    <button
+                      onClick={() => {
+                        setEmpCorrectionMode(false);
+                        setEmpEditingRow(null);
+                      }}
+                      className="btn-outline text-sm py-2 px-5"
+                    >
+                      キャンセル
+                    </button>
+                  )}
+                  <button
+                    disabled={confirming !== null}
+                    onClick={async () => {
+                      setConfirming('employee');
+                      try {
+                        const ym = `${year}-${String(month).padStart(2, '0')}`;
+                        await apiClient(`/attendance/admin/${employeeId}/confirm/${ym}`, { method: 'POST' });
+                        toast(empCorrectionMode ? '修正を確定しました' : '本人勤怠を確定しました');
+                        setEmpCorrectionMode(false);
+                        setEmpEditingRow(null);
+                        fetchData();
+                      } catch {
+                        toast('確定に失敗しました');
+                      } finally {
+                        setConfirming(null);
+                      }
+                    }}
+                    className="btn-primary text-sm py-2 px-5"
+                  >
+                    {confirming === 'employee' ? '処理中...' : empCorrectionMode ? '修正を確定' : '本人勤怠を確定'}
+                  </button>
+                </>
+              )}
+            </>
+          )}
         </div>
-      </div>
-
-      {/* 月切り替え */}
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
-        <span className="text-lg font-medium min-w-[120px] text-center">{year}年{month}月</span>
-        <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
       </div>
 
       {/* タブ切り替え */}
@@ -531,55 +575,6 @@ export default function AttendanceDetailPage() {
             </table>
           </div>
 
-          {/* 本人勤怠 確定 / 修正ボタン */}
-          <div className="flex justify-end mt-5 gap-3">
-            {empIsConfirmed && !empCorrectionMode ? (
-              <button
-                onClick={() => {
-                  setEmpCorrectionMode(true);
-                  toast('修正モードに切り替えました');
-                }}
-                className="btn-outline text-sm py-2 px-5"
-              >
-                修正する
-              </button>
-            ) : (
-              <>
-                {empCorrectionMode && (
-                  <button
-                    onClick={() => {
-                      setEmpCorrectionMode(false);
-                      setEmpEditingRow(null);
-                    }}
-                    className="btn-outline text-sm py-2 px-5"
-                  >
-                    キャンセル
-                  </button>
-                )}
-                <button
-                  disabled={confirming !== null}
-                  onClick={async () => {
-                    setConfirming('employee');
-                    try {
-                      const ym = `${year}-${String(month).padStart(2, '0')}`;
-                      await apiClient(`/attendance/admin/${employeeId}/confirm/${ym}`, { method: 'POST' });
-                      toast(empCorrectionMode ? '修正を確定しました' : '本人勤怠を確定しました');
-                      setEmpCorrectionMode(false);
-                      setEmpEditingRow(null);
-                      fetchData();
-                    } catch {
-                      toast('確定に失敗しました');
-                    } finally {
-                      setConfirming(null);
-                    }
-                  }}
-                  className="btn-primary text-sm py-2 px-5"
-                >
-                  {confirming === 'employee' ? '処理中...' : empCorrectionMode ? '修正を確定' : '本人勤怠を確定'}
-                </button>
-              </>
-            )}
-          </div>
             </>);
           })()}
           </>)}

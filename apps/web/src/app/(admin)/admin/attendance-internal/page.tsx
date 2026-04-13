@@ -2,7 +2,6 @@
  * 管理側 社内勤怠管理
  *
  * アサインがない社員（待機中 employee + manager + member）の勤怠一覧。
- * 月次勤怠の一括確定ボタンを配置（SES勤怠 + 社内勤怠の全社員を対象に確定）。
  * admin（役員）は勤怠免除のため表示対象外。
  */
 
@@ -27,24 +26,6 @@ interface InternalEmployee {
   hasMissedClock: boolean;
   hasAttendance: boolean;
   isConfirmed: boolean;
-}
-
-interface ClosureData {
-  yearMonth: string;
-  status: 'open' | 'closed';
-  closedAt: string | null;
-  hasPostCloseChanges: boolean;
-  readiness: {
-    totalEmployees: number;
-    confirmedCount: number;
-    exemptCount: number;
-    unconfirmedEmployees: {
-      employeeId: string;
-      name: string;
-      employeeCode: string;
-      departmentName: string;
-    }[];
-  };
 }
 
 /** 対象月の選択肢を生成（当月から過去12ヶ月） */
@@ -84,25 +65,18 @@ function AttendanceInternalPage() {
   const targetMonth = current.month;
 
   const [employees, setEmployees] = useState<InternalEmployee[]>([]);
-  const [closure, setClosure] = useState<ClosureData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [closing, setClosing] = useState(false);
 
-  /** データ取得 */
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [empData, closureData] = await Promise.all([
-        apiClient<InternalEmployee[]>(`/attendance/admin/internal/${targetYear}/${targetMonth}`),
-        apiClient<ClosureData>(`/attendance/admin/closure/${targetYear}/${targetMonth}`),
-      ]);
+      const empData = await apiClient<InternalEmployee[]>(
+        `/attendance/admin/internal/${targetYear}/${targetMonth}`,
+      );
       setEmployees(Array.isArray(empData) ? empData : []);
-      setClosure(closureData);
     } catch {
       toast('データの取得に失敗しました');
       setEmployees([]);
-      setClosure(null);
     } finally {
       setLoading(false);
     }
@@ -112,97 +86,33 @@ function AttendanceInternalPage() {
     fetchData();
   }, [fetchData]);
 
-  /** 勤怠一括確定 */
-  const handleClose = async () => {
-    setClosing(true);
-    try {
-      await apiClient(`/attendance/admin/closure/${targetYear}/${targetMonth}/close`, {
-        method: 'POST',
-      });
-      toast('勤怠を確定しました');
-      setShowConfirmModal(false);
-      await fetchData();
-    } catch (err: any) {
-      toast(err?.message || '勤怠の確定に失敗しました');
-    } finally {
-      setClosing(false);
-    }
-  };
-
-  /** 勤怠確定解除 */
-  const handleReopen = async () => {
-    if (!confirm('勤怠確定を解除しますか？給与計算が実行できなくなります。')) return;
-    try {
-      await apiClient(`/attendance/admin/closure/${targetYear}/${targetMonth}/reopen`, {
-        method: 'POST',
-      });
-      toast('勤怠確定を解除しました');
-      await fetchData();
-    } catch (err: any) {
-      toast(err?.message || '確定解除に失敗しました');
-    }
-  };
-
-  const isClosed = closure?.status === 'closed';
-  const unconfirmedCount = closure?.readiness.unconfirmedEmployees.length ?? 0;
+  const confirmedCount = employees.filter(e => e.isConfirmed).length;
+  const allConfirmed = employees.length > 0 && confirmedCount === employees.length;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
+      <div className="flex items-center justify-between mb-5 gap-3">
         <h1 className="text-2xl font-medium">社内勤怠管理</h1>
-        <div className="flex gap-2 items-center">
-          <select
-            value={targetKey}
-            onChange={(e) => setTargetKey(e.target.value)}
-            className="border border-border/30 rounded-md px-3 py-1.5 text-sm bg-white outline-none focus:border-primary/40"
-          >
-            {monthOptions.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          {isClosed ? (
-            <button onClick={handleReopen} className="btn-outline text-sm py-1.5">
-              確定解除
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                if (unconfirmedCount > 0) {
-                  setShowConfirmModal(true);
-                } else {
-                  if (confirm(`${targetYear}年${targetMonth}月の勤怠を確定しますか？`)) {
-                    handleClose();
-                  }
-                }
-              }}
-              className="btn-primary text-sm py-1.5"
-            >
-              勤怠一括確定
-            </button>
-          )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const idx = monthOptions.findIndex(o => o.value === targetKey);
+              if (idx < monthOptions.length - 1) setTargetKey(monthOptions[idx + 1].value);
+            }}
+            disabled={monthOptions.findIndex(o => o.value === targetKey) >= monthOptions.length - 1}
+            className="btn-outline py-1 px-3 text-sm disabled:opacity-30"
+          >&lt;</button>
+          <span className="text-lg font-medium min-w-[120px] text-center">{targetYear}年{targetMonth}月</span>
+          <button
+            onClick={() => {
+              const idx = monthOptions.findIndex(o => o.value === targetKey);
+              if (idx > 0) setTargetKey(monthOptions[idx - 1].value);
+            }}
+            disabled={monthOptions.findIndex(o => o.value === targetKey) <= 0}
+            className="btn-outline py-1 px-3 text-sm disabled:opacity-30"
+          >&gt;</button>
         </div>
       </div>
-
-      {/* 確定ステータスバナー */}
-      {isClosed && (
-        <div className="bg-status-green-bg border border-status-green-text/20 text-status-green-text rounded-md px-4 py-3 mb-4 text-sm flex items-center gap-2">
-          <span className="text-lg">&#10003;</span>
-          <span>
-            {targetYear}年{targetMonth}月の勤怠は確定済みです
-            {closure?.closedAt && (
-              <span className="text-xs ml-2 opacity-70">
-                ({new Date(closure.closedAt).toLocaleString('ja-JP')} 確定)
-              </span>
-            )}
-          </span>
-        </div>
-      )}
-      {closure?.hasPostCloseChanges && (
-        <div className="bg-[#FFFBEB] border border-[#F0C674] text-[#92600E] rounded-md px-4 py-3 mb-4 text-sm flex items-center gap-2">
-          <span className="text-lg">&#9888;</span>
-          <span>確定後に修正申請が承認されています。給与の再計算を推奨します。</span>
-        </div>
-      )}
 
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -215,18 +125,18 @@ function AttendanceInternalPage() {
           <div className="text-3xl font-medium">{employees.length}<span className="text-base font-normal text-secondary ml-1">名</span></div>
         </div>
         <div className="card p-4">
-          <div className="text-xs text-secondary">全社 勤怠入力済</div>
+          <div className="text-xs text-secondary">勤怠確定済</div>
           <div className="text-3xl font-medium">
-            {closure ? closure.readiness.confirmedCount : '--'}
+            {confirmedCount}
             <span className="text-base font-normal text-secondary ml-1">
-              / {closure ? (closure.readiness.totalEmployees - closure.readiness.exemptCount) : '--'}名
+              / {employees.length}名
             </span>
           </div>
         </div>
         <div className="card p-4">
           <div className="text-xs text-secondary">確定状態</div>
           <div className="mt-1">
-            {isClosed ? (
+            {allConfirmed ? (
               <span className="badge badge-ok">確定済</span>
             ) : (
               <span className="badge badge-wait">未確定</span>
@@ -278,42 +188,6 @@ function AttendanceInternalPage() {
           </tbody>
         </table>
       </div>
-
-      {/* 未確定社員モーダル */}
-      {showConfirmModal && closure && (
-        <>
-          <div className="fixed inset-0 bg-black/30 z-[99]" onClick={() => setShowConfirmModal(false)} />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card rounded-lg shadow-xl z-[100] w-full max-w-[520px] max-h-[80vh] overflow-y-auto">
-            <div className="p-5 border-b border-border/30">
-              <h2 className="text-lg font-medium">勤怠未入力の社員がいます</h2>
-              <p className="text-sm text-secondary mt-1">
-                以下の{unconfirmedCount}名の勤怠が未入力です。このまま確定することはできません。
-              </p>
-            </div>
-            <div className="p-5">
-              <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                {closure.readiness.unconfirmedEmployees.map(e => (
-                  <div key={e.employeeId} className="flex justify-between items-center py-2 px-3 bg-[#F7F7F5] rounded-md text-sm">
-                    <div>
-                      <span className="text-secondary mr-2">{e.employeeCode}</span>
-                      <span className="font-medium">{e.name}</span>
-                    </div>
-                    <span className="text-xs text-secondary">{e.departmentName}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="p-5 border-t border-border/30 flex justify-end">
-              <button
-                onClick={() => setShowConfirmModal(false)}
-                className="btn-outline text-sm py-2 px-4"
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-        </>
-      )}
 
       <ToastUI />
     </div>

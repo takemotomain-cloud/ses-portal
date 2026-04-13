@@ -1034,6 +1034,7 @@ export class AttendanceService {
       );
     }
 
+    // 既存レコードを confirmed に更新
     const result = await this.db.attendance.updateMany({
       where: {
         employeeId,
@@ -1043,12 +1044,36 @@ export class AttendanceService {
       data: { status: 'confirmed' },
     });
 
+    // レコードが存在しない日に confirmed レコードを作成（社内勤怠など打刻なし社員向け）
+    const existing = await this.db.attendance.findMany({
+      where: { employeeId, workDate: { gte: startDate, lte: endDate } },
+      select: { workDate: true },
+    });
+    const existingDates = new Set(
+      existing.map((r) => r.workDate.toISOString().slice(0, 10)),
+    );
+    const creates: any[] = [];
+    for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      const key = d.toISOString().slice(0, 10);
+      if (!existingDates.has(key)) {
+        creates.push({
+          employeeId,
+          workDate: new Date(d),
+          breakMinutes: 0,
+          status: 'confirmed',
+        });
+      }
+    }
+    if (creates.length > 0) {
+      await this.db.attendance.createMany({ data: creates });
+    }
+
     // Google Drive にスプシ保存（非同期・エラー無視）
     this.saveAttendanceToGoogleDrive(employeeId, y, m, startDate, endDate).catch(e => {
       this.logger.warn(`Google Drive 保存エラー: ${(e as Error).message}`);
     });
 
-    return { confirmed: result.count };
+    return { confirmed: result.count + creates.length };
   }
 
   /**

@@ -232,8 +232,8 @@ export default function InternalAttendanceDetailPage() {
     <div>
       <ToastUI />
 
-      {/* ヘッダー */}
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
+      {/* ヘッダー: 戻る + 名前 | 月切り替え(中央) | 確定ボタン(右) */}
+      <div className="flex items-center mb-5 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push('/admin/attendance-internal')}
@@ -241,26 +241,26 @@ export default function InternalAttendanceDetailPage() {
           >
             &larr; 一覧に戻る
           </button>
-          <div>
-            <h1 className="text-2xl font-medium">{employeeName}</h1>
-            {employeeCode && (
-              <div className="text-sm text-secondary">{employeeCode}</div>
-            )}
-          </div>
+          <h1 className="text-2xl font-medium">{employeeName}</h1>
+        </div>
+        <div className="flex-1 flex items-center justify-center gap-2">
+          <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
+          <span className="text-lg font-medium min-w-[120px] text-center">{year}年{month}月</span>
+          <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
         </div>
         <div className="flex gap-2 items-center">
-          {summary?.allConfirmed && (
+          {summary?.allConfirmed ? (
             <span className="badge badge-ok">確定済</span>
+          ) : (
+            <button
+              disabled={confirming}
+              onClick={handleConfirm}
+              className="btn-primary text-sm py-2 px-5"
+            >
+              {confirming ? '処理中...' : '本人勤怠を確定'}
+            </button>
           )}
-          <button onClick={handleCsvExport} className="btn-outline text-sm py-1.5">CSVエクスポート</button>
         </div>
-      </div>
-
-      {/* 月切り替え */}
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
-        <span className="text-lg font-medium min-w-[120px] text-center">{year}年{month}月</span>
-        <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
       </div>
 
       {loading ? (
@@ -413,20 +413,6 @@ export default function InternalAttendanceDetailPage() {
             </table>
           </div>
 
-          {/* 本人勤怠を確定ボタン */}
-          <div className="flex justify-end mt-5">
-            {summary?.allConfirmed ? (
-              <span className="text-sm text-status-green-text font-medium">この月の勤怠は確定済みです</span>
-            ) : (
-              <button
-                disabled={confirming}
-                onClick={handleConfirm}
-                className="btn-primary text-sm py-2 px-5"
-              >
-                {confirming ? '処理中...' : '本人勤怠を確定'}
-              </button>
-            )}
-          </div>
         </>
       )}
 

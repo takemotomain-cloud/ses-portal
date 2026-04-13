@@ -29,14 +29,71 @@ export class PayrollService {
    */
   async getClosureStatus(year: number, month: number) {
     const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0));
+
+    // closureテーブルも確認（後方互換）
     const closure = await this.db.attendanceMonthlyClosure.findUnique({
       where: { yearMonth },
     });
+
+    // SES（アサインあり）と社内（アサインなし）を分けて確定状態を確認
+    const activeEmployeesWithAssignment = await this.db.employee.findMany({
+      where: { status: 'active', deletedAt: null, user: { role: { not: 'admin' } } },
+      select: {
+        id: true,
+        assignments: {
+          where: {
+            status: 'active',
+            deletedAt: null,
+            startDate: { lte: endDate },
+            OR: [{ endDate: null }, { endDate: { gte: startDate } }],
+          },
+          take: 1,
+        },
+      },
+    });
+
+    const sesEmployeeIds = activeEmployeesWithAssignment
+      .filter((e) => e.assignments.length > 0)
+      .map((e) => e.id);
+    const internalEmployeeIds = activeEmployeesWithAssignment
+      .filter((e) => e.assignments.length === 0)
+      .map((e) => e.id);
+
+    const checkGroup = async (ids: string[]) => {
+      if (ids.length === 0) return { unconfirmed: 0, noRecords: 0 };
+      const unconfirmed = await this.db.attendance.count({
+        where: {
+          employeeId: { in: ids },
+          workDate: { gte: startDate, lte: endDate },
+          status: { not: 'confirmed' },
+        },
+      });
+      const withRecords = await this.db.attendance.groupBy({
+        by: ['employeeId'],
+        where: {
+          employeeId: { in: ids },
+          workDate: { gte: startDate, lte: endDate },
+        },
+      });
+      return { unconfirmed, noRecords: ids.length - withRecords.length };
+    };
+
+    const ses = await checkGroup(sesEmployeeIds);
+    const internal = await checkGroup(internalEmployeeIds);
+
+    const sesAllConfirmed = ses.unconfirmed === 0 && ses.noRecords === 0;
+    const internalAllConfirmed = internal.unconfirmed === 0 && internal.noRecords === 0;
+    const allConfirmed = sesAllConfirmed && internalAllConfirmed;
+
     return {
       yearMonth,
-      isClosed: closure?.status === 'closed',
+      isClosed: closure?.status === 'closed' || allConfirmed,
       closedAt: closure?.closedAt || null,
       hasPostCloseChanges: closure?.hasPostCloseChanges || false,
+      sesUnconfirmed: !sesAllConfirmed,
+      internalUnconfirmed: !internalAllConfirmed,
     };
   }
 

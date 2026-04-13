@@ -184,14 +184,14 @@ export default function AdminAttendancePage() {
     <div>
       <div className="flex justify-between items-center mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-medium">勤怠管理</h1>
-        <button onClick={() => router.push('/admin/attendance/reconciliation')} className="btn-outline text-sm py-1.5">現場勤怠表を取込</button>
-      </div>
-
-      {/* 月切り替え */}
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
-        <span className="text-lg font-medium min-w-[100px] text-center">{year}年{month}月</span>
-        <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button onClick={() => changeMonth(-1)} className="btn-outline py-1 px-3 text-sm">&lt;</button>
+            <span className="text-lg font-medium min-w-[100px] text-center">{year}年{month}月</span>
+            <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
+          </div>
+          <button onClick={() => router.push('/admin/attendance/reconciliation')} className="btn-outline text-sm py-1.5">現場勤怠表を取込</button>
+        </div>
       </div>
 
       {/* KPI */}
