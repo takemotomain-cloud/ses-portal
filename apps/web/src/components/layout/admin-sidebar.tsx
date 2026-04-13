@@ -59,6 +59,7 @@ const navSections: NavSection[] = [
     items: [
       { label: '社員一覧', href: '/admin/employees' },
       { label: '勤怠管理', href: '/admin/attendance' },
+      { label: '社内勤怠', href: '/admin/attendance-internal', roles: ['admin', 'manager'] },
       { label: '給与管理', href: '/admin/payroll', roles: ['admin', 'manager'] },
       { label: '承認待ち', href: '/admin/approvals' },
       { label: '通知書（入社前）', href: '/admin/notices' },

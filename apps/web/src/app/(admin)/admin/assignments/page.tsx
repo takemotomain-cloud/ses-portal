@@ -29,6 +29,7 @@ interface Assignment {
   area: string | null;
   defaultStartTime: string | null;
   attendanceFormat: string;
+  clientAttendanceRequired: boolean;
   startDate: string;
   endDate: string | null;
   status: string;
@@ -167,6 +168,7 @@ export default function AdminAssignmentsPage() {
     contractEndDate: '',
     workStartTime: '',
     attendanceFormat: 'none',
+    clientAttendanceRequired: true,
     workLocation: '',
     area: '',
     supplyChain: '一次請け',
@@ -376,6 +378,7 @@ export default function AdminAssignmentsPage() {
       contractEndDate: selected.endDate?.split('T')[0] || '',
       workStartTime: selected.defaultStartTime || '9:00',
       attendanceFormat: selected.attendanceFormat || 'none',
+      clientAttendanceRequired: selected.clientAttendanceRequired ?? true,
       workLocation: selected.workLocation || '',
       area: selected.area || '',
       supplyChain: '一次請け',
@@ -399,6 +402,7 @@ export default function AdminAssignmentsPage() {
           endDate: editForm.contractEndDate || undefined,
           defaultStartTime: editForm.workStartTime || undefined,
           attendanceFormat: editForm.attendanceFormat,
+          clientAttendanceRequired: editForm.clientAttendanceRequired,
           workLocation: editForm.workLocation || undefined,
           area: editForm.area || undefined,
         }),
@@ -575,6 +579,7 @@ export default function AdminAssignmentsPage() {
                   ['精算幅', selected.settlementLower ? `${selected.settlementLower}〜${selected.settlementUpper}h` : '--'],
                   ['契約期間', `${formatDate(selected.startDate)} 〜 ${formatDate(selected.endDate)}`],
                   ['稼働開始時刻', selected.defaultStartTime || '--'],
+                  ['現場勤怠', selected.clientAttendanceRequired ? 'あり' : 'なし'],
                   ['請求時の勤怠表添付', selected.attendanceFormat === 'company' ? '自社フォーマット' : selected.attendanceFormat === 'client_original' ? '現場データそのまま' : '不要'],
                 ].map(([l, v]) => (
                   <div key={l} className="flex justify-between py-1.5 border-b border-border/20 text-base">
@@ -780,6 +785,13 @@ export default function AdminAssignmentsPage() {
                       <option value="9:00">9時00分</option>
                       <option value="9:30">9時30分</option>
                       <option value="10:00">10時00分</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">現場勤怠</label>
+                    <select className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30" value={editForm.clientAttendanceRequired ? 'true' : 'false'} onChange={e => setEditForm(f => ({ ...f, clientAttendanceRequired: e.target.value === 'true' }))}>
+                      <option value="true">あり</option>
+                      <option value="false">なし</option>
                     </select>
                   </div>
                   <div>

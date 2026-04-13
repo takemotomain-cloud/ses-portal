@@ -1,30 +1,16 @@
 /**
  * 管理側 設定
  *
- * 部署ツリー / 役職 / ロール（権限マトリクス）/ 操作ログ。
+ * 料率設定 / 操作ログ / 外部連携。
  */
 
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
-
-interface DeptNode {
-  id: string;
-  name: string;
-  code: string;
-  _count: { employees: number };
-  children: { id: string; name: string; code: string; _count: { employees: number } }[];
-}
-
-interface PositionRow {
-  id: string;
-  name: string;
-  rank: number;
-  hasApproval: boolean;
-  _count: { employees: number };
-}
+import { useAuth } from '@/lib/auth-context';
 
 interface RateMaster {
   healthInsurance: number;
@@ -35,14 +21,224 @@ interface RateMaster {
   updatedAt?: string;
 }
 
-export default function AdminSettingsPage() {
-  const [activeTab, setActiveTab] = useState(0);
-  const tabs = ['部署・役職', 'ロール管理', '料率設定', '操作ログ'];
-  const { toast, ToastUI } = useToast();
-  const [departments, setDepartments] = useState<DeptNode[]>([]);
-  const [positions, setPositions] = useState<PositionRow[]>([]);
+/* ---------- 操作ログ型定義 ---------- */
 
-  /* ---------- J1: 料率マスタ ---------- */
+interface AuditLogRow {
+  id: string;
+  action: string;
+  targetTable: string;
+  targetId: string | null;
+  oldValue: any;
+  newValue: any;
+  createdAt: string;
+  userName: string | null;
+  userEmail: string | null;
+}
+
+interface EditLogItem {
+  id: string;
+  workDate: string;
+  modifiedFields: string[];
+  oldClockIn: string | null;
+  oldClockOut: string | null;
+  oldBreakMinutes: number | null;
+  newClockIn: string | null;
+  newClockOut: string | null;
+  newBreakMinutes: number | null;
+  reason: string;
+  objectionStatus: string;
+  createdAt: string;
+  employee: { lastName: string; firstName: string };
+  adminUser: { employee: { lastName: string; firstName: string } | null } | null;
+}
+
+/* ---------- ヘルパー ---------- */
+
+function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtTime(iso: string | null): string {
+  if (!iso) return '--';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function fmtWorkDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
+function formatModification(log: EditLogItem): string {
+  const parts: string[] = [];
+  if (log.modifiedFields.includes('clockIn')) {
+    parts.push(`出勤: ${fmtTime(log.oldClockIn)}→${fmtTime(log.newClockIn)}`);
+  }
+  if (log.modifiedFields.includes('clockOut')) {
+    parts.push(`退勤: ${fmtTime(log.oldClockOut)}→${fmtTime(log.newClockOut)}`);
+  }
+  if (log.modifiedFields.includes('breakMinutes')) {
+    parts.push(`休憩: ${log.oldBreakMinutes ?? '--'}→${log.newBreakMinutes ?? '--'}分`);
+  }
+  return parts.join('、') || log.modifiedFields.join('、');
+}
+
+/** アクション名を日本語に変換 */
+const ACTION_LABELS: Record<string, string> = {
+  login_success: 'ログイン',
+  login_failure: 'ログイン失敗',
+  logout: 'ログアウト',
+  create: 'データ作成',
+  update: 'データ更新',
+  soft_delete: 'データ削除',
+  restore: 'データ復元',
+  'payroll.confirm': '給与確定',
+  'payroll.edit': '給与修正',
+  'expense.approve': '経費承認',
+  'expense.reject': '経費却下',
+  'user.role_change': '権限変更',
+  'pii.mynumber_view': 'マイナンバー閲覧',
+  'pii.bank_view': '口座情報閲覧',
+  'export.csv': 'CSVエクスポート',
+  'export.pdf': 'PDFエクスポート',
+  'attendance.admin_edit': '勤怠修正',
+};
+
+/* ---------- 管理者管理用定数 ---------- */
+
+interface UserRow {
+  id: string;
+  role: string;
+  isLocked: boolean;
+  lastLoginAt: string | null;
+  employeeCode: string;
+  lastName: string;
+  firstName: string;
+  email: string;
+  employeeStatus: string;
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'admin',
+  manager: 'manager',
+  member: 'member',
+  employee: 'employee',
+};
+
+const ROLE_BADGE: Record<string, string> = {
+  admin: 'bg-red-100 text-red-700',
+  manager: 'bg-blue-100 text-blue-700',
+  member: 'bg-green-100 text-green-700',
+  employee: 'bg-gray-100 text-gray-600',
+};
+
+const TABLE_LABELS: Record<string, string> = {
+  employees: '社員',
+  attendances: '勤怠',
+  users: 'ユーザー',
+  assignments: 'アサイン',
+  payroll_records: '給与',
+  expense_requests: '経費',
+  clients: 'クライアント',
+};
+
+/** 追加モーダルの行コンポーネント（ロール選択 state を行ごとに持つ） */
+function AddRow({ emp, promoting, onPromote }: {
+  emp: any;
+  promoting: boolean;
+  onPromote: (userId: string, role: string) => void;
+}) {
+  const [role, setRole] = useState('member');
+  const userId = emp.user?.id;
+  return (
+    <tr className="border-b border-border/20 hover:bg-[#FAFAF8]">
+      <td className="px-3 py-2.5 text-sm font-mono">{emp.employeeCode}</td>
+      <td className="px-3 py-2.5 text-sm font-medium whitespace-nowrap">{emp.lastName} {emp.firstName}</td>
+      <td className="px-3 py-2.5 text-sm text-secondary">{emp.email}</td>
+      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          className="text-sm py-1 px-2 rounded border border-border/30 bg-card mr-2"
+        >
+          <option value="admin">admin</option>
+          <option value="manager">manager</option>
+          <option value="member">member</option>
+        </select>
+        <button
+          onClick={() => userId && onPromote(userId, role)}
+          disabled={promoting || !userId}
+          className="btn-primary text-xs py-1.5 px-3 disabled:opacity-50"
+        >
+          {promoting ? '処理中...' : '昇格'}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+export default function AdminSettingsPage() {
+  const searchParams = useSearchParams();
+  const { user: currentUser } = useAuth();
+  const [activeTab, setActiveTab] = useState(0);
+  const canManageUsers = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  const tabs = canManageUsers
+    ? ['料率設定', '操作ログ', '外部連携', '管理者管理']
+    : ['料率設定', '操作ログ', '外部連携'];
+  const { toast, ToastUI } = useToast();
+
+  /* ---------- Google Drive 連携 ---------- */
+  const [gdConnected, setGdConnected] = useState(false);
+  const [gdEmail, setGdEmail] = useState('');
+  const [gdLoading, setGdLoading] = useState(false);
+
+  const fetchGdStatus = useCallback(async () => {
+    try {
+      const data = await apiClient<{ connected: boolean; email?: string }>('/settings/google-drive/status');
+      setGdConnected(data.connected);
+      setGdEmail(data.email || '');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchGdStatus();
+  }, [fetchGdStatus]);
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'integrations' && searchParams.get('connected') === '1') {
+      setActiveTab(2);
+      fetchGdStatus();
+      toast('Google Drive と連携しました');
+    }
+  }, [searchParams, fetchGdStatus, toast]);
+
+  const handleGdConnect = async () => {
+    try {
+      const data = await apiClient<{ url: string }>('/settings/google-drive/connect');
+      window.location.href = data.url;
+    } catch (err: any) {
+      toast(err?.message || 'OAuth URL の取得に失敗しました');
+    }
+  };
+
+  const handleGdDisconnect = async () => {
+    setGdLoading(true);
+    try {
+      await apiClient('/settings/google-drive/disconnect', { method: 'POST' });
+      setGdConnected(false);
+      setGdEmail('');
+      toast('Google Drive 連携を解除しました');
+    } catch (err: any) {
+      toast(err?.message || '連携解除に失敗しました');
+    } finally {
+      setGdLoading(false);
+    }
+  };
+
+  /* ---------- 料率マスタ ---------- */
   const [rateMaster, setRateMaster] = useState<RateMaster | null>(null);
   const [rateForm, setRateForm] = useState({
     healthInsurance: '',
@@ -110,62 +306,150 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const fetchDepartments = useCallback(async () => {
+  /* ---------- 操作ログ ---------- */
+  const [logTab, setLogTab] = useState<'all' | 'attendance'>('all');
+  // 汎用操作ログ
+  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditLoading, setAuditLoading] = useState(false);
+  // 勤怠修正ログ
+  const [editLogs, setEditLogs] = useState<EditLogItem[]>([]);
+  const [editLogsTotal, setEditLogsTotal] = useState(0);
+  const [editLogsLoading, setEditLogsLoading] = useState(false);
+
+  const fetchAuditLogs = useCallback(async (offset = 0, append = false) => {
+    setAuditLoading(true);
     try {
-      const data = await apiClient<DeptNode[]>('/settings/departments');
-      setDepartments(data);
+      const data = await apiClient<{ rows: AuditLogRow[]; total: number }>(
+        `/audit-logs?limit=50&offset=${offset}`,
+      );
+      setAuditLogs(prev => append ? [...prev, ...data.rows] : data.rows);
+      setAuditTotal(data.total);
     } catch {
-      // fallback: keep static
+      /* ignore */
+    } finally {
+      setAuditLoading(false);
     }
   }, []);
 
-  const fetchPositions = useCallback(async () => {
+  const fetchEditLogs = useCallback(async (offset = 0, append = false) => {
+    setEditLogsLoading(true);
     try {
-      const data = await apiClient<PositionRow[]>('/settings/positions');
-      setPositions(data);
+      const data = await apiClient<{ items: EditLogItem[]; total: number }>(
+        `/attendance/admin-edits/all?limit=50&offset=${offset}`,
+      );
+      setEditLogs(prev => append ? [...prev, ...data.items] : data.items);
+      setEditLogsTotal(data.total);
     } catch {
-      // fallback: keep static
+      /* ignore */
+    } finally {
+      setEditLogsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchDepartments();
-    fetchPositions();
-  }, [fetchDepartments, fetchPositions]);
+    if (activeTab === 1) {
+      if (logTab === 'all') {
+        fetchAuditLogs(0, false);
+      } else {
+        fetchEditLogs(0, false);
+      }
+    }
+  }, [activeTab, logTab, fetchAuditLogs, fetchEditLogs]);
 
-  const handleAddDepartment = async () => {
-    const name = prompt('部署名を入力してください');
-    if (!name) return;
-    const code = prompt('部署コード（英数字）を入力してください');
-    if (!code) return;
+  /* ---------- 管理者管理 ---------- */
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersSearch, setUsersSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [changingRoleId, setChangingRoleId] = useState<string | null>(null);
+
+  const fetchUsers = useCallback(async () => {
+    setUsersLoading(true);
     try {
-      await apiClient('/settings/departments', {
-        method: 'POST',
-        body: JSON.stringify({ name, code }),
+      const params = new URLSearchParams();
+      if (usersSearch) params.set('search', usersSearch);
+      if (roleFilter) params.set('role', roleFilter);
+      const res = await apiClient<{ data: UserRow[]; total: number }>(`/users?${params}`);
+      setUsers(res.data);
+    } catch { /* ignore */ }
+    finally { setUsersLoading(false); }
+  }, [usersSearch, roleFilter]);
+
+  useEffect(() => {
+    if (activeTab === 3 && canManageUsers) fetchUsers();
+  }, [activeTab, canManageUsers, fetchUsers]);
+
+  const adminCount = users.filter((u) => u.role === 'admin').length;
+
+  /* ---------- 追加モーダル ---------- */
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addSearch, setAddSearch] = useState('');
+  const [addResults, setAddResults] = useState<any[]>([]);
+  const [addLoading, setAddLoading] = useState(false);
+  const [addPromoting, setAddPromoting] = useState<string | null>(null);
+
+  // debounce 検索
+  useEffect(() => {
+    if (!addModalOpen || addSearch.length < 1) {
+      setAddResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setAddLoading(true);
+      try {
+        const res = await apiClient<{ data: any[] }>(
+          `/employees?search=${encodeURIComponent(addSearch)}&status=active&limit=20`,
+        );
+        // 既に管理ロールの社員を除外
+        const adminIds = new Set(users.map((u) => u.employeeCode));
+        setAddResults(
+          (res.data || []).filter((emp: any) => !adminIds.has(emp.employeeCode)),
+        );
+      } catch { setAddResults([]); }
+      finally { setAddLoading(false); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [addSearch, addModalOpen, users]);
+
+  const handlePromote = async (userId: string, role: string) => {
+    setAddPromoting(userId);
+    try {
+      await apiClient(`/users/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
       });
-      toast('部署を追加しました');
-      fetchDepartments();
+      toast('ロールを変更しました');
+      fetchUsers();
+      setAddModalOpen(false);
+      setAddSearch('');
     } catch (err: any) {
-      toast(err?.message || 'エラーが発生しました');
+      toast(err?.message || '昇格に失敗しました');
+    } finally {
+      setAddPromoting(null);
     }
   };
 
-  const handleAddPosition = async () => {
-    const name = prompt('役職名を入力してください');
-    if (!name) return;
-    const rankStr = prompt('ランク（数値）を入力してください');
-    if (!rankStr) return;
-    const rank = parseInt(rankStr, 10);
-    if (isNaN(rank)) { toast('ランクは数値で入力してください'); return; }
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    // セルフ降格の確認
+    if (currentUser && userId === (currentUser as any).id && newRole !== 'admin') {
+      const ok = window.confirm(
+        '自分自身を管理者から降格すると、管理画面へのアクセス権を失う可能性があります。続けますか？',
+      );
+      if (!ok) return;
+    }
+    setChangingRoleId(userId);
     try {
-      await apiClient('/settings/positions', {
-        method: 'POST',
-        body: JSON.stringify({ name, rank }),
+      await apiClient(`/users/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role: newRole }),
       });
-      toast('役職を追加しました');
-      fetchPositions();
+      toast('ロールを変更しました');
+      fetchUsers();
     } catch (err: any) {
-      toast(err?.message || 'エラーが発生しました');
+      toast(err?.message || 'ロール変更に失敗しました');
+    } finally {
+      setChangingRoleId(null);
     }
   };
 
@@ -182,118 +466,8 @@ export default function AdminSettingsPage() {
         ))}
       </div>
 
-      {/* 部署・役職 */}
+      {/* 料率設定 */}
       {activeTab === 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="card p-0">
-            <div className="flex justify-between items-center px-5 py-3.5 border-b border-border/30">
-              <span className="text-md font-medium">部署</span>
-              <button onClick={handleAddDepartment} className="btn-outline text-xs py-1 px-2.5">追加</button>
-            </div>
-            <div className="p-5">
-              {departments.length > 0 ? departments.map(dept => (
-                <div key={dept.id}>
-                  <div className="text-md font-medium mb-1">
-                    {dept.name}
-                    <span className="text-sm text-secondary ml-auto float-right">
-                      {dept._count.employees + dept.children.reduce((s, c) => s + c._count.employees, 0)}名
-                    </span>
-                  </div>
-                  {dept.children.map(child => (
-                    <div key={child.id} className="text-base text-secondary pl-6 py-1 flex items-center gap-2">
-                      <span className="w-3 h-px bg-border inline-block" />{child.name} — {child._count.employees}名
-                    </div>
-                  ))}
-                </div>
-              )) : (
-                <>
-                  <div className="text-md font-medium mb-1">SES事業部<span className="text-sm text-secondary ml-auto float-right">68名</span></div>
-                  {['第一営業課 — 12名', '第二営業課 — 10名', 'エンジニアリング課 — 46名'].map(d => (
-                    <div key={d} className="text-base text-secondary pl-6 py-1 flex items-center gap-2">
-                      <span className="w-3 h-px bg-border inline-block" />{d}
-                    </div>
-                  ))}
-                  <div className="text-md font-medium mt-3 mb-1">管理部<span className="text-sm text-secondary ml-auto float-right">4名</span></div>
-                  {['人事・総務 — 2名', '経理 — 2名'].map(d => (
-                    <div key={d} className="text-base text-secondary pl-6 py-1 flex items-center gap-2">
-                      <span className="w-3 h-px bg-border inline-block" />{d}
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="card p-0">
-            <div className="flex justify-between items-center px-5 py-3.5 border-b border-border/30">
-              <span className="text-md font-medium">役職</span>
-              <button onClick={handleAddPosition} className="btn-outline text-xs py-1 px-2.5">追加</button>
-            </div>
-            <table className="w-full">
-              <thead><tr className="border-b border-border">
-                {['役職名', 'ランク', '人数', '承認'].map(h => (
-                  <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2 bg-[#FAFAFA]">{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {(positions.length > 0 ? positions.map(p => ({
-                  name: p.name,
-                  rank: p.rank,
-                  count: p._count.employees,
-                  approval: p.hasApproval,
-                })) : [
-                  { name: '部長', rank: 2, count: 3, approval: true },
-                  { name: '課長', rank: 3, count: 5, approval: true },
-                  { name: '主任', rank: 4, count: 8, approval: false },
-                  { name: '一般', rank: 5, count: 61, approval: false },
-                ]).map(p => (
-                  <tr key={p.name} className="border-b border-border/20">
-                    <td className="px-4 py-2.5 text-base font-medium">{p.name}</td>
-                    <td className="px-4 py-2.5 text-base text-right">{p.rank}</td>
-                    <td className="px-4 py-2.5 text-base text-right">{p.count}名</td>
-                    <td className="px-4 py-2.5"><span className={`badge ${p.approval ? 'badge-ok' : 'badge-wait'}`}>{p.approval ? 'あり' : 'なし'}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ロール管理 */}
-      {activeTab === 1 && (
-        <div className="card p-0 overflow-x-auto">
-          <table className="w-full min-w-[500px]">
-            <thead><tr className="border-b border-border">
-              {['ロール名', '権限', '人数'].map(h => (
-                <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {[
-                { role: '管理者', perms: ['ダッシュボード', '稼働管理', '社員', '給与', '承認', '請求', 'freee', '設定'], count: 3, allOn: true },
-                { role: '営業', perms: ['ダッシュボード', '稼働管理', 'クライアント', '承認', '請求'], count: 5, allOn: false },
-                { role: '社員', perms: ['マイページのみ'], count: 70, allOn: false },
-              ].map(r => (
-                <tr key={r.role} className="border-b border-border/20">
-                  <td className="px-4 py-2.5 text-base font-medium">{r.role}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex gap-1 flex-wrap">
-                      {r.perms.map(p => (
-                        <span key={p} className={`text-xs px-1.5 py-0.5 rounded ${r.allOn || r.role === '社員' ? 'bg-status-green-bg text-status-green-text' : 'bg-page text-secondary'}`}>{p}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 text-base text-right">{r.count}名</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* J1: 料率設定 */}
-      {activeTab === 2 && (
         <div className="card p-5 max-w-[720px]">
           <div className="text-md font-medium mb-1">給与計算の料率設定</div>
           <div className="text-xs text-secondary mb-4">
@@ -348,23 +522,317 @@ export default function AdminSettingsPage() {
       )}
 
       {/* 操作ログ */}
-      {activeTab === 3 && (
-        <div className="card p-0">
-          {(() => {
-            const logs: { time: string; user: string; action: string; badge?: string; badgeLabel?: string }[] = [];
-            return logs.length > 0 ? logs.map((log, idx) => (
-              <div key={idx} className={`flex items-center gap-3 px-5 py-3 text-base flex-wrap ${idx < logs.length - 1 ? 'border-b border-border/20' : ''}`}>
-                <span className="text-sm text-secondary min-w-[160px]">{log.time}</span>
-                <span className="font-medium min-w-[80px]">{log.user}</span>
-                <span className="text-secondary flex-1">{log.action}</span>
-                {log.badge && <span className={`badge ${log.badge}`}>{log.badgeLabel}</span>}
-              </div>
-            )) : (
-              <div className="px-5 py-8 text-center text-secondary text-sm">ログはありません</div>
-            );
-          })()}
+      {activeTab === 1 && (
+        <div>
+          {/* サブタブ */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setLogTab('all')}
+              className={`text-sm py-1.5 px-3 rounded-md transition-colors ${logTab === 'all' ? 'bg-primary text-white' : 'bg-card text-secondary hover:text-primary border border-border/30'}`}
+            >
+              すべて
+            </button>
+            <button
+              onClick={() => setLogTab('attendance')}
+              className={`text-sm py-1.5 px-3 rounded-md transition-colors ${logTab === 'attendance' ? 'bg-primary text-white' : 'bg-card text-secondary hover:text-primary border border-border/30'}`}
+            >
+              勤怠修正
+            </button>
+          </div>
+
+          {/* すべての操作ログ */}
+          {logTab === 'all' && (
+            <div className="card p-0 overflow-x-auto">
+              <table className="w-full min-w-[700px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    {['日時', 'ユーザー', '操作', '対象', '詳細'].map(h => (
+                      <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.length > 0 ? auditLogs.map((log) => (
+                    <tr key={log.id} className="border-b border-border/20 hover:bg-[#FAFAF8]">
+                      <td className="px-4 py-2.5 text-sm text-secondary whitespace-nowrap">{fmtDateTime(log.createdAt)}</td>
+                      <td className="px-4 py-2.5 text-sm font-medium whitespace-nowrap">{log.userName || log.userEmail || '--'}</td>
+                      <td className="px-4 py-2.5 text-sm">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs bg-page text-secondary">
+                          {ACTION_LABELS[log.action] || log.action}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-secondary">{TABLE_LABELS[log.targetTable] || log.targetTable}</td>
+                      <td className="px-4 py-2.5 text-sm text-secondary max-w-[250px] truncate">
+                        {log.action === 'login_success' ? 'ログイン成功' :
+                         log.action === 'login_failure' ? 'ログイン失敗' :
+                         log.newValue ? `${Object.keys(log.newValue).join(', ')} を変更` : '--'}
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-secondary text-sm">
+                        {auditLoading ? '読み込み中...' : 'ログはありません'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {auditLogs.length < auditTotal && (
+                <div className="px-5 py-3 text-center border-t border-border/20">
+                  <button
+                    onClick={() => fetchAuditLogs(auditLogs.length, true)}
+                    disabled={auditLoading}
+                    className="btn-outline text-sm py-1.5 px-4 disabled:opacity-50"
+                  >
+                    {auditLoading ? '読み込み中...' : `もっと見る（残り ${auditTotal - auditLogs.length} 件）`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 勤怠修正ログ */}
+          {logTab === 'attendance' && (
+            <div className="card p-0 overflow-x-auto">
+              <table className="w-full min-w-[800px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    {['日時', '管理者', '対象社員', '勤怠日', '修正内容', '理由', '異議'].map(h => (
+                      <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {editLogs.length > 0 ? editLogs.map((log) => {
+                    const adminName = log.adminUser?.employee
+                      ? `${log.adminUser.employee.lastName} ${log.adminUser.employee.firstName}`
+                      : '--';
+                    const empName = `${log.employee.lastName} ${log.employee.firstName}`;
+                    const objBadge = log.objectionStatus === 'objected'
+                      ? 'badge-ng'
+                      : log.objectionStatus === 'resolved'
+                        ? 'badge-ok'
+                        : 'badge-wait';
+                    const objLabel = log.objectionStatus === 'objected'
+                      ? '異議あり'
+                      : log.objectionStatus === 'resolved'
+                        ? '解決済み'
+                        : 'なし';
+
+                    return (
+                      <tr key={log.id} className="border-b border-border/20 hover:bg-[#FAFAF8]">
+                        <td className="px-4 py-2.5 text-sm text-secondary whitespace-nowrap">{fmtDateTime(log.createdAt)}</td>
+                        <td className="px-4 py-2.5 text-sm font-medium whitespace-nowrap">{adminName}</td>
+                        <td className="px-4 py-2.5 text-sm whitespace-nowrap">{empName}</td>
+                        <td className="px-4 py-2.5 text-sm whitespace-nowrap">{fmtWorkDate(log.workDate)}</td>
+                        <td className="px-4 py-2.5 text-sm">{formatModification(log)}</td>
+                        <td className="px-4 py-2.5 text-sm text-secondary max-w-[200px] truncate">{log.reason}</td>
+                        <td className="px-4 py-2.5"><span className={`badge ${objBadge}`}>{objLabel}</span></td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={7} className="px-5 py-8 text-center text-secondary text-sm">
+                        {editLogsLoading ? '読み込み中...' : '修正ログはありません'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {editLogs.length < editLogsTotal && (
+                <div className="px-5 py-3 text-center border-t border-border/20">
+                  <button
+                    onClick={() => fetchEditLogs(editLogs.length, true)}
+                    disabled={editLogsLoading}
+                    className="btn-outline text-sm py-1.5 px-4 disabled:opacity-50"
+                  >
+                    {editLogsLoading ? '読み込み中...' : `もっと見る（残り ${editLogsTotal - editLogs.length} 件）`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
+
+      {/* 外部連携 */}
+      {activeTab === 2 && (
+        <div className="card p-5 max-w-[720px]">
+          <div className="text-md font-medium mb-1">Google Drive 連携</div>
+          <div className="text-xs text-secondary mb-4">
+            Google Drive と連携すると、勤怠確定時にスプレッドシートが自動でDriveに保存されます。
+          </div>
+
+          {gdConnected ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="badge badge-ok">連携中</span>
+                <span className="text-sm">{gdEmail}</span>
+              </div>
+              <button
+                onClick={handleGdDisconnect}
+                disabled={gdLoading}
+                className="btn-outline text-sm py-2 px-4 text-red-600 border-red-300 hover:bg-red-50 disabled:opacity-50"
+              >
+                {gdLoading ? '解除中...' : '連携を解除'}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleGdConnect}
+              className="btn-primary text-sm py-2 px-4"
+            >
+              Google Drive と連携する
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 管理者管理 */}
+      {activeTab === 3 && canManageUsers && (
+        <div>
+          {/* フィルタバー */}
+          <div className="flex gap-3 mb-4">
+            <input
+              type="text"
+              placeholder="氏名・社員番号で検索"
+              value={usersSearch}
+              onChange={(e) => setUsersSearch(e.target.value)}
+              className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-64 focus:border-primary focus:outline-none"
+            />
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm focus:border-primary focus:outline-none"
+            >
+              <option value="">すべてのロール</option>
+              <option value="admin">admin</option>
+              <option value="manager">manager</option>
+              <option value="member">member</option>
+            </select>
+            <button
+              onClick={() => { setAddModalOpen(true); setAddSearch(''); setAddResults([]); }}
+              className="btn-primary text-sm py-2 px-4 ml-auto"
+            >
+              + 追加
+            </button>
+          </div>
+
+          {/* ユーザーテーブル */}
+          <div className="card p-0 overflow-x-auto">
+            <table className="w-full min-w-[800px]">
+              <thead>
+                <tr className="border-b border-border">
+                  {['社員番号', '氏名', 'メールアドレス', 'ロール', '最終ログイン', 'ステータス'].map((h) => (
+                    <th key={h} className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.length > 0 ? users.map((u) => {
+                  const isOnlyAdmin = u.role === 'admin' && adminCount <= 1;
+                  const isChanging = changingRoleId === u.id;
+                  return (
+                    <tr key={u.id} className="border-b border-border/20 hover:bg-[#FAFAF8]">
+                      <td className="px-4 py-2.5 text-sm font-mono">{u.employeeCode}</td>
+                      <td className="px-4 py-2.5 text-sm font-medium whitespace-nowrap">{u.lastName} {u.firstName}</td>
+                      <td className="px-4 py-2.5 text-sm text-secondary">{u.email}</td>
+                      <td className="px-4 py-2.5">
+                        <select
+                          value={u.role}
+                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                          disabled={isOnlyAdmin || isChanging}
+                          className={`text-sm py-1 px-2 rounded border border-border/30 bg-card focus:border-primary focus:outline-none ${isOnlyAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <option value="admin">admin</option>
+                          <option value="manager">manager</option>
+                          <option value="member">member</option>
+                        </select>
+                        {isOnlyAdmin && (
+                          <div className="text-[10px] text-secondary mt-0.5">最後の管理者</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-secondary whitespace-nowrap">
+                        {u.lastLoginAt ? fmtDateTime(u.lastLoginAt) : '--'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {u.isLocked ? (
+                          <span className="badge badge-ng">ロック中</span>
+                        ) : (
+                          <span className="badge badge-ok">アクティブ</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }) : (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-secondary text-sm">
+                      {usersLoading ? '読み込み中...' : 'ユーザーが見つかりません'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-3 text-xs text-secondary">
+            {users.length > 0 && `${users.length} 件のユーザー`}
+          </div>
+        </div>
+      )}
+
+      {/* 追加モーダル */}
+      {addModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setAddModalOpen(false)} />
+          <div className="relative bg-card rounded-lg shadow-xl w-full max-w-[600px] mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/20">
+              <h3 className="text-lg font-medium">管理者を追加</h3>
+              <button onClick={() => setAddModalOpen(false)} className="text-secondary hover:text-primary text-xl">×</button>
+            </div>
+            <div className="px-5 py-4">
+              <input
+                type="text"
+                placeholder="社員名または社員番号で検索..."
+                value={addSearch}
+                onChange={(e) => setAddSearch(e.target.value)}
+                autoFocus
+                className="h-10 px-3 rounded-md border border-border/30 bg-page text-sm w-full focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div className="px-5 pb-5 overflow-y-auto flex-1">
+              {addLoading ? (
+                <div className="text-center text-secondary text-sm py-8">検索中...</div>
+              ) : addResults.length > 0 ? (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {['社員番号', '氏名', 'メールアドレス', ''].map((h) => (
+                        <th key={h} className="text-left text-xs text-secondary font-normal px-3 py-2 bg-[#FAFAFA]">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {addResults.map((emp: any) => (
+                      <AddRow
+                        key={emp.id}
+                        emp={emp}
+                        promoting={addPromoting === emp.user?.id}
+                        onPromote={handlePromote}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              ) : addSearch.length > 0 ? (
+                <div className="text-center text-secondary text-sm py-8">該当する社員が見つかりません</div>
+              ) : (
+                <div className="text-center text-secondary text-sm py-8">社員名を入力して検索してください</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <ToastUI />
     </div>
   );

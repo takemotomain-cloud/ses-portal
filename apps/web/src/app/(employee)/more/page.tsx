@@ -86,6 +86,22 @@ export default function MorePage() {
         </div>
       ))}
 
+      {/* 管理ページへのリンク（admin/manager/member のみ） */}
+      {user && ['admin', 'manager', 'member'].includes(user.role) && (
+        <div className="card p-0">
+          <Link
+            href="/admin"
+            className="flex items-center justify-between px-4 py-3.5 hover:bg-page transition-colors"
+          >
+            <div>
+              <div className="text-md text-primary">管理ページを開く</div>
+              <div className="text-sm text-secondary mt-0.5">管理者ダッシュボードへ移動</div>
+            </div>
+            <span className="text-lg text-secondary">›</span>
+          </Link>
+        </div>
+      )}
+
       {/* ログアウト */}
       <div className="card p-0">
         <button

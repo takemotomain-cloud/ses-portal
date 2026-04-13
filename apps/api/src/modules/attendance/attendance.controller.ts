@@ -23,6 +23,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -160,6 +161,56 @@ export class AttendanceController {
     return this.attendanceService.getAdminAlerts();
   }
 
+  /* --- 管理者用: 月次勤怠確定（closure） --- */
+
+  @Get('admin/closure/:year/:month')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '月次勤怠確定ステータス + readiness 取得' })
+  async getClosureStatus(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.getClosureStatus(year, month);
+  }
+
+  @Post('admin/closure/:year/:month/close')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '月次勤怠を一括確定' })
+  async closeMonth(
+    @CurrentUser() user: RequestUser,
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.closeMonth(year, month, user.employeeId);
+  }
+
+  @Post('admin/closure/:year/:month/reopen')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '月次勤怠確定を解除' })
+  async reopenMonth(
+    @CurrentUser() user: RequestUser,
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.reopenMonth(year, month, user.employeeId);
+  }
+
+  /* --- 管理者用: 社内勤怠一覧（アサインなし社員） --- */
+
+  @Get('admin/internal/:year/:month')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: 'アサインなし社員の勤怠一覧（社内勤怠）' })
+  async getInternalAttendance(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.getInternalAttendance(year, month);
+  }
+
   /* --- 管理者用: 月次ステータス一覧 --- */
 
   @Get('admin/status/:year/:month')
@@ -195,7 +246,7 @@ export class AttendanceController {
     @CurrentUser() user: RequestUser,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('workDate') workDate: string,
-    @Body() body: { clockIn?: string; clockOut?: string; breakMinutes?: number; correction?: boolean },
+    @Body() body: { clockIn?: string; clockOut?: string; breakMinutes?: number; correction?: boolean; reason?: string },
   ) {
     return this.attendanceService.updateAttendanceByAdmin(employeeId, workDate, body, user.userId);
   }
@@ -209,6 +260,52 @@ export class AttendanceController {
     @Param('yearMonth') yearMonth: string,
   ) {
     return this.attendanceService.confirmAttendanceByAdmin(employeeId, yearMonth);
+  }
+
+  @Get('admin-edits/all')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '全社員の勤怠修正ログ' })
+  async getAllAdminEdits(
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    return this.attendanceService.getAllAdminEdits(
+      Math.min(Number(limit) || 50, 200),
+      Number(offset) || 0,
+    );
+  }
+
+  @Get('admin-edits/my/:year/:month')
+  @ApiOperation({ summary: '自分の勤怠修正履歴' })
+  async getMyAdminEdits(
+    @CurrentUser() user: RequestUser,
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.getMyAdminEdits(user.employeeId, year, month);
+  }
+
+  @Get('admin-edits/:employeeId/:year/:month')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '管理者用: 指定社員の勤怠修正履歴' })
+  async getAdminEdits(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.attendanceService.getAdminEdits(employeeId, year, month);
+  }
+
+  @Post('admin-edit/:editId/object')
+  @ApiOperation({ summary: '管理者修正への異議申し立て' })
+  async objectToAdminEdit(
+    @CurrentUser() user: RequestUser,
+    @Param('editId', ParseUUIDPipe) editId: string,
+    @Body() body: { reason: string },
+  ) {
+    return this.attendanceService.objectToAdminEdit(editId, user.employeeId, body.reason);
   }
 
   /* --- パラメータ付きルート（後方に配置） --- */

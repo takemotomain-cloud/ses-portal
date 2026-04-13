@@ -22,6 +22,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../database/database.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { STANDARD_WORK_MINUTES } from '@ses-portal/shared';
 
 @Injectable()
@@ -31,6 +32,7 @@ export class AttendanceService {
   constructor(
     private readonly db: DatabaseService,
     private readonly notifications: NotificationsService,
+    private readonly googleDrive: GoogleDriveService,
   ) {}
 
   /**
@@ -486,6 +488,13 @@ export class AttendanceService {
       const clockOut = correction.newClockOut ?? correction.attendance.clockOut;
       const breakMinutes = correction.newBreakMinutes ?? correction.attendance.breakMinutes;
 
+      // 2.5. clockIn/clockOut の整合性チェック
+      if (clockIn && clockOut && new Date(clockIn).getTime() > new Date(clockOut).getTime()) {
+        throw new BadRequestException(
+          `出勤時刻が退勤時刻より後になるため承認できません（出勤: ${new Date(clockIn).toISOString()}, 退勤: ${new Date(clockOut).toISOString()}）。先に出勤時刻を修正してください。`,
+        );
+      }
+
       // 3. 稼働時間・残業時間を再計算
       let workMinutes = correction.attendance.workMinutes;
       let overtimeMinutes = correction.attendance.overtimeMinutes;
@@ -508,6 +517,20 @@ export class AttendanceService {
           overtimeMinutes,
         },
       });
+
+      // 確定済み月への修正 → has_post_close_changes フラグを立てる
+      const workDate = correction.attendance.workDate as Date;
+      const corrYearMonth = `${workDate.getFullYear()}-${String(workDate.getMonth() + 1).padStart(2, '0')}`;
+      const closure = await tx.attendanceMonthlyClosure.findUnique({
+        where: { yearMonth: corrYearMonth },
+      });
+      if (closure?.status === 'closed') {
+        await tx.attendanceMonthlyClosure.update({
+          where: { yearMonth: corrYearMonth },
+          data: { hasPostCloseChanges: true },
+        });
+        this.logger.warn(`確定済み月 ${corrYearMonth} への修正承認 → 警告フラグ ON`);
+      }
 
       this.logger.log(`勤怠修正を承認: correction=${correctionId}, approver=${approverId}`);
 
@@ -819,9 +842,13 @@ export class AttendanceService {
   async updateAttendanceByAdmin(
     employeeId: string,
     workDate: string,
-    data: { clockIn?: string; clockOut?: string; breakMinutes?: number; correction?: boolean },
+    data: { clockIn?: string; clockOut?: string; breakMinutes?: number; correction?: boolean; reason?: string },
     userId?: string,
   ) {
+    // 修正理由は必須
+    if (!data.reason || data.reason.trim() === '') {
+      throw new BadRequestException('修正理由を入力してください');
+    }
     const date = new Date(workDate + 'T00:00:00Z');
 
     const record = await this.db.attendance.findUnique({
@@ -924,6 +951,64 @@ export class AttendanceService {
       }
     }
 
+    // 管理者修正履歴を記録 + 通知
+    if (userId) {
+      try {
+        const modifiedFields: string[] = [];
+        if (data.clockIn !== undefined && updateData.clockIn?.getTime() !== record.clockIn?.getTime()) modifiedFields.push('clockIn');
+        if (data.clockOut !== undefined && updateData.clockOut?.getTime() !== record.clockOut?.getTime()) modifiedFields.push('clockOut');
+        if (data.breakMinutes !== undefined && data.breakMinutes !== record.breakMinutes) modifiedFields.push('breakMinutes');
+
+        if (modifiedFields.length > 0) {
+          // 同じ attendanceId の未解決異議を自動解消
+          await this.db.adminAttendanceEdit.updateMany({
+            where: {
+              attendanceId: record.id,
+              objectionStatus: 'objected',
+            },
+            data: {
+              objectionStatus: 'resolved',
+              resolvedAt: new Date(),
+            },
+          });
+
+          const edit = await this.db.adminAttendanceEdit.create({
+            data: {
+              attendanceId: record.id,
+              employeeId,
+              adminUserId: userId,
+              workDate: date,
+              oldClockIn: record.clockIn,
+              oldClockOut: record.clockOut,
+              oldBreakMinutes: record.breakMinutes,
+              newClockIn: updateData.clockIn ?? record.clockIn,
+              newClockOut: updateData.clockOut ?? record.clockOut,
+              newBreakMinutes: updateData.breakMinutes ?? record.breakMinutes,
+              modifiedFields,
+              reason: data.reason!,
+            },
+          });
+
+          // 社員に通知
+          const fmtT = (d: Date | null) => d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '--';
+          const changes: string[] = [];
+          if (modifiedFields.includes('clockIn')) changes.push(`出勤: ${fmtT(record.clockIn)} → ${fmtT(updateData.clockIn ?? record.clockIn)}`);
+          if (modifiedFields.includes('clockOut')) changes.push(`退勤: ${fmtT(record.clockOut)} → ${fmtT(updateData.clockOut ?? record.clockOut)}`);
+          if (modifiedFields.includes('breakMinutes')) changes.push(`休憩: ${record.breakMinutes}分 → ${updateData.breakMinutes ?? record.breakMinutes}分`);
+
+          await this.notifications.create({
+            employeeId,
+            title: `${workDate} の勤怠が修正されました`,
+            body: `${changes.join(' / ')}\n理由: ${data.reason}`,
+            category: 'attendance_edit',
+            metadata: { editId: edit.id, type: 'attendance_edit' },
+          });
+        }
+      } catch {
+        // 修正履歴・通知の作成失敗は無視
+      }
+    }
+
     return updated;
   }
 
@@ -935,6 +1020,20 @@ export class AttendanceService {
     const startDate = new Date(Date.UTC(y, m - 1, 1));
     const endDate = new Date(Date.UTC(y, m, 0));
 
+    // 未解決の異議があれば確定をブロック
+    const unresolvedCount = await this.db.adminAttendanceEdit.count({
+      where: {
+        employeeId,
+        workDate: { gte: startDate, lte: endDate },
+        objectionStatus: 'objected',
+      },
+    });
+    if (unresolvedCount > 0) {
+      throw new BadRequestException(
+        `未解決の異議が${unresolvedCount}件あります。異議を解決してから確定してください。`,
+      );
+    }
+
     const result = await this.db.attendance.updateMany({
       where: {
         employeeId,
@@ -944,7 +1043,67 @@ export class AttendanceService {
       data: { status: 'confirmed' },
     });
 
+    // Google Drive にスプシ保存（非同期・エラー無視）
+    this.saveAttendanceToGoogleDrive(employeeId, y, m, startDate, endDate).catch(e => {
+      this.logger.warn(`Google Drive 保存エラー: ${(e as Error).message}`);
+    });
+
     return { confirmed: result.count };
+  }
+
+  /**
+   * 本人勤怠確定データを Google Sheets に保存
+   */
+  private async saveAttendanceToGoogleDrive(
+    employeeId: string, year: number, month: number,
+    startDate: Date, endDate: Date,
+  ) {
+    if (!this.googleDrive.isEnabled()) return;
+
+    const [employee, assignment, records] = await Promise.all([
+      this.db.employee.findUnique({
+        where: { id: employeeId },
+        select: { lastName: true, firstName: true },
+      }),
+      this.db.assignment.findFirst({
+        where: { employeeId, status: 'active' },
+        include: { client: { select: { name: true } } },
+      }),
+      this.db.attendance.findMany({
+        where: { employeeId, workDate: { gte: startDate, lte: endDate } },
+        orderBy: { workDate: 'asc' },
+      }),
+    ]);
+
+    if (!employee || !records.length) return;
+
+    const empName = `${employee.lastName} ${employee.firstName}`;
+    const clientName = assignment?.client?.name || '未アサイン';
+    const fileName = `${empName}_${clientName}_${year}年${month}月`;
+
+    const fmtTime = (d: Date | null) => {
+      if (!d) return '';
+      const dt = new Date(d);
+      return `${String(dt.getUTCHours() + 9).padStart(2, '0')}:${String(dt.getUTCMinutes()).padStart(2, '0')}`;
+    };
+    const fmtMin = (m: number | null) => m != null ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` : '';
+
+    const headers = ['日付', '出勤', '退勤', '休憩(分)', '稼働時間', '残業時間'];
+    const rows = records.map(r => {
+      const wd = new Date(r.workDate);
+      const dateStr = `${wd.getUTCMonth() + 1}/${wd.getUTCDate()}`;
+      return [dateStr, fmtTime(r.clockIn), fmtTime(r.clockOut), r.breakMinutes, fmtMin(r.workMinutes), fmtMin(r.overtimeMinutes)];
+    });
+
+    const folders = await this.googleDrive.ensureMonthlyFolders(year, month);
+    const url = await this.googleDrive.saveAttendanceSheet({
+      folderId: folders.selfFolderId,
+      fileName,
+      headers,
+      rows,
+    });
+
+    this.logger.log(`本人勤怠スプシ保存: ${url}`);
   }
 
   /**
@@ -989,17 +1148,375 @@ export class AttendanceService {
     allAttendances.forEach(a => allEmployeeIds.add(a.employeeId));
     uploads.forEach(u => allEmployeeIds.add(u.employeeId));
 
-    const result: Record<string, { attendanceConfirmed: boolean; clientConfirmed: boolean; clientImported: boolean }> = {};
+    // アクティブな案件の現場勤怠要否を取得
+    const activeAssignments = await this.db.assignment.findMany({
+      where: {
+        employeeId: { in: [...allEmployeeIds] },
+        status: 'active',
+        deletedAt: null,
+      },
+      select: { employeeId: true, clientAttendanceRequired: true },
+    });
+    const assignmentMap = new Map<string, boolean>();
+    for (const a of activeAssignments) {
+      assignmentMap.set(a.employeeId, a.clientAttendanceRequired);
+    }
+
+    const result: Record<string, any> = {};
     for (const eid of allEmployeeIds) {
       const upload = uploadMap.get(eid);
+      const clientAttendanceRequired = assignmentMap.get(eid) ?? true;
       result[eid] = {
         attendanceConfirmed: !unconfirmedEmployees.has(eid),
         clientConfirmed: upload?.confirmed ?? false,
         clientImported: upload?.imported ?? false,
+        clientAttendanceRequired,
       };
     }
 
+    // 異議あり（月内の未解決分）— 件数 + 詳細リスト
+    const objections = await this.db.adminAttendanceEdit.findMany({
+      where: {
+        workDate: { gte: startDate, lte: endDate },
+        objectionStatus: 'objected',
+      },
+      select: {
+        id: true, workDate: true, modifiedFields: true, reason: true, objectionReason: true,
+        employeeId: true,
+        employee: { select: { lastName: true, firstName: true } },
+      },
+      orderBy: { workDate: 'asc' },
+    });
+
+    result._summary = {
+      objectionCount: objections.length,
+      objections: objections.map(o => ({
+        id: o.id,
+        employeeId: o.employeeId,
+        employeeName: `${o.employee.lastName} ${o.employee.firstName}`,
+        workDate: o.workDate,
+        modifiedFields: o.modifiedFields,
+        reason: o.reason,
+        objectionReason: o.objectionReason,
+      })),
+    };
+
     return result;
+  }
+
+  // ============================================================
+  // 月次勤怠確定（closure）— 給与計算ゲート
+  // ============================================================
+
+  /**
+   * 確定ステータス + 未確定社員リスト（readiness）を取得
+   */
+  async getClosureStatus(year: number, month: number) {
+    const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+    const closure = await this.db.attendanceMonthlyClosure.findUnique({
+      where: { yearMonth },
+    });
+
+    // 在籍社員（admin 以外）を取得
+    const employees = await this.db.employee.findMany({
+      where: { status: 'active', deletedAt: null },
+      include: {
+        user: { select: { role: true } },
+        department: { select: { name: true } },
+      },
+    });
+
+    const nonAdminEmployees = employees.filter(
+      (e) => e.user?.role !== 'admin',
+    );
+
+    // 当月に勤怠レコードが 1 件以上あるかチェック
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0));
+
+    const attendanceCounts = await this.db.attendance.groupBy({
+      by: ['employeeId'],
+      where: {
+        employeeId: { in: nonAdminEmployees.map((e) => e.id) },
+        workDate: { gte: startDate, lte: endDate },
+      },
+      _count: true,
+    });
+
+    const employeesWithAttendance = new Set(
+      attendanceCounts.map((a) => a.employeeId),
+    );
+
+    const unconfirmedEmployees = nonAdminEmployees
+      .filter((e) => !employeesWithAttendance.has(e.id))
+      .map((e) => ({
+        employeeId: e.id,
+        name: `${e.lastName} ${e.firstName}`,
+        employeeCode: e.employeeCode,
+        departmentName: e.department?.name || '',
+      }));
+
+    const adminCount = employees.filter(
+      (e) => e.user?.role === 'admin',
+    ).length;
+
+    return {
+      yearMonth,
+      status: closure?.status || 'open',
+      closedAt: closure?.closedAt || null,
+      hasPostCloseChanges: closure?.hasPostCloseChanges || false,
+      readiness: {
+        totalEmployees: employees.length,
+        confirmedCount: nonAdminEmployees.length - unconfirmedEmployees.length,
+        exemptCount: adminCount,
+        unconfirmedEmployees,
+      },
+    };
+  }
+
+  /**
+   * 月次勤怠を一括確定（admin のみ）
+   *
+   * admin 以外の全在籍社員に当月の勤怠レコードが存在することを確認してから確定。
+   */
+  async closeMonth(year: number, month: number, closedByEmployeeId: string) {
+    const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+    // 既に確定済みかチェック
+    const existing = await this.db.attendanceMonthlyClosure.findUnique({
+      where: { yearMonth },
+    });
+    if (existing?.status === 'closed') {
+      throw new BadRequestException(`${yearMonth}の勤怠は既に確定されています`);
+    }
+
+    // readiness チェック
+    const status = await this.getClosureStatus(year, month);
+    if (status.readiness.unconfirmedEmployees.length > 0) {
+      const names = status.readiness.unconfirmedEmployees
+        .map((e) => `${e.employeeCode} ${e.name}`)
+        .join(', ');
+      throw new BadRequestException(
+        `以下の社員の勤怠が未入力です: ${names}`,
+      );
+    }
+
+    // UPSERT で確定
+    await this.db.attendanceMonthlyClosure.upsert({
+      where: { yearMonth },
+      create: {
+        yearMonth,
+        status: 'closed',
+        closedAt: new Date(),
+        closedBy: closedByEmployeeId,
+      },
+      update: {
+        status: 'closed',
+        closedAt: new Date(),
+        closedBy: closedByEmployeeId,
+        hasPostCloseChanges: false,
+      },
+    });
+
+    this.logger.log(`月次勤怠確定: ${yearMonth} by ${closedByEmployeeId}`);
+    return { yearMonth, status: 'closed' };
+  }
+
+  /**
+   * 月次勤怠確定を解除（admin のみ）
+   */
+  async reopenMonth(year: number, month: number, reopenedByEmployeeId: string) {
+    const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+    const closure = await this.db.attendanceMonthlyClosure.findUnique({
+      where: { yearMonth },
+    });
+    if (!closure || closure.status !== 'closed') {
+      throw new BadRequestException(`${yearMonth}の勤怠は確定されていません`);
+    }
+
+    await this.db.attendanceMonthlyClosure.update({
+      where: { yearMonth },
+      data: {
+        status: 'open',
+        reopenedAt: new Date(),
+        reopenedBy: reopenedByEmployeeId,
+      },
+    });
+
+    this.logger.log(`月次勤怠確定解除: ${yearMonth} by ${reopenedByEmployeeId}`);
+    return { yearMonth, status: 'open' };
+  }
+
+  // ============================================================
+  // 管理者修正への異議申し立て
+  // ============================================================
+
+  /**
+   * 社員が管理者修正に異議を申し立てる
+   */
+  async objectToAdminEdit(editId: string, employeeId: string, reason: string) {
+    if (!reason || reason.trim() === '') {
+      throw new BadRequestException('異議の理由を入力してください');
+    }
+
+    const edit = await this.db.adminAttendanceEdit.findFirst({
+      where: { id: editId, employeeId },
+      include: { employee: { select: { lastName: true, firstName: true, employeeCode: true } } },
+    });
+
+    if (!edit) {
+      throw new NotFoundException('修正履歴が見つかりません');
+    }
+
+    if (edit.objectionStatus !== 'none') {
+      throw new BadRequestException('この修正には既に異議が申し立てられています');
+    }
+
+    await this.db.adminAttendanceEdit.update({
+      where: { id: editId },
+      data: {
+        objectionStatus: 'objected',
+        objectionReason: reason,
+        objectionAt: new Date(),
+      },
+    });
+
+    // 管理者に通知
+    const empName = `${edit.employee.lastName} ${edit.employee.firstName}`;
+    const dateStr = edit.workDate.toISOString().split('T')[0];
+    await this.notifications.notifyAdmins(
+      `勤怠修正への異議: ${empName}`,
+      `${empName}（${edit.employee.employeeCode}）が ${dateStr} の勤怠修正に異議を申し立てました。\n理由: ${reason}`,
+    );
+
+    return { success: true };
+  }
+
+  /**
+   * 管理者用: 指定社員の指定月の修正履歴一覧
+   */
+  async getAdminEdits(employeeId: string, year: number, month: number) {
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0));
+
+    return this.db.adminAttendanceEdit.findMany({
+      where: {
+        employeeId,
+        workDate: { gte: startDate, lte: endDate },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 社員用: 自分の指定月の修正履歴一覧
+   */
+  async getMyAdminEdits(employeeId: string, year: number, month: number) {
+    return this.getAdminEdits(employeeId, year, month);
+  }
+
+  /**
+   * 全社員の勤怠修正ログ（設定ページ操作ログ用）
+   */
+  async getAllAdminEdits(limit = 50, offset = 0) {
+    const [items, total] = await Promise.all([
+      this.db.adminAttendanceEdit.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          employee: { select: { lastName: true, firstName: true } },
+          adminUser: { select: { employee: { select: { lastName: true, firstName: true } } } },
+        },
+      }),
+      this.db.adminAttendanceEdit.count(),
+    ]);
+    return { items, total };
+  }
+
+  // ============================================================
+  // 社内勤怠一覧（アサインなし社員の勤怠）
+  // ============================================================
+
+  /**
+   * アサインがない社員（待機中 employee + manager + member）の勤怠一覧
+   */
+  async getInternalAttendance(year: number, month: number) {
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0));
+
+    // 在籍社員を全取得
+    const employees = await this.db.employee.findMany({
+      where: { status: 'active', deletedAt: null },
+      include: {
+        user: { select: { role: true } },
+        department: { select: { name: true } },
+        assignments: {
+          where: {
+            status: 'active',
+            deletedAt: null,
+            startDate: { lte: endDate },
+            OR: [
+              { endDate: null },
+              { endDate: { gte: startDate } },
+            ],
+          },
+          take: 1,
+        },
+      },
+    });
+
+    // admin を除外（勤怠免除）、アクティブアサインがある社員を除外
+    const internalEmployees = employees.filter(
+      (e) => e.user?.role !== 'admin' && e.assignments.length === 0,
+    );
+
+    // 対象社員の当月勤怠を取得
+    const attendances = await this.db.attendance.findMany({
+      where: {
+        employeeId: { in: internalEmployees.map((e) => e.id) },
+        workDate: { gte: startDate, lte: endDate },
+      },
+    });
+
+    // 社員ごとに集計
+    const attendanceByEmployee = new Map<string, typeof attendances>();
+    for (const a of attendances) {
+      const list = attendanceByEmployee.get(a.employeeId) || [];
+      list.push(a);
+      attendanceByEmployee.set(a.employeeId, list);
+    }
+
+    return internalEmployees.map((e) => {
+      const records = attendanceByEmployee.get(e.id) || [];
+      const workDays = records.filter((r) => r.clockIn !== null).length;
+      const totalOvertimeMinutes = records.reduce(
+        (sum, r) => sum + (r.overtimeMinutes || 0),
+        0,
+      );
+      const hasMissedClock = records.some(
+        (r) => r.clockIn !== null && r.clockOut === null,
+      );
+
+      const isConfirmed = records.length > 0 && records.every(
+        (r) => r.status === 'confirmed',
+      );
+
+      return {
+        employeeId: e.id,
+        employeeCode: e.employeeCode,
+        name: `${e.lastName} ${e.firstName}`,
+        departmentName: e.department?.name || '',
+        role: e.user?.role || 'employee',
+        workDays,
+        totalOvertimeHours: Math.round((totalOvertimeMinutes / 60) * 10) / 10,
+        hasMissedClock,
+        hasAttendance: records.length > 0,
+        isConfirmed,
+      };
+    });
   }
 
   /**

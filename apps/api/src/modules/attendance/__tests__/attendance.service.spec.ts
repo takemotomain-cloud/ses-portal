@@ -219,6 +219,7 @@ describe('AttendanceService', () => {
       const txMock = {
         attendanceCorrection: { update: jest.fn() },
         attendance: { update: jest.fn() },
+        attendanceMonthlyClosure: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
       };
       db.$transaction.mockImplementation(async (cb: any) => cb(txMock));
 

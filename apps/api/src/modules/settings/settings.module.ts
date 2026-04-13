@@ -6,11 +6,11 @@
  */
 
 import { Module } from '@nestjs/common';
-import { SettingsController } from './settings.controller';
+import { SettingsController, GoogleDriveCallbackController } from './settings.controller';
 import { SettingsService } from './settings.service';
 
 @Module({
-  controllers: [SettingsController],
+  controllers: [SettingsController, GoogleDriveCallbackController],
   providers: [SettingsService],
   exports: [SettingsService],
 })

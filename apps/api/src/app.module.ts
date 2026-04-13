@@ -42,6 +42,7 @@ import { LeaveOfAbsenceModule } from './modules/leave-of-absence/leave-of-absenc
 import { MailerModule } from './modules/mailer/mailer.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { UsersModule } from './modules/users/users.module';
+import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { UsersModule } from './modules/users/users.module';
     }),
     ScheduleModule.forRoot(),
     DatabaseModule,
+    GoogleDriveModule,
     MailerModule,
     AuditLogsModule,
     AuthModule,

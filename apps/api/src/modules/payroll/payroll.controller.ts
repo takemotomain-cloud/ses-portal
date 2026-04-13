@@ -79,6 +79,17 @@ export class PayrollController {
     });
   }
 
+  @Get('payroll/:year/:month/closure-status')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '給与計算用: 勤怠確定ステータス取得' })
+  async getClosureStatus(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    return this.payrollService.getClosureStatus(year, month);
+  }
+
   @Post('payroll/:year/:month/calc')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')

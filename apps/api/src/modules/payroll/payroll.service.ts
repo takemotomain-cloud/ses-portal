@@ -25,6 +25,22 @@ export class PayrollService {
   ) {}
 
   /**
+   * 勤怠確定ステータスを返す（フロント用）
+   */
+  async getClosureStatus(year: number, month: number) {
+    const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
+    const closure = await this.db.attendanceMonthlyClosure.findUnique({
+      where: { yearMonth },
+    });
+    return {
+      yearMonth,
+      isClosed: closure?.status === 'closed',
+      closedAt: closure?.closedAt || null,
+      hasPostCloseChanges: closure?.hasPostCloseChanges || false,
+    };
+  }
+
+  /**
    * 社員自身の給与明細を取得
    */
   async getMyPayslip(employeeId: string, year: number, month: number) {
@@ -130,6 +146,16 @@ export class PayrollService {
    */
   async calculateMonthly(year: number, month: number) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
+
+    // 勤怠確定チェック（ゲート）
+    const closure = await this.db.attendanceMonthlyClosure.findUnique({
+      where: { yearMonth: targetMonth },
+    });
+    if (!closure || closure.status !== 'closed') {
+      throw new BadRequestException(
+        `${targetMonth}の勤怠が確定されていません。先に勤怠確定を行ってください。`,
+      );
+    }
 
     // J1: 料率マスタを取得（存在しなければデフォルト値で作成）
     const rateMaster = await this.db.rateMaster.upsert({

@@ -73,6 +73,7 @@ export class NotificationsService {
     title: string;
     body: string;
     category?: string;
+    metadata?: any;
   }) {
     const notification = await this.db.notification.create({ data });
     this.logger.log(`Notification created for employee ${data.employeeId}: ${data.title}`);

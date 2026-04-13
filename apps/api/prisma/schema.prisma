@@ -141,6 +141,9 @@ model Employee {
   leaveOfAbsences         LeaveOfAbsence[]
   approvedLoaRequests     LeaveOfAbsence[] @relation("LoaApprover")
   approvedLoaReturns      LeaveOfAbsence[] @relation("LoaReturnApprover")
+  closedClosures          AttendanceMonthlyClosure[] @relation("ClosureClosedBy")
+  reopenedClosures        AttendanceMonthlyClosure[] @relation("ClosureReopenedBy")
+  adminAttendanceEdits    AdminAttendanceEdit[] @relation("AdminEditsEmployee")
 
   @@map("employees")
 }
@@ -188,6 +191,7 @@ model User {
 
   employee  Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   auditLogs AuditLog[]
+  adminAttendanceEdits AdminAttendanceEdit[] @relation("AdminEditsByUser")
 
   @@map("users")
 }
@@ -351,8 +355,9 @@ model Assignment {
   workLocation       String?   @map("work_location") @db.VarChar(200)
   area               String?   @db.VarChar(20)
   defaultStartTime   String?   @map("default_start_time") @db.VarChar(5)
-  attendanceFormat   String    @default("none") @map("attendance_format") @db.VarChar(20)
-  startDate          DateTime  @map("start_date") @db.Date
+  attendanceFormat          String    @default("none") @map("attendance_format") @db.VarChar(20)
+  clientAttendanceRequired  Boolean   @default(true) @map("client_attendance_required")
+  startDate                 DateTime  @map("start_date") @db.Date
   endDate            DateTime? @map("end_date") @db.Date
   status             String    @default("active") @db.VarChar(20)
   endReason          String?   @map("end_reason") @db.VarChar(30)
@@ -412,6 +417,7 @@ model Attendance {
 
   employee    Employee               @relation(fields: [employeeId], references: [id])
   corrections AttendanceCorrection[]
+  adminEdits  AdminAttendanceEdit[]
 
   @@unique([employeeId, workDate])
   @@map("attendances")
@@ -443,6 +449,37 @@ model AttendanceCorrection {
   approver   Employee?  @relation("CorrectionApprover", fields: [approverId], references: [id])
 
   @@map("attendance_corrections")
+}
+
+// ----------------------------------------
+// 管理者による勤怠修正履歴 + 異議申し立て
+// ----------------------------------------
+model AdminAttendanceEdit {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attendanceId    String    @map("attendance_id") @db.Uuid
+  employeeId      String    @map("employee_id") @db.Uuid
+  adminUserId     String    @map("admin_user_id") @db.Uuid
+  workDate        DateTime  @map("work_date") @db.Date
+  oldClockIn      DateTime? @map("old_clock_in") @db.Timestamptz
+  oldClockOut     DateTime? @map("old_clock_out") @db.Timestamptz
+  oldBreakMinutes Int?      @map("old_break_minutes")
+  newClockIn      DateTime? @map("new_clock_in") @db.Timestamptz
+  newClockOut     DateTime? @map("new_clock_out") @db.Timestamptz
+  newBreakMinutes Int?      @map("new_break_minutes")
+  modifiedFields  String[]  @map("modified_fields")
+  reason          String
+  objectionStatus String    @default("none") @map("objection_status") @db.VarChar(20)
+  objectionReason String?   @map("objection_reason")
+  objectionAt     DateTime? @map("objection_at") @db.Timestamptz
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id])
+  employee   Employee   @relation("AdminEditsEmployee", fields: [employeeId], references: [id])
+  adminUser  User       @relation("AdminEditsByUser", fields: [adminUserId], references: [id])
+
+  @@map("admin_attendance_edits")
 }
 
 // ----------------------------------------
@@ -587,6 +624,7 @@ model Notification {
   body       String
   imageUrl   String?   @map("image_url") @db.VarChar(500)
   category   String?   @db.VarChar(30)
+  metadata   Json?
   isRead     Boolean   @default(false) @map("is_read")
   readAt     DateTime? @map("read_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
@@ -1091,4 +1129,43 @@ model RateMaster {
   updatedBy               String?  @map("updated_by") @db.Uuid
 
   @@map("rate_master")
+}
+
+// ----------------------------------------
+// 月次勤怠確定（給与計算ゲート）
+// 管理者が月の勤怠を一括確定し、確定後に給与計算を実行可能にする。
+// admin（役員）は勤怠免除。
+// ----------------------------------------
+model AttendanceMonthlyClosure {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  yearMonth             String    @unique @map("year_month") @db.VarChar(7)
+  status                String    @default("open") @db.VarChar(20)
+  closedAt              DateTime? @map("closed_at") @db.Timestamptz
+  closedBy              String?   @map("closed_by") @db.Uuid
+  reopenedAt            DateTime? @map("reopened_at") @db.Timestamptz
+  reopenedBy            String?   @map("reopened_by") @db.Uuid
+  hasPostCloseChanges   Boolean   @default(false) @map("has_post_close_changes")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  closedByEmployee      Employee? @relation("ClosureClosedBy", fields: [closedBy], references: [id])
+  reopenedByEmployee    Employee? @relation("ClosureReopenedBy", fields: [reopenedBy], references: [id])
+
+  @@map("attendance_monthly_closures")
+}
+
+// ----------------------------------------
+// 外部サービス連携トークン（OAuth 2.0）
+// ----------------------------------------
+model IntegrationToken {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider     String   @unique @db.VarChar(50) // "google_drive"
+  accessToken  String   @map("access_token")
+  refreshToken String   @map("refresh_token")
+  expiresAt    DateTime @map("expires_at") @db.Timestamptz
+  email        String?  @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("integration_tokens")
 }

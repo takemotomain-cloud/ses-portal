@@ -44,6 +44,7 @@ interface AssignForm {
   contractEndDate: string;
   workStartTime: string;
   attendanceFormat: string;
+  clientAttendanceRequired: string;
   workLocation: string;
   area: string;
   supplyChain: string;
@@ -63,6 +64,7 @@ const initialForm: AssignForm = {
   contractEndDate: '',
   workStartTime: '9:00',
   attendanceFormat: 'none',
+  clientAttendanceRequired: 'true',
   workLocation: '',
   area: '',
   supplyChain: '一次請け',
@@ -223,6 +225,7 @@ export default function NewAssignmentPage() {
         area: form.area || undefined,
         defaultStartTime: form.workStartTime || undefined,
         attendanceFormat: form.attendanceFormat,
+        clientAttendanceRequired: form.clientAttendanceRequired === 'true',
         supplyChain: form.supplyChain || undefined,
       };
 
@@ -255,6 +258,7 @@ export default function NewAssignmentPage() {
           area: form.area || undefined,
           defaultStartTime: form.workStartTime || undefined,
           attendanceFormat: form.attendanceFormat,
+          clientAttendanceRequired: form.clientAttendanceRequired === 'true',
           startDate: form.contractStartDate,
           endDate: form.contractEndDate || undefined,
         }),
@@ -442,6 +446,17 @@ export default function NewAssignmentPage() {
                 <option value="9:00">9時00分</option>
                 <option value="9:30">9時30分</option>
                 <option value="10:00">10時00分</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>現場勤怠</label>
+              <select
+                className={selectCls}
+                value={form.clientAttendanceRequired}
+                onChange={(e) => update('clientAttendanceRequired', e.target.value)}
+              >
+                <option value="true">あり</option>
+                <option value="false">なし</option>
               </select>
             </div>
             <div>

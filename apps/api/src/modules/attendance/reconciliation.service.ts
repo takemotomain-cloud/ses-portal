@@ -17,6 +17,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { readFileSync } from 'fs';
 import { STANDARD_WORK_MINUTES } from '@ses-portal/shared';
+import { GoogleDriveService } from '../google-drive/google-drive.service';
 
 /** Claude APIで構造化されたレコード */
 export interface ParsedRecord {
@@ -99,6 +100,7 @@ export class ReconciliationService {
   constructor(
     private readonly db: DatabaseService,
     private readonly config: ConfigService,
+    private readonly googleDrive: GoogleDriveService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (apiKey) {
@@ -141,6 +143,13 @@ export class ReconciliationService {
       parsed = await this.parseCsv(file.buffer || readFileSync(file.path), yearMonth);
     } else {
       parsed = await this.parseImage(file.path, file.mimetype, yearMonth);
+    }
+
+    // 対象月とファイル月の不一致チェック
+    if (parsed.year_month && parsed.year_month !== yearMonth) {
+      throw new BadRequestException(
+        `ファイルの対象月（${parsed.year_month}）と選択された対象月（${yearMonth}）が一致しません`,
+      );
     }
 
     return {
@@ -447,6 +456,17 @@ export class ReconciliationService {
 
       this.logger.log(`勤怠表を解析完了: upload=${upload.id}, records=${parsed.records.length}`);
 
+      // 対象月とファイル月の不一致チェック
+      if (parsed.year_month && parsed.year_month !== yearMonth) {
+        await this.db.clientAttendanceUpload.update({
+          where: { id: upload.id },
+          data: { status: 'error' },
+        });
+        throw new BadRequestException(
+          `ファイルの対象月（${parsed.year_month}）と選択された対象月（${yearMonth}）が一致しません`,
+        );
+      }
+
       return {
         uploadId: upload.id,
         employeeName: parsed.employee_name,
@@ -457,6 +477,7 @@ export class ReconciliationService {
       };
     } catch (error) {
       // エラー時はステータスを更新
+      if (error instanceof BadRequestException) throw error;
       await this.db.clientAttendanceUpload.update({
         where: { id: upload.id },
         data: { status: 'error' },
@@ -883,7 +904,100 @@ export class ReconciliationService {
 
     this.logger.log(`勤怠突合を確定: upload=${uploadId}, confirmedBy=${confirmerId}, records=${results.length}`);
 
+    // Google Drive に保存（非同期・エラー無視）
+    this.saveClientAttendanceToGoogleDrive(uploadId, upload.employeeId, year, month, results).catch(e => {
+      this.logger.warn(`Google Drive 保存エラー（現場勤怠）: ${(e as Error).message}`);
+    });
+
     return { confirmedCount: results.length };
+  }
+
+  /**
+   * 現場勤怠確定データを Google Drive に保存
+   * アップロードファイルがあればそのまま保存、なければスプレッドシートを生成
+   */
+  private async saveClientAttendanceToGoogleDrive(
+    uploadId: string, employeeId: string, year: number, month: number,
+    results: { workDate: Date; resolvedStart: string | null; resolvedEnd: string | null; resolvedBreak: number | null; resolvedHours: any }[],
+  ) {
+    if (!this.googleDrive.isEnabled()) return;
+
+    const [employee, assignment, upload] = await Promise.all([
+      this.db.employee.findUnique({
+        where: { id: employeeId },
+        select: { lastName: true, firstName: true },
+      }),
+      this.db.assignment.findFirst({
+        where: { employeeId, status: 'active' },
+        include: { client: { select: { name: true } } },
+      }),
+      this.db.clientAttendanceUpload.findUnique({
+        where: { id: uploadId },
+        select: { filePath: true, fileName: true },
+      }),
+    ]);
+
+    if (!employee || !results.length) return;
+
+    const empName = `${employee.lastName} ${employee.firstName}`;
+    const clientName = assignment?.client?.name || '未アサイン';
+    const folders = await this.googleDrive.ensureMonthlyFolders(year, month);
+
+    // アップロードファイルが存在すればそのままDriveに保存
+    if (upload?.filePath) {
+      const fs = await import('fs');
+      const path = await import('path');
+      const fullPath = path.resolve(upload.filePath);
+
+      if (fs.existsSync(fullPath)) {
+        const ext = path.extname(upload.fileName || upload.filePath);
+        const driveFileName = `${clientName}_${empName}_${year}年${month}月${ext}`;
+
+        const url = await this.googleDrive.uploadFile({
+          folderId: folders.clientFolderId,
+          fileName: driveFileName,
+          filePath: fullPath,
+        });
+
+        this.logger.log(`現場勤怠ファイル保存: ${url}`);
+        return;
+      }
+    }
+
+    // フォールバック: アップロードファイルがない場合はスプレッドシートを生成
+    const fileName = `${clientName}_${empName}_${year}年${month}月`;
+    const fmtMin = (m: number | null) => m != null ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` : '';
+
+    const headers = ['日付', '開始', '終了', '休憩(分)', '稼働時間', '残業時間'];
+    const rows = results.map(r => {
+      const wd = new Date(r.workDate);
+      const dateStr = `${wd.getUTCMonth() + 1}/${wd.getUTCDate()}`;
+      const breakMin = r.resolvedBreak ?? 60;
+      let workMin: number | null = null;
+      let overtimeMin: number | null = null;
+
+      if (r.resolvedHours != null) {
+        workMin = Math.round(Number(r.resolvedHours) * 60);
+        overtimeMin = Math.max(0, workMin - STANDARD_WORK_MINUTES);
+      } else if (r.resolvedStart && r.resolvedEnd) {
+        const [sh, sm] = r.resolvedStart.split(':').map(Number);
+        const [eh, em] = r.resolvedEnd.split(':').map(Number);
+        const totalMin = (eh * 60 + em) - (sh * 60 + sm);
+        workMin = totalMin - breakMin;
+        overtimeMin = Math.max(0, workMin - STANDARD_WORK_MINUTES);
+      }
+
+      return [dateStr, r.resolvedStart || '', r.resolvedEnd || '', breakMin, fmtMin(workMin), fmtMin(overtimeMin)];
+    });
+
+    const url = await this.googleDrive.saveAttendanceSheet({
+      folderId: folders.clientFolderId,
+      fileName,
+      headers,
+      rows,
+    });
+
+    this.logger.log(`現場勤怠スプシ保存: ${url}`);
   }
 
   /** HH:MM → Date に変換 */

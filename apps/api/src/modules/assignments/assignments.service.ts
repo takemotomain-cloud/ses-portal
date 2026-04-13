@@ -35,6 +35,7 @@ export class AssignmentsService {
     area?: string;
     defaultStartTime?: string;
     attendanceFormat?: string;
+    clientAttendanceRequired?: boolean;
     projectId?: string;
     startDate: string;
     endDate?: string;
@@ -52,6 +53,7 @@ export class AssignmentsService {
         area: data.area || null,
         defaultStartTime: data.defaultStartTime || null,
         attendanceFormat: data.attendanceFormat || 'none',
+        clientAttendanceRequired: data.clientAttendanceRequired ?? true,
         startDate: new Date(data.startDate),
         endDate: data.endDate ? new Date(data.endDate) : null,
         status: 'active',
@@ -129,6 +131,7 @@ export class AssignmentsService {
     area?: string | null;
     defaultStartTime?: string | null;
     attendanceFormat?: string;
+    clientAttendanceRequired?: boolean;
     projectId?: string | null;
     startDate?: string;
     endDate?: string | null;
@@ -156,6 +159,7 @@ export class AssignmentsService {
     if (data.area !== undefined) updateData.area = data.area;
     if (data.defaultStartTime !== undefined) updateData.defaultStartTime = data.defaultStartTime;
     if (data.attendanceFormat !== undefined) updateData.attendanceFormat = data.attendanceFormat;
+    if (data.clientAttendanceRequired !== undefined) updateData.clientAttendanceRequired = data.clientAttendanceRequired;
     if (data.projectId !== undefined) updateData.projectId = data.projectId;
     if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);
     if (data.endDate !== undefined) updateData.endDate = data.endDate ? new Date(data.endDate) : null;

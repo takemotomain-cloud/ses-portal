@@ -110,6 +110,82 @@ export class UsersService {
     return { id: updated.id, role: updated.role };
   }
 
+  /* ---------- ユーザー一覧（admin 専用） ---------- */
+
+  private static readonly ROLE_PRIORITY: Record<string, number> = {
+    admin: 0,
+    manager: 1,
+    member: 2,
+    employee: 3,
+  };
+
+  async findAll(params: { search?: string; role?: string }) {
+    const ADMIN_ROLES = ['admin', 'manager', 'member'];
+
+    const where: any = {
+      employee: { deletedAt: null },
+      role: { in: ADMIN_ROLES },
+    };
+
+    if (params.role && ADMIN_ROLES.includes(params.role)) {
+      where.role = params.role;
+    }
+
+    if (params.search) {
+      const s = params.search;
+      where.employee = {
+        ...where.employee,
+        OR: [
+          { lastName: { contains: s } },
+          { firstName: { contains: s } },
+          { employeeCode: { contains: s } },
+          { email: { contains: s } },
+        ],
+      };
+    }
+
+    const rows = await this.db.user.findMany({
+      where,
+      select: {
+        id: true,
+        role: true,
+        isLocked: true,
+        lastLoginAt: true,
+        employee: {
+          select: {
+            employeeCode: true,
+            lastName: true,
+            firstName: true,
+            email: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    // ロール優先度 → 社員番号でソート
+    const sorted = rows.sort((a, b) => {
+      const pa = UsersService.ROLE_PRIORITY[a.role] ?? 9;
+      const pb = UsersService.ROLE_PRIORITY[b.role] ?? 9;
+      if (pa !== pb) return pa - pb;
+      return (a.employee?.employeeCode ?? '').localeCompare(b.employee?.employeeCode ?? '');
+    });
+
+    const data = sorted.map((r) => ({
+      id: r.id,
+      role: r.role,
+      isLocked: r.isLocked,
+      lastLoginAt: r.lastLoginAt,
+      employeeCode: r.employee?.employeeCode ?? '',
+      lastName: r.employee?.lastName ?? '',
+      firstName: r.employee?.firstName ?? '',
+      email: r.employee?.email ?? '',
+      employeeStatus: r.employee?.status ?? '',
+    }));
+
+    return { data, total: data.length };
+  }
+
   /**
    * 最後の admin 判定ヘルパー（employees.service の softDelete / 退職処理から再利用）
    *

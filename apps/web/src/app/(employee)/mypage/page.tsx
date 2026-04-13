@@ -20,6 +20,7 @@ interface Notice {
   title: string;
   body: string;
   imageUrl?: string | null;
+  metadata?: { editId?: string; type?: string } | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -96,6 +97,12 @@ export default function MyPage() {
   const [clockMessage, setClockMessage] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+
+  // 異議関連
+  const [showObjection, setShowObjection] = useState(false);
+  const [objectionReason, setObjectionReason] = useState('');
+  const [submittingObjection, setSubmittingObjection] = useState(false);
+  const [objectedEditIds, setObjectedEditIds] = useState<Set<string>>(new Set());
 
   // アラート
   const [alerts, setAlerts] = useState<MyAlerts | null>(null);
@@ -527,9 +534,65 @@ export default function MyPage() {
                 />
               </div>
             )}
+
+            {/* 異議ありボタン（管理者修正通知の場合のみ） */}
+            {selectedNotice.metadata?.type === 'attendance_edit' && selectedNotice.metadata?.editId && (
+              <div className="mt-4 border-t border-border pt-4">
+                {objectedEditIds.has(selectedNotice.metadata.editId) ? (
+                  <div className="text-sm text-status-amber-text font-medium text-center py-2">
+                    異議申し立て済み
+                  </div>
+                ) : showObjection ? (
+                  <div className="space-y-3">
+                    <textarea
+                      value={objectionReason}
+                      onChange={e => setObjectionReason(e.target.value)}
+                      placeholder="異議の理由を入力してください"
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 resize-none"
+                      rows={3}
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setShowObjection(false); setObjectionReason(''); }}
+                        className="flex-1 py-2 rounded-lg border border-border text-sm text-secondary hover:bg-page"
+                      >キャンセル</button>
+                      <button
+                        disabled={!objectionReason.trim() || submittingObjection}
+                        onClick={async () => {
+                          setSubmittingObjection(true);
+                          try {
+                            await apiClient(`/attendance/admin-edit/${selectedNotice.metadata!.editId}/object`, {
+                              method: 'POST',
+                              body: JSON.stringify({ reason: objectionReason.trim() }),
+                            });
+                            setObjectedEditIds(prev => new Set(prev).add(selectedNotice.metadata!.editId!));
+                            setShowObjection(false);
+                            setObjectionReason('');
+                          } catch {
+                            // エラー時は何もしない
+                          } finally {
+                            setSubmittingObjection(false);
+                          }
+                        }}
+                        className="flex-1 py-2 rounded-lg bg-status-red-text text-white text-sm font-medium hover:bg-status-red-text/90 disabled:opacity-50"
+                      >{submittingObjection ? '送信中...' : '異議を送信'}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowObjection(true)}
+                    className="w-full py-2.5 rounded-lg border-2 border-status-red-text text-status-red-text text-sm font-medium hover:bg-status-red-bg transition-colors"
+                  >
+                    異議あり
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
-              onClick={() => setSelectedNotice(null)}
-              className="mt-6 w-full py-3 rounded-lg border border-border text-md font-medium text-primary hover:bg-page transition-colors"
+              onClick={() => { setSelectedNotice(null); setShowObjection(false); setObjectionReason(''); }}
+              className="mt-4 w-full py-3 rounded-lg border border-border text-md font-medium text-primary hover:bg-page transition-colors"
             >
               閉じる
             </button>

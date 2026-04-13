@@ -63,6 +63,15 @@ interface MonthlyDetail {
   records: AttendanceRecord[];
 }
 
+interface AdminEdit {
+  id: string;
+  attendanceId: string;
+  workDate: string;
+  modifiedFields: string[];
+  reason: string;
+  objectionStatus: string;
+}
+
 /* ---- ヘルパー ---- */
 
 function fmtTime(iso: string | null): string {
@@ -86,6 +95,11 @@ function getDayOfWeek(dateStr: string): string {
 function isWeekend(dateStr: string): boolean {
   const day = new Date(dateStr).getDay();
   return day === 0 || day === 6;
+}
+
+/** 指定日のフィールドが管理者修正済みかどうかを返す */
+function isFieldEdited(edits: AdminEdit[], dateStr: string, field: string): boolean {
+  return edits.some(e => e.workDate.startsWith(dateStr) && e.modifiedFields.includes(field));
 }
 
 /* ---- コンポーネント ---- */
@@ -113,6 +127,17 @@ export default function AttendanceDetailPage() {
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState<'client' | 'employee' | null>(null);
   const [correctionMode, setCorrectionMode] = useState(false);
+  const [adminEdits, setAdminEdits] = useState<AdminEdit[]>([]);
+  const [showReasonModal, setShowReasonModal] = useState(false);
+  const [editReason, setEditReason] = useState('');
+  const [pendingSave, setPendingSave] = useState<{ dateStr: string; clockIn: string; clockOut: string; breakMinutes?: number; correction?: boolean } | null>(null);
+  // 本人勤怠タブ用の編集state
+  const [empCorrectionMode, setEmpCorrectionMode] = useState(false);
+  const [empEditingRow, setEmpEditingRow] = useState<string | null>(null);
+  const [empEditClockIn, setEmpEditClockIn] = useState('');
+  const [empEditClockOut, setEmpEditClockOut] = useState('');
+  const [empEditBreak, setEmpEditBreak] = useState<number>(60);
+  const [empSaving, setEmpSaving] = useState(false);
 
   function changeMonth(delta: number) {
     let m = month + delta;
@@ -138,7 +163,16 @@ export default function AttendanceDetailPage() {
     }
   }, [employeeId, year, month]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchAdminEdits = useCallback(async () => {
+    try {
+      const data = await apiClient<AdminEdit[]>(`/attendance/admin-edits/${employeeId}/${year}/${month}`);
+      setAdminEdits(data);
+    } catch {
+      setAdminEdits([]);
+    }
+  }, [employeeId, year, month]);
+
+  useEffect(() => { fetchData(); fetchAdminEdits(); }, [fetchData, fetchAdminEdits]);
 
   /* ---- 突合データ取得（lazy load） ---- */
 
@@ -383,8 +417,13 @@ export default function AttendanceDetailPage() {
           )}
 
           {/* 日別テーブル */}
+          {(() => {
+            const records = detail?.records ?? [];
+            const empIsConfirmed = records.length > 0 && records.every(r => r.status === 'confirmed');
+            const empCanEdit = !empIsConfirmed || empCorrectionMode;
+            return (<>
           <div className="card p-0 overflow-x-auto">
-            <table className="w-full min-w-[750px]">
+            <table className="w-full min-w-[850px]">
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA] w-[80px]">日付</th>
@@ -395,6 +434,7 @@ export default function AttendanceDetailPage() {
                   <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">実働</th>
                   <th className="text-right text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">残業</th>
                   <th className="text-left text-xs text-secondary font-normal px-4 py-2.5 bg-[#FAFAFA]">備考</th>
+                  <th className="text-center text-xs text-secondary font-normal px-2 py-2.5 bg-[#FAFAFA] w-[60px]">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -403,9 +443,9 @@ export default function AttendanceDetailPage() {
                   const weekend = isWeekend(dateStr);
                   const dowColor = dow === '日' ? 'text-status-red-text' : dow === '土' ? 'text-blue-500' : '';
                   const rowBg = weekend ? 'bg-gray-50/60' : '';
+                  const isEmpEditing = empEditingRow === dateStr;
 
                   if (!record) {
-                    // 打刻なし（休日 or 未出勤）
                     return (
                       <tr key={day} className={`border-b border-border/10 ${rowBg}`}>
                         <td className="px-4 py-2 text-sm tabular-nums">{month}/{day}</td>
@@ -416,6 +456,7 @@ export default function AttendanceDetailPage() {
                         <td className="px-4 py-2 text-sm text-right text-secondary">--</td>
                         <td className="px-4 py-2 text-sm text-right text-secondary">--</td>
                         <td className="px-4 py-2 text-sm text-secondary">—</td>
+                        <td className="px-2 py-2"></td>
                       </tr>
                     );
                   }
@@ -425,13 +466,27 @@ export default function AttendanceDetailPage() {
                   if (record.status === 'absent') notes.push('欠勤');
                   if (record.status === 'late') notes.push('遅刻');
 
+                  const ciEdited = isFieldEdited(adminEdits, dateStr, 'clockIn');
+                  const coEdited = isFieldEdited(adminEdits, dateStr, 'clockOut');
+                  const brEdited = isFieldEdited(adminEdits, dateStr, 'breakMinutes');
+
                   return (
                     <tr key={day} className={`border-b border-border/10 hover:bg-[#FAFAF8] ${rowBg}`}>
                       <td className="px-4 py-2 text-sm tabular-nums">{month}/{day}</td>
                       <td className={`px-4 py-2 text-sm ${dowColor}`}>{dow}</td>
-                      <td className="px-4 py-2 text-sm text-right tabular-nums">{fmtTime(record.clockIn)}</td>
-                      <td className="px-4 py-2 text-sm text-right tabular-nums">{fmtTime(record.clockOut)}</td>
-                      <td className="px-4 py-2 text-sm text-right tabular-nums">{record.breakMinutes}分</td>
+                      {isEmpEditing ? (
+                        <>
+                          <td className="px-2 py-1"><input type="time" value={empEditClockIn} onChange={e => setEmpEditClockIn(e.target.value)} className="border rounded px-1 py-0.5 text-sm w-[90px]" /></td>
+                          <td className="px-2 py-1"><input type="time" value={empEditClockOut} onChange={e => setEmpEditClockOut(e.target.value)} className="border rounded px-1 py-0.5 text-sm w-[90px]" /></td>
+                          <td className="px-2 py-1"><input type="number" value={empEditBreak} onChange={e => setEmpEditBreak(Number(e.target.value))} className="border rounded px-1 py-0.5 text-sm w-[60px]" min={0} max={480} /></td>
+                        </>
+                      ) : (
+                        <>
+                          <td className={`px-4 py-2 text-sm text-right tabular-nums ${ciEdited ? 'text-red-600 font-medium' : ''}`}>{fmtTime(record.clockIn)}</td>
+                          <td className={`px-4 py-2 text-sm text-right tabular-nums ${coEdited ? 'text-red-600 font-medium' : ''}`}>{fmtTime(record.clockOut)}</td>
+                          <td className={`px-4 py-2 text-sm text-right tabular-nums ${brEdited ? 'text-red-600 font-medium' : ''}`}>{record.breakMinutes}分</td>
+                        </>
+                      )}
                       <td className="px-4 py-2 text-sm text-right tabular-nums font-medium">{fmtMinToHM(record.workMinutes)}</td>
                       <td className="px-4 py-2 text-sm text-right tabular-nums">
                         {record.overtimeMinutes && record.overtimeMinutes > 0 ? fmtMinToHM(record.overtimeMinutes) : '--'}
@@ -443,6 +498,32 @@ export default function AttendanceDetailPage() {
                           <span className="text-secondary text-xs">—</span>
                         )}
                       </td>
+                      <td className="px-2 py-2 text-center">
+                        {isEmpEditing ? (
+                          <div className="flex gap-1 justify-center">
+                            <button
+                              disabled={empSaving}
+                              onClick={() => {
+                                setPendingSave({ dateStr, clockIn: empEditClockIn, clockOut: empEditClockOut, breakMinutes: empEditBreak });
+                                setEditReason('');
+                                setShowReasonModal(true);
+                              }}
+                              className="text-xs px-2 py-1 bg-primary text-white rounded hover:bg-primary/90"
+                            >保存</button>
+                            <button onClick={() => setEmpEditingRow(null)} className="text-xs px-2 py-1 text-secondary hover:text-primary">×</button>
+                          </div>
+                        ) : empCanEdit && record.clockIn ? (
+                          <button
+                            onClick={() => {
+                              setEmpEditingRow(dateStr);
+                              setEmpEditClockIn(fmtTime(record.clockIn).replace('--', ''));
+                              setEmpEditClockOut(fmtTime(record.clockOut).replace('--', ''));
+                              setEmpEditBreak(record.breakMinutes);
+                            }}
+                            className="text-xs text-primary hover:underline"
+                          >編集</button>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}
@@ -450,28 +531,57 @@ export default function AttendanceDetailPage() {
             </table>
           </div>
 
-          {/* 本人勤怠を確定ボタン */}
-          <div className="flex justify-end mt-5">
-            <button
-              disabled={confirming !== null}
-              onClick={async () => {
-                setConfirming('employee');
-                try {
-                  const ym = `${year}-${String(month).padStart(2, '0')}`;
-                  await apiClient(`/attendance/admin/${employeeId}/confirm/${ym}`, { method: 'POST' });
-                  toast('本人勤怠を確定しました');
-                  fetchData();
-                } catch {
-                  toast('確定に失敗しました');
-                } finally {
-                  setConfirming(null);
-                }
-              }}
-              className="btn-primary text-sm py-2 px-5"
-            >
-              {confirming === 'employee' ? '処理中...' : '本人勤怠を確定'}
-            </button>
+          {/* 本人勤怠 確定 / 修正ボタン */}
+          <div className="flex justify-end mt-5 gap-3">
+            {empIsConfirmed && !empCorrectionMode ? (
+              <button
+                onClick={() => {
+                  setEmpCorrectionMode(true);
+                  toast('修正モードに切り替えました');
+                }}
+                className="btn-outline text-sm py-2 px-5"
+              >
+                修正する
+              </button>
+            ) : (
+              <>
+                {empCorrectionMode && (
+                  <button
+                    onClick={() => {
+                      setEmpCorrectionMode(false);
+                      setEmpEditingRow(null);
+                    }}
+                    className="btn-outline text-sm py-2 px-5"
+                  >
+                    キャンセル
+                  </button>
+                )}
+                <button
+                  disabled={confirming !== null}
+                  onClick={async () => {
+                    setConfirming('employee');
+                    try {
+                      const ym = `${year}-${String(month).padStart(2, '0')}`;
+                      await apiClient(`/attendance/admin/${employeeId}/confirm/${ym}`, { method: 'POST' });
+                      toast(empCorrectionMode ? '修正を確定しました' : '本人勤怠を確定しました');
+                      setEmpCorrectionMode(false);
+                      setEmpEditingRow(null);
+                      fetchData();
+                    } catch {
+                      toast('確定に失敗しました');
+                    } finally {
+                      setConfirming(null);
+                    }
+                  }}
+                  className="btn-primary text-sm py-2 px-5"
+                >
+                  {confirming === 'employee' ? '処理中...' : empCorrectionMode ? '修正を確定' : '本人勤怠を確定'}
+                </button>
+              </>
+            )}
           </div>
+            </>);
+          })()}
           </>)}
 
           {/* === Tab 1: 突合勤怠 === */}
@@ -608,26 +718,10 @@ export default function AttendanceDetailPage() {
                                   <div className="flex gap-1 justify-center">
                                     <button
                                       disabled={saving}
-                                      onClick={async () => {
-                                        setSaving(true);
-                                        try {
-                                          await apiClient(`/attendance/admin/${employeeId}/${dateStr}`, {
-                                            method: 'PATCH',
-                                            body: JSON.stringify({
-                                              clockIn: editClockIn,
-                                              clockOut: editClockOut,
-                                              correction: isConfirmed,
-                                            }),
-                                          });
-                                          toast('保存しました');
-                                          setEditingRow(null);
-                                          fetchData();
-                                          fetchReconData();
-                                        } catch {
-                                          toast('保存に失敗しました');
-                                        } finally {
-                                          setSaving(false);
-                                        }
+                                      onClick={() => {
+                                        setPendingSave({ dateStr, clockIn: editClockIn, clockOut: editClockOut, correction: isConfirmed });
+                                        setEditReason('');
+                                        setShowReasonModal(true);
                                       }}
                                       className="text-xs px-2 py-1 bg-primary text-white rounded hover:bg-primary/90"
                                     >保存</button>
@@ -707,6 +801,66 @@ export default function AttendanceDetailPage() {
               </div>
             </>)}
           </>)}
+        </>
+      )}
+      {/* 修正理由モーダル */}
+      {showReasonModal && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-[99]" onClick={() => { setShowReasonModal(false); setPendingSave(null); }} />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card rounded-lg shadow-xl z-[100] w-full max-w-[420px]">
+            <div className="p-5 border-b border-border/30">
+              <h2 className="text-lg font-medium">修正理由を入力</h2>
+              <p className="text-sm text-secondary mt-1">勤怠の修正理由を入力してください（必須）</p>
+            </div>
+            <div className="p-5">
+              <textarea
+                value={editReason}
+                onChange={e => setEditReason(e.target.value)}
+                placeholder="例: 打刻ミスの修正、実態に合わせた調整 など"
+                className="w-full border border-border/30 rounded-md px-3 py-2 text-sm outline-none focus:border-primary/40 resize-none"
+                rows={3}
+                autoFocus
+              />
+            </div>
+            <div className="p-5 border-t border-border/30 flex justify-end gap-2">
+              <button
+                onClick={() => { setShowReasonModal(false); setPendingSave(null); }}
+                className="btn-outline text-sm py-2 px-4"
+              >キャンセル</button>
+              <button
+                disabled={!editReason.trim() || empSaving}
+                onClick={async () => {
+                  if (!pendingSave) return;
+                  setEmpSaving(true);
+                  try {
+                    await apiClient(`/attendance/admin/${employeeId}/${pendingSave.dateStr}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        clockIn: pendingSave.clockIn,
+                        clockOut: pendingSave.clockOut,
+                        breakMinutes: pendingSave.breakMinutes,
+                        correction: pendingSave.correction || false,
+                        reason: editReason.trim(),
+                      }),
+                    });
+                    toast('保存しました');
+                    setShowReasonModal(false);
+                    setPendingSave(null);
+                    setEmpEditingRow(null);
+                    setEditingRow(null);
+                    fetchData();
+                    fetchAdminEdits();
+                    if (activeTab === 1) fetchReconData();
+                  } catch (err: any) {
+                    toast(err?.message || '保存に失敗しました');
+                  } finally {
+                    setEmpSaving(false);
+                  }
+                }}
+                className="btn-primary text-sm py-2 px-4"
+              >{empSaving ? '保存中...' : '保存'}</button>
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -90,6 +90,22 @@ function combineDateTime(dateStr: string, time: string): string {
 
 const DOW = ['日', '月', '火', '水', '木', '金', '土'];
 
+interface AdminEditInfo {
+  id: string;
+  workDate: string;
+  modifiedFields: string[];
+  reason: string;
+  objectionStatus: string;
+}
+
+function isFieldEdited(edits: AdminEditInfo[], dateStr: string, field: string): boolean {
+  return edits.some(e => e.workDate.startsWith(dateStr) && e.modifiedFields.includes(field));
+}
+
+function getEditsForDate(edits: AdminEditInfo[], dateStr: string): AdminEditInfo[] {
+  return edits.filter(e => e.workDate.startsWith(dateStr));
+}
+
 const statusLabel: Record<string, { text: string; cls: string }> = {
   pending: { text: '申請中', cls: 'bg-status-amber-bg text-status-amber-text' },
   approved: { text: '承認済', cls: 'bg-status-green-bg text-status-green-text' },
@@ -106,6 +122,12 @@ export default function AttendancePage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<0 | 1 | 2>(0);
   const { toast, ToastUI } = useToast();
+  const [adminEdits, setAdminEdits] = useState<AdminEditInfo[]>([]);
+
+  // 異議関連
+  const [objectionTarget, setObjectionTarget] = useState<AdminEditInfo | null>(null);
+  const [objectionReason, setObjectionReason] = useState('');
+  const [submittingObjection, setSubmittingObjection] = useState(false);
 
   /* ---- 現場勤怠表アップロード ---- */
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -196,6 +218,10 @@ export default function AttendancePage() {
       })
       .catch(() => { setRecords([]); setApprovedLeaves([]); })
       .finally(() => setLoading(false));
+    // 管理者修正履歴を取得（赤色表示用）
+    apiClient<AdminEditInfo[]>(`/attendance/admin-edits/my/${year}/${month}`)
+      .then(setAdminEdits)
+      .catch(() => setAdminEdits([]));
   }, [year, month]);
 
   useEffect(() => {
@@ -458,8 +484,8 @@ export default function AttendancePage() {
               <table className="w-full min-w-[560px]">
                 <thead>
                   <tr className="border-b border-border">
-                    {['日付', '出勤', '退勤', '休憩', '稼働', '残業'].map(h => (
-                      <th key={h} className="text-left text-xs text-secondary font-normal px-3 py-2 bg-page/50 first:pl-4">
+                    {['日付', '出勤', '退勤', '休憩', '稼働', '残業', ''].map(h => (
+                      <th key={h || '_op'} className="text-left text-xs text-secondary font-normal px-3 py-2 bg-page/50 first:pl-4">
                         {h}
                       </th>
                     ))}
@@ -508,37 +534,55 @@ export default function AttendancePage() {
 
                         {/* 有給休暇の日 */}
                         {cd.isLeave && !row ? (
-                          <td colSpan={5} className="px-3 py-2.5">
+                          <td colSpan={6} className="px-3 py-2.5">
                             <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-green-bg text-status-green-text">
                               有給休暇
                             </span>
                           </td>
                         ) : isAbsent ? (
-                          <td colSpan={5} className="px-3 py-2.5">
+                          <td colSpan={6} className="px-3 py-2.5">
                             <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-red-bg text-status-red-text">
                               欠勤
                             </span>
                           </td>
                         ) : row ? (
                           <>
-                            <td className="px-3 py-2.5 tabular-nums">
+                            <td className={`px-3 py-2.5 tabular-nums ${isFieldEdited(adminEdits, cd.dateStr, 'clockIn') ? 'text-red-600 font-medium' : ''}`}>
                               {cd.isLeave ? (
                                 <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-green-bg text-status-green-text">有給休暇</span>
                               ) : formatTime(row.clockIn)}
                             </td>
-                            <td className="px-3 py-2.5 tabular-nums">
+                            <td className={`px-3 py-2.5 tabular-nums ${isFieldEdited(adminEdits, cd.dateStr, 'clockOut') ? 'text-red-600 font-medium' : ''}`}>
                               {!row.clockOut ? (
                                 <span className="text-status-red-text">--:--</span>
                               ) : formatTime(row.clockOut)}
                             </td>
                             <td className="px-3 py-2.5">
-                              <span className="text-secondary">{row.breakMinutes}分</span>
+                              <span className={isFieldEdited(adminEdits, cd.dateStr, 'breakMinutes') ? 'text-red-600 font-medium' : 'text-secondary'}>{row.breakMinutes}分</span>
                             </td>
                             <td className="px-3 py-2.5 tabular-nums">{formatMinutes(row.workMinutes)}</td>
                             <td className="px-3 py-2.5 tabular-nums">
                               {row.overtimeMinutes && row.overtimeMinutes > 0 ? (
                                 <span className="text-status-amber-text">{formatMinutes(row.overtimeMinutes)}</span>
                               ) : formatMinutes(row.overtimeMinutes)}
+                            </td>
+                            <td className="px-2 py-2.5" onClick={e => e.stopPropagation()}>
+                              {(() => {
+                                const dateEdits = getEditsForDate(adminEdits, cd.dateStr);
+                                const latestEdit = dateEdits[dateEdits.length - 1];
+                                if (!latestEdit) return null;
+                                if (latestEdit.objectionStatus === 'objected') {
+                                  return <span className="px-2 py-0.5 rounded text-2xs font-medium bg-status-amber-bg text-status-amber-text whitespace-nowrap">異議済み</span>;
+                                }
+                                return (
+                                  <button
+                                    onClick={() => setObjectionTarget(latestEdit)}
+                                    className="px-2 py-1 rounded border border-status-red-text text-status-red-text text-2xs font-medium hover:bg-status-red-bg transition-colors whitespace-nowrap"
+                                  >
+                                    異議あり
+                                  </button>
+                                );
+                              })()}
                             </td>
                           </>
                         ) : (
@@ -548,6 +592,7 @@ export default function AttendancePage() {
                             <td className="px-3 py-2.5 text-secondary">--</td>
                             <td className="px-3 py-2.5 text-secondary">--</td>
                             <td className="px-3 py-2.5 text-secondary">--</td>
+                            <td></td>
                           </>
                         )}
                       </tr>
@@ -832,6 +877,54 @@ export default function AttendancePage() {
                   {submitting ? '送信中...' : '申請する'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 異議申し立てモーダル */}
+      {objectionTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[100] p-4" onClick={() => { setObjectionTarget(null); setObjectionReason(''); }}>
+          <div className="relative bg-card w-full max-w-md rounded-2xl p-5 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-primary mb-2">異議申し立て</h3>
+            <p className="text-sm text-secondary mb-1">
+              {objectionTarget.workDate.split('T')[0]} の勤怠修正に対して異議を申し立てます
+            </p>
+            <p className="text-sm text-secondary mb-4">修正理由: {objectionTarget.reason}</p>
+            <textarea
+              value={objectionReason}
+              onChange={e => setObjectionReason(e.target.value)}
+              placeholder="異議の理由を入力してください"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 resize-none"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => { setObjectionTarget(null); setObjectionReason(''); }}
+                className="flex-1 py-2.5 rounded-lg border border-border text-sm text-secondary hover:bg-page"
+              >キャンセル</button>
+              <button
+                disabled={!objectionReason.trim() || submittingObjection}
+                onClick={async () => {
+                  setSubmittingObjection(true);
+                  try {
+                    await apiClient(`/attendance/admin-edit/${objectionTarget.id}/object`, {
+                      method: 'POST',
+                      body: JSON.stringify({ reason: objectionReason.trim() }),
+                    });
+                    setAdminEdits(prev => prev.map(e => e.id === objectionTarget.id ? { ...e, objectionStatus: 'objected' } : e));
+                    toast('異議を送信しました');
+                    setObjectionTarget(null);
+                    setObjectionReason('');
+                  } catch {
+                    toast('送信に失敗しました');
+                  } finally {
+                    setSubmittingObjection(false);
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-lg bg-status-red-text text-white text-sm font-medium hover:bg-status-red-text/90 disabled:opacity-50"
+              >{submittingObjection ? '送信中...' : '異議を送信'}</button>
             </div>
           </div>
         </div>

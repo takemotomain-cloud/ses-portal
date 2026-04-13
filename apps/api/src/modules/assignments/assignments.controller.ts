@@ -42,6 +42,7 @@ export class AssignmentsController {
       area?: string;
       defaultStartTime?: string;
       attendanceFormat?: string;
+      clientAttendanceRequired?: boolean;
       projectId?: string;
       startDate: string;
       endDate?: string;
@@ -87,6 +88,7 @@ export class AssignmentsController {
       area?: string;
       defaultStartTime?: string;
       attendanceFormat?: string;
+      clientAttendanceRequired?: boolean;
       projectId?: string;
       startDate?: string;
       endDate?: string;
