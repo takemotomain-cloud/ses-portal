@@ -1019,4 +1019,36 @@ export class PayrollService {
       updatedAt: updated.updatedAt,
     };
   }
+
+  /* ================================================================== */
+  /*  請求書情報（自社情報）                                               */
+  /* ================================================================== */
+
+  async getCompanyInfo() {
+    return this.db.companyInfo.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: { id: 'default' },
+    });
+  }
+
+  async updateCompanyInfo(data: {
+    name?: string;
+    postalCode?: string;
+    address1?: string;
+    address2?: string;
+    registrationNo?: string;
+    bankName?: string;
+    bankBranch?: string;
+    bankAccountType?: string;
+    bankAccountNumber?: string;
+    bankAccountHolder?: string;
+    sealImagePath?: string;
+  }) {
+    return this.db.companyInfo.upsert({
+      where: { id: 'default' },
+      update: data,
+      create: { id: 'default', ...data },
+    });
+  }
 }

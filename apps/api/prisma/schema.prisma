@@ -1087,6 +1087,8 @@ model InvoiceItem {
   deductionAmount Int  @default(0) @map("deduction_amount")
   subtotal      Int
   sortOrder     Int    @default(0) @map("sort_order")
+  employeeId    String?  @map("employee_id") @db.Uuid
+  assignmentId  String?  @map("assignment_id") @db.Uuid
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
@@ -1168,6 +1170,28 @@ model RateMaster {
   updatedBy               String?  @map("updated_by") @db.Uuid
 
   @@map("rate_master")
+}
+
+// ----------------------------------------
+// 請求書情報（自社情報）
+// シングルレコード（id="default"）。設定ページから編集 → 請求書に反映。
+// ----------------------------------------
+model CompanyInfo {
+  id                 String   @id @default("default") @db.VarChar(20)
+  name               String   @default("") @db.VarChar(200)
+  postalCode         String   @default("") @map("postal_code") @db.VarChar(20)
+  address1           String   @default("") @db.VarChar(300)
+  address2           String   @default("") @db.VarChar(300)
+  registrationNo     String   @default("") @map("registration_no") @db.VarChar(30)
+  bankName           String   @default("") @map("bank_name") @db.VarChar(100)
+  bankBranch         String   @default("") @map("bank_branch") @db.VarChar(100)
+  bankAccountType    String   @default("普通") @map("bank_account_type") @db.VarChar(20)
+  bankAccountNumber  String   @default("") @map("bank_account_number") @db.VarChar(20)
+  bankAccountHolder  String   @default("") @map("bank_account_holder") @db.VarChar(100)
+  sealImagePath      String?  @map("seal_image_path") @db.VarChar(500)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("company_info")
 }
 
 // ----------------------------------------

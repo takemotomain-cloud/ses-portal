@@ -54,6 +54,21 @@ interface EditLogItem {
   adminUser: { employee: { lastName: string; firstName: string } | null } | null;
 }
 
+interface CompanyInfo {
+  name: string;
+  postalCode: string;
+  address1: string;
+  address2: string;
+  registrationNo: string;
+  bankName: string;
+  bankBranch: string;
+  bankAccountType: string;
+  bankAccountNumber: string;
+  bankAccountHolder: string;
+  sealImagePath: string | null;
+  updatedAt?: string;
+}
+
 /* ---------- ヘルパー ---------- */
 
 function fmtDateTime(iso: string): string {
@@ -186,8 +201,8 @@ export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState(0);
   const canManageUsers = currentUser?.role === 'admin' || currentUser?.role === 'manager';
   const tabs = canManageUsers
-    ? ['料率設定', '操作ログ', '外部連携', '管理者管理', '更新']
-    : ['料率設定', '操作ログ', '外部連携', '更新'];
+    ? ['料率設定', '請求書情報', '操作ログ', '外部連携', '管理者管理', '更新']
+    : ['料率設定', '請求書情報', '操作ログ', '外部連携', '更新'];
   const { toast, ToastUI } = useToast();
 
   /* ---------- Google Drive 連携 ---------- */
@@ -211,7 +226,7 @@ export default function AdminSettingsPage() {
 
   useEffect(() => {
     if (searchParams.get('tab') === 'integrations' && searchParams.get('connected') === '1') {
-      setActiveTab(2);
+      setActiveTab(3);
       fetchGdStatus();
       toast('Google Drive と連携しました');
     }
@@ -316,6 +331,79 @@ export default function AdminSettingsPage() {
     }
   };
 
+  /* ---------- 請求書情報（CompanyInfo） ---------- */
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
+  const [companyForm, setCompanyForm] = useState({
+    name: '', postalCode: '', address1: '', address2: '', registrationNo: '',
+    bankName: '', bankBranch: '', bankAccountType: '普通', bankAccountNumber: '', bankAccountHolder: '',
+  });
+  const [companySaving, setCompanySaving] = useState(false);
+  const [sealPreview, setSealPreview] = useState<string | null>(null);
+
+  const fetchCompanyInfo = useCallback(async () => {
+    try {
+      const data = await apiClient<CompanyInfo>('/payroll/company-info');
+      setCompanyInfo(data);
+      setCompanyForm({
+        name: data.name || '',
+        postalCode: data.postalCode || '',
+        address1: data.address1 || '',
+        address2: data.address2 || '',
+        registrationNo: data.registrationNo || '',
+        bankName: data.bankName || '',
+        bankBranch: data.bankBranch || '',
+        bankAccountType: data.bankAccountType || '普通',
+        bankAccountNumber: data.bankAccountNumber || '',
+        bankAccountHolder: data.bankAccountHolder || '',
+      });
+      if (data.sealImagePath) setSealPreview(data.sealImagePath);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 1) fetchCompanyInfo();
+  }, [activeTab, fetchCompanyInfo]);
+
+  const handleSaveCompanyInfo = async () => {
+    setCompanySaving(true);
+    try {
+      const updated = await apiClient<CompanyInfo>('/payroll/company-info', {
+        method: 'PATCH',
+        body: JSON.stringify(companyForm),
+      });
+      setCompanyInfo(updated);
+      toast('請求書情報を保存しました');
+    } catch (err: any) {
+      toast(err?.message || '保存に失敗しました');
+    } finally {
+      setCompanySaving(false);
+    }
+  };
+
+  const handleSealUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast('ファイルサイズは2MB以下にしてください');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setSealPreview(base64);
+      try {
+        await apiClient<CompanyInfo>('/payroll/company-info', {
+          method: 'PATCH',
+          body: JSON.stringify({ sealImagePath: base64 }),
+        });
+        toast('電子印鑑を保存しました');
+      } catch (err: any) {
+        toast(err?.message || '印鑑の保存に失敗しました');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   /* ---------- 操作ログ ---------- */
   const [logTab, setLogTab] = useState<'all' | 'attendance'>('all');
   // 汎用操作ログ
@@ -358,7 +446,7 @@ export default function AdminSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 1) {
+    if (activeTab === 2) {
       if (logTab === 'all') {
         fetchAuditLogs(0, false);
       } else {
@@ -387,7 +475,7 @@ export default function AdminSettingsPage() {
   }, [usersSearch, roleFilter]);
 
   useEffect(() => {
-    if (activeTab === 3 && canManageUsers) fetchUsers();
+    if (activeTab === 4 && canManageUsers) fetchUsers();
   }, [activeTab, canManageUsers, fetchUsers]);
 
   const adminCount = users.filter((u) => u.role === 'admin').length;
@@ -541,8 +629,201 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      {/* 操作ログ */}
+      {/* 請求書情報 */}
       {activeTab === 1 && (
+        <div className="max-w-[720px] space-y-5">
+          {/* 電子印鑑 */}
+          <div className="card p-5">
+            <div className="text-md font-medium mb-3">電子印鑑</div>
+            <div className="flex items-start gap-5">
+              <div className="w-24 h-24 border-2 border-dashed border-border/40 rounded-lg flex items-center justify-center bg-page overflow-hidden">
+                {sealPreview ? (
+                  <img src={sealPreview} alt="角印" className="w-full h-full object-contain" />
+                ) : (
+                  <span className="text-xs text-secondary">未登録</span>
+                )}
+              </div>
+              <div className="flex-1">
+                <label className="btn-outline text-sm py-2 px-4 cursor-pointer inline-block">
+                  画像をアップロード
+                  <input type="file" accept="image/png,image/jpeg,image/gif" className="hidden" onChange={handleSealUpload} />
+                </label>
+                <p className="text-xs text-secondary mt-2">PNG / JPEG / GIF（2MB以下）。請求書の発行元に表示されます。</p>
+                {sealPreview && (
+                  <button
+                    onClick={async () => {
+                      setSealPreview(null);
+                      try {
+                        await apiClient('/payroll/company-info', {
+                          method: 'PATCH',
+                          body: JSON.stringify({ sealImagePath: null }),
+                        });
+                        toast('電子印鑑を削除しました');
+                      } catch { /* ignore */ }
+                    }}
+                    className="text-xs text-red-500 hover:text-red-700 mt-1"
+                  >
+                    削除
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 会社情報 */}
+          <div className="card p-5">
+            <div className="text-md font-medium mb-3">会社情報</div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-secondary block mb-1">会社名</label>
+                <input
+                  type="text"
+                  value={companyForm.name}
+                  onChange={(e) => setCompanyForm(p => ({ ...p, name: e.target.value }))}
+                  placeholder="株式会社○○"
+                  className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="w-40">
+                  <label className="text-sm text-secondary block mb-1">郵便番号</label>
+                  <input
+                    type="text"
+                    value={companyForm.postalCode}
+                    onChange={(e) => setCompanyForm(p => ({ ...p, postalCode: e.target.value }))}
+                    placeholder="000-0000"
+                    className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">住所1</label>
+                <input
+                  type="text"
+                  value={companyForm.address1}
+                  onChange={(e) => setCompanyForm(p => ({ ...p, address1: e.target.value }))}
+                  placeholder="東京都○○区○○"
+                  className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">住所2</label>
+                <input
+                  type="text"
+                  value={companyForm.address2}
+                  onChange={(e) => setCompanyForm(p => ({ ...p, address2: e.target.value }))}
+                  placeholder="○○ビル 3F"
+                  className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* インボイス番号 */}
+          <div className="card p-5">
+            <div className="text-md font-medium mb-3">インボイス番号</div>
+            <div>
+              <label className="text-sm text-secondary block mb-1">適格請求書発行事業者登録番号</label>
+              <input
+                type="text"
+                value={companyForm.registrationNo}
+                onChange={(e) => setCompanyForm(p => ({ ...p, registrationNo: e.target.value }))}
+                placeholder="T1234567890123"
+                className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-80 focus:border-primary focus:outline-none"
+              />
+              <p className="text-xs text-secondary mt-1">Tから始まる13桁の番号</p>
+            </div>
+          </div>
+
+          {/* 銀行情報 */}
+          <div className="card p-5">
+            <div className="text-md font-medium mb-3">銀行情報</div>
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-sm text-secondary block mb-1">銀行名</label>
+                  <input
+                    type="text"
+                    value={companyForm.bankName}
+                    onChange={(e) => setCompanyForm(p => ({ ...p, bankName: e.target.value }))}
+                    placeholder="○○銀行"
+                    className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-sm text-secondary block mb-1">支店名</label>
+                  <input
+                    type="text"
+                    value={companyForm.bankBranch}
+                    onChange={(e) => setCompanyForm(p => ({ ...p, bankBranch: e.target.value }))}
+                    placeholder="○○支店"
+                    className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="w-32">
+                  <label className="text-sm text-secondary block mb-1">種別</label>
+                  <select
+                    value={companyForm.bankAccountType}
+                    onChange={(e) => setCompanyForm(p => ({ ...p, bankAccountType: e.target.value }))}
+                    className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                  >
+                    <option value="普通">普通</option>
+                    <option value="当座">当座</option>
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="text-sm text-secondary block mb-1">口座番号</label>
+                  <input
+                    type="text"
+                    value={companyForm.bankAccountNumber}
+                    onChange={(e) => setCompanyForm(p => ({ ...p, bankAccountNumber: e.target.value }))}
+                    placeholder="1234567"
+                    className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-secondary block mb-1">口座名義</label>
+                <input
+                  type="text"
+                  value={companyForm.bankAccountHolder}
+                  onChange={(e) => setCompanyForm(p => ({ ...p, bankAccountHolder: e.target.value }))}
+                  placeholder="カ）○○○○"
+                  className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-full focus:border-primary focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 保存ボタン */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveCompanyInfo}
+              disabled={companySaving}
+              className="btn-primary text-sm py-2 px-4 disabled:opacity-50"
+            >
+              {companySaving ? '保存中...' : '保存'}
+            </button>
+            <button
+              onClick={fetchCompanyInfo}
+              className="btn-outline text-sm py-2 px-4"
+              disabled={companySaving}
+            >
+              リセット
+            </button>
+            {companyInfo?.updatedAt && (
+              <span className="text-xs text-secondary ml-auto self-center">
+                最終更新: {new Date(companyInfo.updatedAt).toLocaleString('ja-JP')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 操作ログ */}
+      {activeTab === 2 && (
         <div>
           {/* サブタブ */}
           <div className="flex gap-2 mb-4">
@@ -676,7 +957,7 @@ export default function AdminSettingsPage() {
       )}
 
       {/* 外部連携 */}
-      {activeTab === 2 && (
+      {activeTab === 3 && (
         <div className="card p-5 max-w-[720px]">
           <div className="text-md font-medium mb-1">Google Drive 連携</div>
           <div className="text-xs text-secondary mb-4">
@@ -709,7 +990,7 @@ export default function AdminSettingsPage() {
       )}
 
       {/* 管理者管理 */}
-      {activeTab === 3 && canManageUsers && (
+      {activeTab === 4 && canManageUsers && (
         <div>
           {/* フィルタバー */}
           <div className="flex gap-3 mb-4">

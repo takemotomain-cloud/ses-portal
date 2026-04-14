@@ -1,19 +1,24 @@
 /**
  * 入社情報フォーム
  *
- * 入社予定者の情報を入力し、社員マスタ（Employee + EmergencyContact）に登録。
+ * 入社予定者の情報を入力し、社員マスタ（Employee + EmergencyContact + Dependents）に登録。
  * POST /api/employees でEmployee+User作成、POST /api/employees/:id/emergency-contact で緊急連絡先作成。
+ * POST /api/employees/:id/dependents で扶養家族を登録。
+ * PATCH /api/employees/:id で資格（qualifications）を登録。
  *
  * セクション:
- * 1. 基本情報（姓名・ふりがな・生年月日・性別・住所・電話・メール・血液型）
- * 2. 緊急連絡先（氏名・続柄・電話番号）
- * 3. 給与振込口座（銀行名・支店名・口座種別・口座番号）
- * 4. 本人確認書類アップロード（運転免許証 表裏）※UI のみ（ファイルストレージは今後）
- * 5. マイナンバーカード（表裏）※UI のみ
- * 6. 年金手帳 ※UI のみ
- * 7. 健康診断結果 ※UI のみ
- * 8. 保有資格（動的追加）
- * 9. 送信ボタン → API で DB に保存
+ * 1. 入社情報（入社予定日・配属部署・雇用形態）
+ * 2. 基本情報（姓名・ふりがな・生年月日・性別・郵便番号・住所・最寄駅・電話・メール・血液型・最終学歴・学校名）
+ * 3. 緊急連絡先（氏名・続柄・電話番号）
+ * 4. 扶養家族（名前・続柄・生年月日・年収）
+ * 5. 給与振込口座（銀行名・支店名・口座種別・口座番号・口座名義）
+ * 6. 通勤（通勤スタイル）
+ * 7. 本人確認書類アップロード（運転免許証 表裏）※UI のみ（ファイルストレージは今後）
+ * 8. マイナンバーカード（表裏）※UI のみ
+ * 9. 年金手帳 ※UI のみ
+ * 10. 健康診断結果 ※UI のみ
+ * 11. 保有資格（動的追加）
+ * 12. 送信ボタン → API で DB に保存
  */
 
 'use client';
@@ -79,17 +84,24 @@ function CSelect({ label, required, options, value, onChange }: {
   );
 }
 
+/* ── 扶養家族の型 ── */
+interface DependentInput {
+  name: string;
+  relationship: string;
+  birthDate: string;
+  annualIncome: string;
+}
+
 export default function OnboardFormPage() {
   const router = useRouter();
   const { toast, ToastUI } = useToast();
 
-  /* ── 部署一覧（社員番号自動採番用） ── */
+  /* ── 部署一覧 ── */
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     interface Dept { id: string; name: string; children?: Dept[] }
     apiClient<Dept[]>('/settings/departments')
       .then((res) => {
-        // 階層構造をフラットに展開
         const flat: { id: string; name: string }[] = [];
         const flatten = (list: Dept[], prefix = '') => {
           for (const d of list) {
@@ -104,34 +116,39 @@ export default function OnboardFormPage() {
   }, []);
 
   /* ── フォーム状態 ── */
+  // 基本情報
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastNameKana, setLastNameKana] = useState('');
   const [firstNameKana, setFirstNameKana] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [gender, setGender] = useState('男性');
+  const [postalCode, setPostalCode] = useState('');
   const [address, setAddress] = useState('');
+  const [station, setStation] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [bloodType, setBloodType] = useState('A型');
+  const [education, setEducation] = useState('');
+  const [schoolName, setSchoolName] = useState('');
 
   // 緊急連絡先
   const [ecName, setEcName] = useState('');
   const [ecRelation, setEcRelation] = useState('父');
   const [ecPhone, setEcPhone] = useState('');
 
+  // 扶養家族
+  const [dependents, setDependents] = useState<DependentInput[]>([]);
+
   // 口座
   const [bankName, setBankName] = useState('');
   const [bankBranch, setBankBranch] = useState('');
   const [bankAccountType, setBankAccountType] = useState('普通');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankAccountHolder, setBankAccountHolder] = useState('');
 
   // 資格
   const [certs, setCerts] = useState<string[]>([]);
-
-  // 部署 / 入社日
-  const [departmentId, setDepartmentId] = useState('');
-  const [hireDate, setHireDate] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -143,6 +160,16 @@ export default function OnboardFormPage() {
     setCerts(certs.filter((_, i) => i !== idx));
   }
 
+  function addDependent() {
+    setDependents([...dependents, { name: '', relationship: '配偶者', birthDate: '', annualIncome: '' }]);
+  }
+  function updateDependent(idx: number, field: keyof DependentInput, value: string) {
+    setDependents(dependents.map((d, i) => i === idx ? { ...d, [field]: value } : d));
+  }
+  function removeDependent(idx: number) {
+    setDependents(dependents.filter((_, i) => i !== idx));
+  }
+
   async function handleSubmit() {
     // バリデーション
     if (!lastName || !firstName) { toast('姓名は必須です'); return; }
@@ -150,9 +177,6 @@ export default function OnboardFormPage() {
     if (!phone) { toast('電話番号は必須です'); return; }
     if (!address) { toast('住所は必須です'); return; }
     if (!email) { toast('メールアドレスは必須です'); return; }
-    if (!hireDate) { toast('入社予定日は必須です'); return; }
-    if (!departmentId) { toast('配属部署を選択してください'); return; }
-
     if (!confirm('入力内容を送信しますか？\n\n送信後、以下が自動実行されます:\n・テキスト情報 → 社員マスタに取り込み\n・入社予定社員 → 該当項目を完了に更新')) {
       return;
     }
@@ -172,13 +196,17 @@ export default function OnboardFormPage() {
           lastNameKana,
           firstNameKana,
           employeeCode: nextCode,
-          hireDate,
-          departmentId,
+          hireDate: new Date().toISOString().slice(0, 10),
+          departmentId: departments[0]?.id || '',
           birthDate,
           gender: gender === '男性' ? 'male' : gender === '女性' ? 'female' : 'other',
+          education: education || undefined,
+          schoolName: schoolName || undefined,
           email,
           phone,
+          postalCode: postalCode || undefined,
           address,
+          station: station || undefined,
           bankName: bankName || undefined,
           bankBranch: bankBranch || undefined,
           bankAccountType: bankAccountType === '普通' ? 'ordinary' : bankAccountType === '当座' ? 'current' : undefined,
@@ -195,9 +223,31 @@ export default function OnboardFormPage() {
             relationship: ecRelation,
             phone: ecPhone,
           }),
-        }).catch(() => {
-          // 緊急連絡先APIが未実装の場合はスキップ
-        });
+        }).catch(() => {});
+      }
+
+      // 3. 扶養家族を作成
+      for (const dep of dependents) {
+        if (!dep.name) continue;
+        await apiClient(`/employees/${result.id}/dependents`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: dep.name,
+            relationship: dep.relationship,
+            birthDate: dep.birthDate,
+            annualIncome: dep.annualIncome ? Number(dep.annualIncome) : undefined,
+          }),
+        }).catch(() => {});
+      }
+
+      // 4. 資格がある場合は PATCH で登録
+      if (certs.length > 0) {
+        await apiClient(`/employees/${result.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            qualifications: certs.map((name) => ({ name })),
+          }),
+        }).catch(() => {});
       }
 
       toast(`社員を登録しました（${result.employeeCode}）`);
@@ -224,22 +274,6 @@ export default function OnboardFormPage() {
           <p className="text-sm text-secondary mt-1">以下の情報を入力・アップロードしてください</p>
         </div>
 
-        {/* ── 0. 入社情報 ── */}
-        <div className="card p-5 mb-3">
-          <h2 className="text-sm font-medium mb-3">入社情報</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <CInput label="入社予定日" required type="date" value={hireDate} onChange={setHireDate} />
-            <div>
-              <label className="text-xs text-secondary block mb-1">配属部署 <span className="text-red-600 ml-0.5">*</span></label>
-              <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary appearance-none bg-white">
-                <option value="">選択してください</option>
-                {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
         {/* ── 1. 基本情報 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-3">基本情報</h2>
@@ -255,15 +289,21 @@ export default function OnboardFormPage() {
             <CInput label="生年月日" required type="date" value={birthDate} onChange={setBirthDate} />
             <CSelect label="性別" options={['男性', '女性', 'その他']} value={gender} onChange={setGender} />
           </div>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <CInput label="郵便番号" placeholder="530-0001" value={postalCode} onChange={setPostalCode} />
+            <CInput label="最寄駅" placeholder="JR大阪駅" value={station} onChange={setStation} />
+          </div>
           <div className="mb-3">
-            <CInput label="現住所" required placeholder="〒530-0001 大阪府大阪市北区梅田1-1-1" value={address} onChange={setAddress} />
+            <CInput label="現住所" required placeholder="大阪府大阪市北区梅田1-1-1" value={address} onChange={setAddress} />
           </div>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <CInput label="電話番号" required placeholder="090-1234-5678" value={phone} onChange={setPhone} />
             <CInput label="メールアドレス" required type="email" placeholder="tsubasa@example.com" value={email} onChange={setEmail} />
           </div>
-          <div className="w-[120px]">
+          <div className="grid grid-cols-3 gap-3">
             <CSelect label="血液型" options={['A型', 'B型', 'O型', 'AB型']} value={bloodType} onChange={setBloodType} />
+            <CSelect label="最終学歴" options={['', '大卒', '大学院卒', '専門卒', '短大卒', '高専卒', '高卒']} value={education} onChange={setEducation} />
+            <CInput label="学校名" placeholder="〇〇大学" value={schoolName} onChange={setSchoolName} />
           </div>
         </div>
 
@@ -277,20 +317,53 @@ export default function OnboardFormPage() {
           </div>
         </div>
 
-        {/* ── 3. 給与振込口座 ── */}
+        {/* ── 3. 扶養家族 ── */}
+        <div className="card p-5 mb-3">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium">扶養家族</h2>
+            <button onClick={addDependent} className="btn-outline text-xs py-1 px-3">+ 追加</button>
+          </div>
+          {dependents.length === 0 ? (
+            <p className="text-sm text-secondary text-center py-3">扶養家族がいる場合は「+ 追加」から追加してください</p>
+          ) : (
+            <div className="space-y-3">
+              {dependents.map((dep, idx) => (
+                <div key={idx} className="border border-border rounded-lg p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-secondary">扶養家族 {idx + 1}</span>
+                    <button onClick={() => removeDependent(idx)} className="text-xs text-red-500 hover:text-red-700">削除</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-2">
+                    <CInput label="氏名" placeholder="長谷川 花子" value={dep.name} onChange={(v) => updateDependent(idx, 'name', v)} />
+                    <CSelect label="続柄" options={['配偶者', '子', '父', '母', 'その他']} value={dep.relationship} onChange={(v) => updateDependent(idx, 'relationship', v)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <CInput label="生年月日" type="date" value={dep.birthDate} onChange={(v) => updateDependent(idx, 'birthDate', v)} />
+                    <CInput label="年収（万円）" placeholder="0" value={dep.annualIncome} onChange={(v) => updateDependent(idx, 'annualIncome', v)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── 4. 給与振込口座 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-3">給与振込口座 <span className="text-red-600">*</span></h2>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <CInput label="銀行名" placeholder="三菱UFJ銀行" value={bankName} onChange={setBankName} />
             <CInput label="支店名" placeholder="梅田支店" value={bankBranch} onChange={setBankBranch} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <CSelect label="口座種別" options={['普通', '当座']} value={bankAccountType} onChange={setBankAccountType} />
             <CInput label="口座番号" placeholder="1234567" value={bankAccountNumber} onChange={setBankAccountNumber} />
           </div>
+          <div>
+            <CInput label="口座名義（カナ）" placeholder="ハセガワ ツバサ" value={bankAccountHolder} onChange={setBankAccountHolder} />
+          </div>
         </div>
 
-        {/* ── 4. 本人確認書類 ── */}
+        {/* ── 5. 本人確認書類 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">本人確認書類のアップロード <span className="text-red-600">*</span></h2>
           <p className="text-xs text-secondary mb-3">以下のいずれかをアップロードしてください。Google Driveに安全に保管されます。</p>
@@ -300,7 +373,7 @@ export default function OnboardFormPage() {
           </div>
         </div>
 
-        {/* ── 5. マイナンバー ── */}
+        {/* ── 7. マイナンバー ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">マイナンバー <span className="text-red-600">*</span></h2>
           <p className="text-xs text-secondary mb-3">マイナンバーカードまたは通知カードの写真をアップロードしてください</p>
@@ -310,21 +383,21 @@ export default function OnboardFormPage() {
           </div>
         </div>
 
-        {/* ── 6. 年金手帳 ── */}
+        {/* ── 8. 年金手帳 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">年金手帳</h2>
           <p className="text-xs text-secondary mb-3">基礎年金番号が記載されたページを撮影してください</p>
           <div className="w-1/2"><UploadBox id="ob-upload-5" label="年金手帳" /></div>
         </div>
 
-        {/* ── 7. 健康診断結果 ── */}
+        {/* ── 9. 健康診断結果 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">健康診断結果</h2>
           <p className="text-xs text-secondary mb-3">直近3ヶ月以内の健康診断結果をアップロードしてください</p>
           <div className="w-1/2"><UploadBox id="ob-upload-6" label="健康診断結果" /></div>
         </div>
 
-        {/* ── 8. 保有資格 ── */}
+        {/* ── 10. 保有資格 ── */}
         <div className="card p-5 mb-3">
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-sm font-medium">保有資格</h2>

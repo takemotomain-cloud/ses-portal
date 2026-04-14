@@ -308,7 +308,9 @@ export class EmployeesService {
     schoolName?: string;
     email: string;
     phone?: string;
+    postalCode?: string;
     address?: string;
+    station?: string;
     gender?: string;
     baseSalary?: number;
     rewardRate?: number;
@@ -389,7 +391,9 @@ export class EmployeesService {
           gender: data.gender || 'other',
           email: data.email,
           phone: data.phone || null,
+          postalCode: data.postalCode || null,
           address: data.address || null,
+          station: data.station || null,
           education: (() => {
             const eduMap: Record<string, string> = { '大卒': 'university', '大学院卒': 'grad_school', '専門卒': 'vocational', '短大卒': 'junior_college', '高専卒': 'technical_college', '高卒': 'high_school' };
             return data.education ? (eduMap[data.education] || data.education) : null;

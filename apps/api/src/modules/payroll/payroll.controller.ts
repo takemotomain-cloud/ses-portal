@@ -38,6 +38,26 @@ export class PayrollController {
    * J1: 料率マスタ（/:year/:month の前に定義して route 衝突を避ける）
    * ------------------------------------------------------------------ */
 
+  /* ------------------------------------------------------------------
+   * J0: 請求書情報（自社情報）
+   * ------------------------------------------------------------------ */
+
+  @Get('payroll/company-info')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '請求書情報を取得' })
+  async getCompanyInfo() {
+    return this.payrollService.getCompanyInfo();
+  }
+
+  @Patch('payroll/company-info')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '請求書情報を更新' })
+  async updateCompanyInfo(@Body() body: any) {
+    return this.payrollService.updateCompanyInfo(body);
+  }
+
   @Get('payroll/rate-master')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')

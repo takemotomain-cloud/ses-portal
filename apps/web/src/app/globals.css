@@ -118,7 +118,16 @@
 
   /* 改ページ制御 */
   @page {
-    margin: 10mm 12mm;
+    margin: 20mm 18mm;
     size: A4;
+  }
+
+  /* ── 請求書PDF: カードのみ印刷 ── */
+  [data-invoice-print-area] {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-width: 100% !important;
   }
 }

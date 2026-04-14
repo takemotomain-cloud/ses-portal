@@ -154,7 +154,9 @@ export class EmployeesController {
     schoolName?: string;
     email: string;
     phone?: string;
+    postalCode?: string;
     address?: string;
+    station?: string;
     baseSalary?: number;
     rewardRate?: number;
     contractHours?: number;
