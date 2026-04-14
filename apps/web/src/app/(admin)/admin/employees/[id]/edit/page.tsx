@@ -966,7 +966,8 @@ export default function EmployeeEditPage() {
 
         {/* ===== 給与・口座 ===== */}
         <div className="card p-5 mb-3">
-          <div className="text-sm font-medium mb-3">給与・口座</div>
+          <div className="text-sm font-medium mb-1">給与・口座</div>
+          <p className="text-[10px] text-secondary/60 mb-3">給与等級を選択すると基本給・固定残業手当が自動で設定されます。以下の項目は給与計算に直接反映されます。</p>
 
           {/* 給与等級選択 */}
           <div className="grid grid-cols-2 gap-2 mb-2">
@@ -1057,8 +1058,9 @@ export default function EmployeeEditPage() {
           {/* 扶養家族 */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-medium text-primary">
-                扶養家族（扶養人数: {dependents.length}人 — 源泉徴収税額表の計算に使用）
+              <div>
+                <div className="text-xs font-medium text-primary">扶養家族（扶養人数: {dependents.length}人）</div>
+                <p className="text-[10px] text-secondary/60 mt-0.5">入社時・家族構成変更時に登録。扶養人数に応じて源泉徴収税額（所得税）が変わります。年収103万円超の家族は税法上の扶養対象外です。</p>
               </div>
               <button
                 type="button"
@@ -1136,8 +1138,9 @@ export default function EmployeeEditPage() {
           {/* 住民税（特別徴収）12ヶ月入力 */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-medium text-primary">
-                住民税（特別徴収）
+              <div>
+                <div className="text-xs font-medium text-primary">住民税（特別徴収）</div>
+                <p className="text-[10px] text-secondary/60 mt-0.5">毎年5月頃届く「特別徴収税額決定通知書」の月額を転記してください。未入力月はデフォルト固定額（設定ページで管理）が適用されます。</p>
               </div>
               <div className="flex items-center gap-2">
                 <select
@@ -1195,9 +1198,9 @@ export default function EmployeeEditPage() {
           {/* J1: 社員別料率上書き */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
             <div className="text-xs font-medium text-primary mb-1">
-              料率の社員別上書き（空白 = 標準報酬月額テーブルから自動計算）
+              料率の社員別上書き
             </div>
-            <p className="text-[10px] text-secondary/60 mb-2">入力すると自動計算を無効化し、指定した料率で計算します</p>
+            <p className="text-[10px] text-secondary/60 mb-2">通常は空白のままで問題ありません（標準報酬月額テーブル・源泉徴収税額表から自動計算されます）。社労士から個別指示があった場合のみ入力してください。入力すると自動計算を無効化します。</p>
             <div className="grid grid-cols-4 gap-2">
               <div>
                 <label className={labelCls}>健康保険(%)</label>

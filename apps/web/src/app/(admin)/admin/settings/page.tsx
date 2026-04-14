@@ -480,9 +480,12 @@ export default function AdminSettingsPage() {
       {activeTab === 0 && (
         <div className="card p-5 max-w-[720px]">
           <div className="text-md font-medium mb-1">給与計算の料率設定</div>
-          <div className="text-xs text-secondary mb-4">
-            ここで設定した料率がデフォルトとして給与計算に使用されます。
-            社員ごとに上書きしたい場合は「社員詳細 → 契約・給与」タブで個別設定が可能です。
+          <div className="text-xs text-secondary mb-2">
+            全社員の給与計算に適用される基礎料率です。毎年4月に協会けんぽの健康保険料率（都道府県別）・介護保険料率・雇用保険料率を確認し、変更があれば更新してください。厚生年金は2017年以降18.3%で固定です。
+          </div>
+          <div className="text-[10px] text-secondary/60 mb-4 space-y-0.5">
+            <p>「標準報酬月額用」= 全社員に適用される自動計算の基礎料率（通常はこちらを更新）</p>
+            <p>「上書き用」= 社員編集ページで個別上書きした際のデフォルト値（通常変更不要）</p>
           </div>
           <div className="space-y-3">
             {[
