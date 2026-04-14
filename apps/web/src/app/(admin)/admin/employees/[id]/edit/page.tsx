@@ -1057,20 +1057,18 @@ export default function EmployeeEditPage() {
 
           {/* 扶養家族 */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <div className="text-xs font-medium text-primary">扶養家族（扶養人数: {dependents.length}人）</div>
-                <p className="text-[10px] text-secondary/60 mt-0.5">入社時・家族構成変更時に登録。扶養人数に応じて源泉徴収税額（所得税）が変わります。年収103万円超の家族は税法上の扶養対象外です。</p>
-              </div>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs font-medium text-primary">扶養家族（扶養人数: {dependents.length}人）</div>
               <button
                 type="button"
                 onClick={handleAddDependent}
                 disabled={depSaving}
-                className="text-xs text-primary hover:underline disabled:opacity-50"
+                className="text-xs text-primary hover:underline disabled:opacity-50 whitespace-nowrap"
               >
                 + 追加
               </button>
             </div>
+            <p className="text-[10px] text-secondary/60 mb-2">入社時・家族構成変更時に登録。扶養人数に応じて源泉徴収税額（所得税）が変わります。年収103万円超の家族は税法上の扶養対象外です。</p>
             {dependents.length === 0 ? (
               <p className="text-xs text-secondary/60">扶養家族なし</p>
             ) : (
@@ -1137,24 +1135,20 @@ export default function EmployeeEditPage() {
 
           {/* 住民税（特別徴収）12ヶ月入力 */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <div className="text-xs font-medium text-primary">住民税（特別徴収）</div>
-                <p className="text-[10px] text-secondary/60 mt-0.5">毎年5月頃届く「特別徴収税額決定通知書」の月額を転記してください。未入力月はデフォルト固定額（設定ページで管理）が適用されます。</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  className="border border-border/30 rounded px-2 py-1 text-xs"
-                  value={residentTaxYear}
-                  onChange={(e) => setResidentTaxYear(Number(e.target.value))}
-                >
-                  {Array.from({ length: 5 }, (_, i) => {
-                    const y = new Date().getFullYear() - 2 + i;
-                    return <option key={y} value={y}>{y}年度（{y}年6月〜{y + 1}年5月）</option>;
-                  })}
-                </select>
-              </div>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs font-medium text-primary">住民税（特別徴収）</div>
+              <select
+                className="border border-border/30 rounded px-2 py-1 text-xs"
+                value={residentTaxYear}
+                onChange={(e) => setResidentTaxYear(Number(e.target.value))}
+              >
+                {Array.from({ length: 5 }, (_, i) => {
+                  const y = new Date().getFullYear() - 2 + i;
+                  return <option key={y} value={y}>{y}年度（{y}年6月〜{y + 1}年5月）</option>;
+                })}
+              </select>
             </div>
+            <p className="text-[10px] text-secondary/60 mb-2">毎年5月頃届く「特別徴収税額決定通知書」の月額を転記してください。未入力月はデフォルト固定額（設定ページで管理）が適用されます。</p>
             <div className="grid grid-cols-6 gap-1">
               {[6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5].map((m) => {
                 const rt = residentTaxes.find(r => r.month === m);
