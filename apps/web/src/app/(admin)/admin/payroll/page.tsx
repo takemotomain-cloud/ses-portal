@@ -339,7 +339,11 @@ function AdminPayrollPage() {
       }
       payload[f] = n;
     }
-    if (editForm.reason) payload.reason = editForm.reason;
+    if (!editForm.reason.trim()) {
+      toast('変更理由を入力してください');
+      return;
+    }
+    payload.reason = editForm.reason.trim();
 
     setEditSaving(true);
     try {
@@ -568,7 +572,7 @@ function AdminPayrollPage() {
                     ))}
                   </div>
                   <div>
-                    <label className="text-2xs text-secondary uppercase tracking-widest mb-1 block">変更理由（任意）</label>
+                    <label className="text-2xs text-secondary uppercase tracking-widest mb-1 block">変更理由 <span className="text-[#A32D2D]">*</span></label>
                     <input
                       type="text"
                       className="w-full h-9 px-3 rounded border border-border/30 text-sm focus:border-primary focus:outline-none"
