@@ -20,9 +20,11 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DatabaseService } from '../../database/database.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
+import { AttendanceConfirmedEvent } from './events/attendance-confirmed.event';
 import { STANDARD_WORK_MINUTES } from '@ses-portal/shared';
 
 @Injectable()
@@ -33,6 +35,7 @@ export class AttendanceService {
     private readonly db: DatabaseService,
     private readonly notifications: NotificationsService,
     private readonly googleDrive: GoogleDriveService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -1072,6 +1075,12 @@ export class AttendanceService {
     this.saveAttendanceToGoogleDrive(employeeId, y, m, startDate, endDate).catch(e => {
       this.logger.warn(`Google Drive 保存エラー: ${(e as Error).message}`);
     });
+
+    // 勤怠確定 → 給与自動計算をトリガー
+    this.eventEmitter.emit(
+      'attendance.confirmed',
+      new AttendanceConfirmedEvent(employeeId, yearMonth),
+    );
 
     return { confirmed: result.count + creates.length };
   }

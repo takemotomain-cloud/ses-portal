@@ -184,8 +184,8 @@ export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState(0);
   const canManageUsers = currentUser?.role === 'admin' || currentUser?.role === 'manager';
   const tabs = canManageUsers
-    ? ['料率設定', '操作ログ', '外部連携', '管理者管理']
-    : ['料率設定', '操作ログ', '外部連携'];
+    ? ['料率設定', '操作ログ', '外部連携', '管理者管理', '更新']
+    : ['料率設定', '操作ログ', '外部連携', '更新'];
   const { toast, ToastUI } = useToast();
 
   /* ---------- Google Drive 連携 ---------- */
@@ -777,6 +777,98 @@ export default function AdminSettingsPage() {
 
           <div className="mt-3 text-xs text-secondary">
             {users.length > 0 && `${users.length} 件のユーザー`}
+          </div>
+        </div>
+      )}
+
+      {/* 更新スケジュール */}
+      {tabs[activeTab] === '更新' && (
+        <div className="space-y-4">
+          <p className="text-sm text-secondary mb-4">
+            給与計算で使用するテーブル・料率は法改正に合わせて定期的な更新が必要です。下記のスケジュールに従い、開発側でコード更新＋デプロイを行ってください。
+          </p>
+
+          <div className="card p-4 border-l-4 border-l-blue-500">
+            <div className="flex items-start gap-3">
+              <span className="badge badge-info whitespace-nowrap">毎年1月</span>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">源泉徴収税額表（甲欄）の改定</h3>
+                <p className="text-xs text-secondary mt-1">国税庁が毎年12月頃に翌年の税額表を公表。1月支給分から適用。</p>
+                <div className="mt-2 text-xs text-secondary space-y-0.5">
+                  <div><span className="font-medium">対象:</span> <code className="bg-gray-100 px-1 rounded">apps/api/src/modules/payroll/tables/income-tax-table.ts</code></div>
+                  <div><span className="font-medium">参照:</span> <span className="text-primary">国税庁「給与所得の源泉徴収税額表」</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-4 border-l-4 border-l-blue-500">
+            <div className="flex items-start gap-3">
+              <span className="badge badge-info whitespace-nowrap">毎年3月</span>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">健康保険料率の改定（都道府県別）</h3>
+                <p className="text-xs text-secondary mt-1">協会けんぽが毎年2月頃に翌年度の料率を公表。3月分（4月納付）から適用。</p>
+                <div className="mt-2 text-xs text-secondary space-y-0.5">
+                  <div><span className="font-medium">対象:</span> <code className="bg-gray-100 px-1 rounded">apps/api/src/modules/payroll/tables/standard-remuneration.ts</code> の <code className="bg-gray-100 px-1 rounded">HEALTH_INSURANCE_RATE</code></div>
+                  <div><span className="font-medium">参照:</span> <span className="text-primary">協会けんぽ「都道府県毎の保険料額表」</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-4 border-l-4 border-l-blue-500">
+            <div className="flex items-start gap-3">
+              <span className="badge badge-info whitespace-nowrap">毎年4月</span>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">標準報酬月額等級表の改定</h3>
+                <p className="text-xs text-secondary mt-1">厚生労働省が等級の上限・区分を改定する場合がある。定時決定（算定基礎届）にも影響。</p>
+                <div className="mt-2 text-xs text-secondary space-y-0.5">
+                  <div><span className="font-medium">対象:</span> <code className="bg-gray-100 px-1 rounded">apps/api/src/modules/payroll/tables/standard-remuneration.ts</code> の <code className="bg-gray-100 px-1 rounded">STANDARD_REMUNERATION_TABLE</code></div>
+                  <div><span className="font-medium">参照:</span> <span className="text-primary">日本年金機構「厚生年金保険の保険料額表」</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-4 border-l-4 border-l-blue-500">
+            <div className="flex items-start gap-3">
+              <span className="badge badge-info whitespace-nowrap">毎年4月</span>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">雇用保険料率の改定</h3>
+                <p className="text-xs text-secondary mt-1">厚生労働省が毎年度の料率を決定。設定ページの「料率設定」タブから変更可能。</p>
+                <div className="mt-2 text-xs text-secondary space-y-0.5">
+                  <div><span className="font-medium">対象:</span> 設定 &gt; 料率設定タブ（UI操作で変更可能）</div>
+                  <div><span className="font-medium">参照:</span> <span className="text-primary">厚生労働省「雇用保険料率について」</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-4 border-l-4 border-l-gray-400">
+            <div className="flex items-start gap-3">
+              <span className="badge badge-wait whitespace-nowrap">随時</span>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">厚生年金保険料率の改定</h3>
+                <p className="text-xs text-secondary mt-1">2017年9月以降 18.3%（労使折半 9.15%）で固定中。法改正があれば変更。</p>
+                <div className="mt-2 text-xs text-secondary space-y-0.5">
+                  <div><span className="font-medium">対象:</span> <code className="bg-gray-100 px-1 rounded">apps/api/src/modules/payroll/tables/standard-remuneration.ts</code> の <code className="bg-gray-100 px-1 rounded">PENSION_RATE</code></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-4 border-l-4 border-l-gray-400">
+            <div className="flex items-start gap-3">
+              <span className="badge badge-wait whitespace-nowrap">随時</span>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">祝日カレンダーの更新</h3>
+                <p className="text-xs text-secondary mt-1">所定労働日数の計算に使用。npmパッケージが自動管理しているが、定期的に最新版に更新推奨。</p>
+                <div className="mt-2 text-xs text-secondary space-y-0.5">
+                  <div><span className="font-medium">対象:</span> <code className="bg-gray-100 px-1 rounded">@holiday-jp/holiday_jp</code> パッケージ</div>
+                  <div><span className="font-medium">更新方法:</span> <code className="bg-gray-100 px-1 rounded">npx pnpm update @holiday-jp/holiday_jp</code></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

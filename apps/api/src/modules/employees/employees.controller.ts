@@ -67,6 +67,13 @@ export class EmployeesController {
    * 論理削除済み社員一覧（P1 復活フロー用）
    * 注意: /deleted は /:id より先に定義
    */
+  @Get('salary-grades')
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '給与テーブル（等級マスタ）一覧' })
+  async getSalaryGrades() {
+    return this.employeesService.getSalaryGrades();
+  }
+
   @Get('deleted')
   @Roles('admin')
   @ApiOperation({ summary: '削除済み社員一覧' })
@@ -191,6 +198,7 @@ export class EmployeesController {
       address?: string;
       birthDate?: string;
       gender?: string;
+      salaryGradeId?: string | null;
       baseSalary?: number;
       rewardRate?: number;
       contractHours?: number | null;

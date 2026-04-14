@@ -103,6 +103,7 @@ export default function InternalAttendanceDetailPage() {
   const [editClockOut, setEditClockOut] = useState('');
   const [editBreak, setEditBreak] = useState<number>(60);
   const [saving, setSaving] = useState(false);
+  const [correctionMode, setCorrectionMode] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [editReason, setEditReason] = useState('');
   const [pendingSave, setPendingSave] = useState<{ dateStr: string; clockIn: string; clockOut: string; breakMinutes: number } | null>(null);
@@ -212,22 +213,6 @@ export default function InternalAttendanceDetailPage() {
     toast('CSVをダウンロードしました');
   }, [allDays, year, month, employeeName, toast]);
 
-  /* ---- 本人勤怠確定 ---- */
-
-  const handleConfirm = async () => {
-    setConfirming(true);
-    try {
-      const ym = `${year}-${String(month).padStart(2, '0')}`;
-      await apiClient(`/attendance/admin/${employeeId}/confirm/${ym}`, { method: 'POST' });
-      toast('本人勤怠を確定しました');
-      fetchData();
-    } catch {
-      toast('確定に失敗しました');
-    } finally {
-      setConfirming(false);
-    }
-  };
-
   return (
     <div>
       <ToastUI />
@@ -249,16 +234,54 @@ export default function InternalAttendanceDetailPage() {
           <button onClick={() => changeMonth(1)} className="btn-outline py-1 px-3 text-sm">&gt;</button>
         </div>
         <div className="flex gap-2 items-center">
-          {summary?.allConfirmed ? (
-            <span className="badge badge-ok">確定済</span>
+          {summary?.allConfirmed && !correctionMode ? (
+            <>
+              <span className="badge badge-ok">確定済</span>
+              <button
+                onClick={() => {
+                  setCorrectionMode(true);
+                  toast('修正モードに切り替えました');
+                }}
+                className="btn-outline text-sm py-2 px-5"
+              >
+                修正する
+              </button>
+            </>
           ) : (
-            <button
-              disabled={confirming}
-              onClick={handleConfirm}
-              className="btn-primary text-sm py-2 px-5"
-            >
-              {confirming ? '処理中...' : '本人勤怠を確定'}
-            </button>
+            <>
+              {correctionMode && (
+                <button
+                  onClick={() => {
+                    setCorrectionMode(false);
+                    setEditingRow(null);
+                  }}
+                  className="btn-outline text-sm py-2 px-5"
+                >
+                  キャンセル
+                </button>
+              )}
+              <button
+                disabled={confirming}
+                onClick={async () => {
+                  setConfirming(true);
+                  try {
+                    const ym = `${year}-${String(month).padStart(2, '0')}`;
+                    await apiClient(`/attendance/admin/${employeeId}/confirm/${ym}`, { method: 'POST' });
+                    toast(correctionMode ? '修正を確定しました' : '本人勤怠を確定しました');
+                    setCorrectionMode(false);
+                    setEditingRow(null);
+                    fetchData();
+                  } catch {
+                    toast('確定に失敗しました');
+                  } finally {
+                    setConfirming(false);
+                  }
+                }}
+                className="btn-primary text-sm py-2 px-5"
+              >
+                {confirming ? '処理中...' : correctionMode ? '修正を確定' : '本人勤怠を確定'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -394,7 +417,7 @@ export default function InternalAttendanceDetailPage() {
                             >保存</button>
                             <button onClick={() => setEditingRow(null)} className="text-xs px-2 py-1 text-secondary hover:text-primary">×</button>
                           </div>
-                        ) : record.clockIn ? (
+                        ) : record.clockIn && (!summary?.allConfirmed || correctionMode) ? (
                           <button
                             onClick={() => {
                               setEditingRow(dateStr);

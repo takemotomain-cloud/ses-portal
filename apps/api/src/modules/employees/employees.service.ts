@@ -467,7 +467,17 @@ export class EmployeesService {
    * @throws NotFoundException 社員が見つからない場合
    * @throws BadRequestException メール重複の場合
    */
+  /**
+   * 給与テーブル（等級マスタ）一覧
+   */
+  async getSalaryGrades() {
+    return this.db.salaryGrade.findMany({
+      orderBy: [{ department: 'asc' }, { overtimeType: 'asc' }, { grade: 'asc' }],
+    });
+  }
+
   async update(id: string, data: {
+    salaryGradeId?: string | null;
     lastName?: string;
     firstName?: string;
     lastNameKana?: string;
@@ -550,8 +560,21 @@ export class EmployeesService {
       }
     }
 
+    // salaryGradeId が指定された場合、等級マスタから baseSalary 等を自動セット
+    if (data.salaryGradeId !== undefined) {
+      if (data.salaryGradeId) {
+        const grade = await this.db.salaryGrade.findUnique({ where: { id: data.salaryGradeId } });
+        if (!grade) throw new BadRequestException('指定された給与等級が見つかりません');
+        data.baseSalary = grade.baseSalary;
+        (data as any).fixedOvertimePay = grade.fixedOvertimePay;
+        data.fixedOvertime = grade.overtimeType;
+        data.contractHours = 168; // 所定労働時間は固定
+      }
+    }
+
     // 更新データを組み立て（undefinedのフィールドは除外）
     const updateData: any = {};
+    if (data.salaryGradeId !== undefined) updateData.salaryGradeId = data.salaryGradeId;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
     if (data.lastNameKana !== undefined) updateData.lastNameKana = data.lastNameKana;
@@ -568,6 +591,7 @@ export class EmployeesService {
     if (data.birthDate !== undefined) updateData.birthDate = new Date(data.birthDate);
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.baseSalary !== undefined) updateData.baseSalary = data.baseSalary;
+    if ((data as any).fixedOvertimePay !== undefined) updateData.fixedOvertimePay = (data as any).fixedOvertimePay;
     if (data.rewardRate !== undefined) updateData.rewardRate = data.rewardRate;
     if (data.contractHours !== undefined) updateData.contractHours = data.contractHours;
     if (data.fixedOvertime !== undefined) updateData.fixedOvertime = data.fixedOvertime;

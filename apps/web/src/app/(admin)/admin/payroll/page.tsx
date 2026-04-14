@@ -2,7 +2,8 @@
  * 管理側 給与管理
  *
  * UIモックのpage-payrollを再現。
- * ステップバー（勤怠締め→給与計算→確認・修正→確定→振込・通知）+ 社員テーブル + 詳細パネル。
+ * ステップバー（勤怠確認→確認・修正→確定・通知→振込）+ 社員テーブル + 詳細パネル。
+ * 給与計算は勤怠確定時に自動実行される。
  */
 
 'use client';
@@ -12,16 +13,7 @@ import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 import { AuthGuard } from '@/components/ui/auth-guard';
 
-const steps = ['勤怠締め', '給与計算', '確認・修正', '確定・通知', '振込'];
-
-interface ClosureStatus {
-  yearMonth: string;
-  isClosed: boolean;
-  closedAt: string | null;
-  hasPostCloseChanges: boolean;
-  sesUnconfirmed?: boolean;
-  internalUnconfirmed?: boolean;
-}
+const steps = ['勤怠確認', '確認・修正', '確定・通知', '振込'];
 
 /** API レスポンスの1件分 */
 interface PayrollApiItem {
@@ -262,9 +254,6 @@ function AdminPayrollPage() {
   const [editHistory, setEditHistory] = useState<EditHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  /** 勤怠確定ステータス */
-  const [closureStatus, setClosureStatus] = useState<ClosureStatus | null>(null);
-
   /** 対象年月（デフォルトは現在月）— 月切替可能 */
   const monthOptions = buildMonthOptions();
   const [targetKey, setTargetKey] = useState<string>(monthOptions[0].value);
@@ -272,27 +261,12 @@ function AdminPayrollPage() {
   const targetYear = current.year;
   const targetMonth = current.month;
 
-  /** 勤怠確定ステータスを取得 */
-  const fetchClosureStatus = useCallback(async () => {
-    try {
-      const data = await apiClient<ClosureStatus>(`/payroll/${targetYear}/${targetMonth}/closure-status`);
-      setClosureStatus(data);
-    } catch {
-      setClosureStatus(null);
-    }
-  }, [targetYear, targetMonth]);
-
-  useEffect(() => {
-    fetchClosureStatus();
-  }, [fetchClosureStatus]);
-
   /** ステップバーの現在位置 */
   const currentStepIdx = (() => {
-    if (!closureStatus?.isClosed) return 0;
-    if (payrollData.length === 0 || payrollData.every(p => p.gross === null)) return 1;
-    if (payrollData.every(p => p.status === 'paid')) return 4;
-    if (payrollData.some(p => p.status === 'confirmed')) return 3;
-    return 2;
+    if (payrollData.length === 0 || payrollData.every(p => p.gross === null || p.gross === 0)) return 0;
+    if (payrollData.every(p => p.status === 'paid')) return 3;
+    if (payrollData.some(p => p.status === 'confirmed')) return 2;
+    return 1;
   })();
 
   /** 給与データを取得 */
@@ -315,17 +289,6 @@ function AdminPayrollPage() {
 
   /** 総支給額合計（マスクされた行は除外） */
   const totalGross = payrollData.reduce((sum, p) => sum + (p.masked ? 0 : p.gross ?? 0), 0);
-
-  const handleCalc = useCallback(async () => {
-    try {
-      await apiClient(`/payroll/${targetYear}/${targetMonth}/calc`, { method: 'POST' });
-      toast('給与計算を実行しました');
-      // 再取得して画面を更新
-      await fetchPayroll();
-    } catch {
-      toast('給与計算の実行に失敗しました');
-    }
-  }, [toast, targetYear, targetMonth, fetchPayroll]);
 
   /* J6: 編集モード開始 */
   const openEditMode = () => {
@@ -443,40 +406,8 @@ function AdminPayrollPage() {
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-          <button
-            onClick={handleCalc}
-            disabled={!closureStatus?.isClosed}
-            className="btn-primary text-sm py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={!closureStatus?.isClosed ? '勤怠が確定されていません' : undefined}
-          >
-            給与計算実行
-          </button>
         </div>
       </div>
-
-      {/* 勤怠確定ゲート警告 */}
-      {closureStatus && !closureStatus.isClosed && (
-        <div className="bg-status-red-bg border border-status-red-text/20 text-status-red-text rounded-md px-4 py-3 mb-4 text-sm flex items-center gap-2">
-          <span className="text-lg">⚠</span>
-          <span>
-            {targetYear}年{targetMonth}月の勤怠が確定されていません。
-            {closureStatus.sesUnconfirmed && (
-              <a href="/admin/attendance" className="underline font-medium ml-1">勤怠管理</a>
-            )}
-            {closureStatus.sesUnconfirmed && closureStatus.internalUnconfirmed && '・'}
-            {closureStatus.internalUnconfirmed && (
-              <a href="/admin/attendance-internal" className="underline font-medium ml-1">社内勤怠管理</a>
-            )}
-            から勤怠を確定してください。
-          </span>
-        </div>
-      )}
-      {closureStatus?.hasPostCloseChanges && (
-        <div className="bg-[#FFFBEB] border border-[#F0C674] text-[#92600E] rounded-md px-4 py-3 mb-4 text-sm flex items-center gap-2">
-          <span className="text-lg">⚠</span>
-          <span>勤怠確定後に修正申請が承認されています。給与の再計算を推奨します。</span>
-        </div>
-      )}
 
       {/* ステップバー */}
       <div className="flex gap-0 mb-5 overflow-x-auto">
@@ -515,8 +446,7 @@ function AdminPayrollPage() {
           <div className="text-xs text-secondary">ステータス</div>
           <div className="mt-1">
             {(() => {
-              if (!closureStatus?.isClosed) return <span className="badge badge-wait">勤怠未確定</span>;
-              if (payrollData.length === 0 || payrollData.every(p => p.gross === null)) return <span className="badge badge-wait">計算待ち</span>;
+              if (payrollData.length === 0 || payrollData.every(p => p.gross === null || p.gross === 0)) return <span className="badge badge-wait">計算待ち</span>;
               if (payrollData.every(p => p.status === 'confirmed' || p.status === 'paid')) return <span className="badge badge-ok">確定済</span>;
               if (payrollData.some(p => p.status === 'confirmed')) return <span className="badge badge-info">一部確定</span>;
               return <span className="badge badge-info">確認中</span>;

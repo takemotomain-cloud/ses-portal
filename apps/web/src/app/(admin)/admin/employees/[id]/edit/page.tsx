@@ -36,6 +36,8 @@ interface EmployeeDetail {
   contractType: string;
   hireDate: string;
   resignDate: string | null;
+  salaryGradeId: string | null;
+  fixedOvertimePay: number | null;
   baseSalary: number | null;
   rewardRate: number | null;
   contractHours: number | null;
@@ -98,6 +100,7 @@ interface EditForm {
   emergencyName: string;
   emergencyRelationship: string;
   emergencyPhone: string;
+  salaryGradeId: string;
   baseSalary: string;
   rewardRate: string;
   contractHours: string;
@@ -256,6 +259,7 @@ export default function EmployeeEditPage() {
     emergencyName: '',
     emergencyRelationship: '父',
     emergencyPhone: '',
+    salaryGradeId: '',
     baseSalary: '',
     rewardRate: '',
     contractHours: '',
@@ -292,6 +296,28 @@ export default function EmployeeEditPage() {
   const [roleDraft, setRoleDraft] = useState<string>('employee');
   const [roleSubmitting, setRoleSubmitting] = useState(false);
 
+  // 給与等級マスタ
+  interface SalaryGradeItem {
+    id: string;
+    department: string;
+    grade: number;
+    overtimeType: number;
+    grossSalary: number;
+    baseSalary: number;
+    fixedOvertimePay: number;
+    positionAllowance: number;
+  }
+  const [salaryGrades, setSalaryGrades] = useState<SalaryGradeItem[]>([]);
+  const [gradeDept, setGradeDept] = useState<string>('ses');
+  const [gradeOtType, setGradeOtType] = useState<number>(20);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    apiClient<SalaryGradeItem[]>('/employees/salary-grades')
+      .then((data) => { console.log('salary-grades loaded:', data?.length); setSalaryGrades(Array.isArray(data) ? data : []); })
+      .catch((e) => console.error('salary-grades fetch error:', e));
+  }, [currentUser]);
+
   useEffect(() => {
     if (!id) return;
     apiClient<EmployeeDetail>(`/employees/${id}`)
@@ -318,6 +344,7 @@ export default function EmployeeEditPage() {
           emergencyName: d.emergencyContacts?.[0]?.name || '',
           emergencyRelationship: d.emergencyContacts?.[0]?.relationship || '父',
           emergencyPhone: d.emergencyContacts?.[0]?.phone || '',
+          salaryGradeId: d.salaryGradeId || '',
           baseSalary: d.baseSalary !== null && d.baseSalary !== undefined ? String(d.baseSalary) : '',
           rewardRate: d.rewardRate !== null && d.rewardRate !== undefined ? `${d.rewardRate}%` : '',
           contractHours: d.contractHours !== null && d.contractHours !== undefined ? String(d.contractHours) : '',
@@ -339,6 +366,13 @@ export default function EmployeeEditPage() {
           driveUrl: '',
         });
         setHasBonus(d.hasBonus ?? false);
+        // 等級から部門・残業タイプを推定
+        if (d.salaryGradeId && salaryGrades.length > 0) {
+          const g = salaryGrades.find(sg => sg.id === d.salaryGradeId);
+          if (g) { setGradeDept(g.department); setGradeOtType(g.overtimeType); }
+        } else if (d.fixedOvertime && d.fixedOvertime >= 40) {
+          setGradeDept('admin'); setGradeOtType(40);
+        }
         setOriginalDeptId(d.department?.id || null);
         setOriginalStatus(d.status);
         setQualifications(Array.isArray(d.qualifications) ? d.qualifications : []);
@@ -402,10 +436,8 @@ export default function EmployeeEditPage() {
         phone: form.phone,
         address: form.address,
         gender: genderReverse[form.gender] || form.gender,
-        baseSalary: form.baseSalary ? Number(String(form.baseSalary).replace(/,/g, '')) : undefined,
+        salaryGradeId: form.salaryGradeId || null,
         rewardRate: form.rewardRate ? Number(String(form.rewardRate).replace(/%/g, '')) : undefined,
-        contractHours: form.contractHours ? Number(form.contractHours) : null,
-        fixedOvertime: form.fixedOvertime ? Number(form.fixedOvertime) : null,
         rateHealthInsurance: form.rateHealthInsurance ? Number(form.rateHealthInsurance) / 100 : null,
         rateEmployeePension: form.rateEmployeePension ? Number(form.rateEmployeePension) / 100 : null,
         rateEmploymentInsurance: form.rateEmploymentInsurance ? Number(form.rateEmploymentInsurance) / 100 : null,
@@ -628,9 +660,6 @@ export default function EmployeeEditPage() {
                 <option>休職中</option>
                 <option>退職</option>
               </select>
-              <div className="text-[10px] text-secondary mt-[3px]">
-                ※ 在籍/待機中は稼働管理と自動連動（本開発時）
-              </div>
             </div>
             <div>
               <label className={labelCls}>
@@ -643,9 +672,6 @@ export default function EmployeeEditPage() {
                 value={form.resignDate}
                 onChange={set('resignDate')}
               />
-              <div className="text-[10px] text-secondary mt-[3px]">
-                ※ 退職日翌日0時にステータスが自動で「退職」になります
-              </div>
             </div>
             <div>
               <label className={labelCls}>最終学歴</label>
@@ -675,61 +701,17 @@ export default function EmployeeEditPage() {
           </div>
         </div>
 
-        {/* ===== E: 権限・ロール ===== */}
+        {/* ===== E: 権限・ロール（表示のみ） ===== */}
         {targetUserId && (
           <div className="card p-5 mb-3">
             <div className="text-sm font-medium mb-3">権限・ロール</div>
-
-            {canChangeRole ? (
-              <>
-                <div className="grid grid-cols-2 gap-2 items-end">
-                  <div>
-                    <label className={labelCls}>ロール</label>
-                    <select
-                      className={selectCls}
-                      value={roleDraft}
-                      onChange={(e) => setRoleDraft(e.target.value)}
-                      disabled={roleSubmitting}
-                    >
-                      <option value="admin">管理者 (admin)</option>
-                      <option value="manager">マネージャー (manager)</option>
-                      <option value="member">メンバー (member)</option>
-                      <option value="employee">一般社員 (employee)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={handleRoleChange}
-                      disabled={roleSubmitting || roleDraft === currentRole}
-                      className="btn-primary text-sm py-2 disabled:opacity-50"
-                    >
-                      {roleSubmitting ? '変更中...' : 'ロールを変更'}
-                    </button>
-                  </div>
-                </div>
-                <div className="text-[10px] text-secondary mt-[6px]">
-                  ※ 現在のロール: <span className="text-primary font-medium">{roleLabel[currentRole] || currentRole}</span>
-                  <br />
-                  ※ admin: 全権限 / manager・member: 全権限（給与は階層で制限）/ employee: 管理側ログイン不可（/mypage のみ）
-                  <br />
-                  ※ 最後の admin を降格することはできません
-                </div>
-              </>
-            ) : (
-              <>
-                <label className={labelCls}>ロール</label>
-                <input
-                  type="text"
-                  className={readonlyCls}
-                  value={roleLabel[currentRole] || currentRole}
-                  readOnly
-                />
-                <div className="text-[10px] text-secondary mt-[3px]">
-                  ※ ロールの変更は admin 権限を持つユーザーのみ可能です
-                </div>
-              </>
-            )}
+            <label className={labelCls}>ロール</label>
+            <input
+              type="text"
+              className={readonlyCls}
+              value={roleLabel[currentRole] || currentRole}
+              readOnly
+            />
           </div>
         )}
 
@@ -883,61 +865,91 @@ export default function EmployeeEditPage() {
         <div className="card p-5 mb-3">
           <div className="text-sm font-medium mb-3">給与・口座</div>
 
-          {/* 基本給（月額） / 還元率 */}
+          {/* 給与等級選択 */}
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div>
-              <label className={labelCls}>基本給（月額）</label>
-              <input
-                type="text"
-                className={inputCls}
-                value={form.baseSalary}
-                onChange={set('baseSalary')}
-              />
+              <label className={labelCls}>部門</label>
+              <select
+                className={selectCls}
+                value={gradeDept}
+                onChange={(e) => {
+                  setGradeDept(e.target.value);
+                  if (e.target.value === 'ses') setGradeOtType(20);
+                  setForm(f => ({ ...f, salaryGradeId: '' }));
+                }}
+              >
+                <option value="ses">SES事業部</option>
+                <option value="admin">管理部</option>
+              </select>
+            </div>
+            {gradeDept === 'admin' && (
+              <div>
+                <label className={labelCls}>固定残業タイプ</label>
+                <select
+                  className={selectCls}
+                  value={gradeOtType}
+                  onChange={(e) => {
+                    setGradeOtType(Number(e.target.value));
+                    setForm(f => ({ ...f, salaryGradeId: '' }));
+                  }}
+                >
+                  <option value={20}>20時間</option>
+                  <option value={40}>40時間</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label className={labelCls}>等級</label>
+              <select
+                className={selectCls}
+                value={form.salaryGradeId}
+                onChange={(e) => setForm(f => ({ ...f, salaryGradeId: e.target.value }))}
+              >
+                <option value="">未選択</option>
+                {salaryGrades
+                  .filter(g => g.department === gradeDept && g.overtimeType === gradeOtType)
+                  .map(g => (
+                    <option key={g.id} value={g.id}>
+                      {g.grade}等級 — 総支給 {g.grossSalary.toLocaleString()}円
+                    </option>
+                  ))}
+              </select>
             </div>
             <div>
               <label className={labelCls}>還元率</label>
-              <input
-                type="text"
-                className={inputCls}
-                placeholder="空白なら計算しない"
+              <select
+                className={selectCls}
                 value={form.rewardRate}
                 onChange={set('rewardRate')}
-              />
-              <div className="text-[10px] text-secondary mt-[3px]">
-                ※ 空白の場合は還元率計算を行いません
-              </div>
+              >
+                <option value="">未設定</option>
+                {Array.from({ length: 51 }, (_, i) => 100 - i).map(v => (
+                  <option key={v} value={`${v}%`}>{v}%</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* 所定労働時間 / 固定残業時間 */}
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div>
-              <label className={labelCls}>所定労働時間（時間/月）</label>
-              <input
-                type="number"
-                className={inputCls}
-                placeholder="168"
-                value={form.contractHours}
-                onChange={set('contractHours')}
-              />
-              <div className="text-[10px] text-secondary mt-[3px]">
-                ※ 未入力時はデフォルト168h/月で計算
+          {/* 選択中の等級情報 */}
+          {(() => {
+            const sel = salaryGrades.find(g => g.id === form.salaryGradeId);
+            if (!sel) return null;
+            return (
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className={labelCls}>基本給</label>
+                  <input type="text" className={readonlyCls} value={`${sel.baseSalary.toLocaleString()}円`} readOnly />
+                </div>
+                <div>
+                  <label className={labelCls}>固定残業手当（{sel.overtimeType}時間分）</label>
+                  <input type="text" className={readonlyCls} value={`${sel.fixedOvertimePay.toLocaleString()}円`} readOnly />
+                </div>
               </div>
-            </div>
-            <div>
-              <label className={labelCls}>固定残業時間（時間/月）</label>
-              <input
-                type="number"
-                className={inputCls}
-                placeholder="20"
-                value={form.fixedOvertime}
-                onChange={set('fixedOvertime')}
-              />
-              <div className="text-[10px] text-secondary mt-[3px]">
-                ※ 未入力時はデフォルト20h/月で計算
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* J1: 社員別料率上書き */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
@@ -951,7 +963,7 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="デフォルト"
+                  placeholder="5.00"
                   value={form.rateHealthInsurance}
                   onChange={set('rateHealthInsurance')}
                 />
@@ -962,7 +974,7 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="デフォルト"
+                  placeholder="9.15"
                   value={form.rateEmployeePension}
                   onChange={set('rateEmployeePension')}
                 />
@@ -973,7 +985,7 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="デフォルト"
+                  placeholder="0.60"
                   value={form.rateEmploymentInsurance}
                   onChange={set('rateEmploymentInsurance')}
                 />
@@ -984,7 +996,7 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="デフォルト"
+                  placeholder="3.30"
                   value={form.rateIncomeTax}
                   onChange={set('rateIncomeTax')}
                 />
@@ -995,7 +1007,7 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="1"
                   className={inputCls}
-                  placeholder="デフォルト"
+                  placeholder="18000"
                   value={form.rateResidentTaxFixed}
                   onChange={set('rateResidentTaxFixed')}
                 />
@@ -1017,9 +1029,6 @@ export default function EmployeeEditPage() {
               <option value="monthly">1ヶ月定期</option>
               <option value="three_month">3ヶ月定期</option>
             </select>
-            <div className="text-[10px] text-secondary mt-[3px]">
-              ※ 定期設定時は申請漏れアラートが自動表示されます
-            </div>
           </div>
 
           {/* 銀行名 / 支店名 / 口座種別 / 口座番号

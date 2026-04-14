@@ -11,6 +11,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { join } from 'path';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './common/health.controller';
@@ -51,6 +52,7 @@ import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
       envFilePath: join(__dirname, '..', '.env'),
     }),
     ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     DatabaseModule,
     GoogleDriveModule,
     MailerModule,
