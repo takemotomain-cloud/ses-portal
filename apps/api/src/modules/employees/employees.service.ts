@@ -905,4 +905,87 @@ export class EmployeesService {
 
     return { id: contact.id };
   }
+
+  // ----------------------------------------
+  // 住民税（特別徴収）管理
+  // ----------------------------------------
+
+  async getResidentTaxes(employeeId: string, fiscalYear: number) {
+    const records = await this.db.employeeResidentTax.findMany({
+      where: { employeeId, fiscalYear },
+      orderBy: { month: 'asc' },
+    });
+    // 12ヶ月分を返す（未登録月は amount: 0）
+    const monthOrder = [6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5];
+    const map = new Map(records.map(r => [r.month, r]));
+    return monthOrder.map(m => ({
+      month: m,
+      amount: map.get(m)?.amount ?? 0,
+      id: map.get(m)?.id ?? null,
+    }));
+  }
+
+  async upsertResidentTaxes(employeeId: string, fiscalYear: number, amounts: Record<string, number>) {
+    const employee = await this.db.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) throw new NotFoundException('社員が見つかりません');
+
+    const upserts = Object.entries(amounts).map(([monthStr, amount]) => {
+      const month = Number(monthStr);
+      return this.db.employeeResidentTax.upsert({
+        where: { employeeId_fiscalYear_month: { employeeId, fiscalYear, month } },
+        create: { employeeId, fiscalYear, month, amount },
+        update: { amount },
+      });
+    });
+    await this.db.$transaction(upserts);
+    return this.getResidentTaxes(employeeId, fiscalYear);
+  }
+
+  // ----------------------------------------
+  // 扶養家族管理
+  // ----------------------------------------
+
+  async createDependent(employeeId: string, data: { name: string; relationship: string; birthDate: string; annualIncome?: number }) {
+    const employee = await this.db.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) throw new NotFoundException('社員が見つかりません');
+
+    const dep = await this.db.dependent.create({
+      data: {
+        employeeId,
+        name: data.name,
+        relationship: data.relationship,
+        birthDate: new Date(data.birthDate),
+        annualIncome: data.annualIncome ?? null,
+      },
+    });
+    return dep;
+  }
+
+  async updateDependent(employeeId: string, depId: string, data: { name?: string; relationship?: string; birthDate?: string; annualIncome?: number }) {
+    const dep = await this.db.dependent.findFirst({
+      where: { id: depId, employeeId, deletedAt: null },
+    });
+    if (!dep) throw new NotFoundException('扶養家族が見つかりません');
+
+    const update: any = {};
+    if (data.name !== undefined) update.name = data.name;
+    if (data.relationship !== undefined) update.relationship = data.relationship;
+    if (data.birthDate !== undefined) update.birthDate = new Date(data.birthDate);
+    if (data.annualIncome !== undefined) update.annualIncome = data.annualIncome;
+
+    return this.db.dependent.update({ where: { id: depId }, data: update });
+  }
+
+  async deleteDependent(employeeId: string, depId: string) {
+    const dep = await this.db.dependent.findFirst({
+      where: { id: depId, employeeId, deletedAt: null },
+    });
+    if (!dep) throw new NotFoundException('扶養家族が見つかりません');
+
+    await this.db.dependent.update({
+      where: { id: depId },
+      data: { deletedAt: new Date() },
+    });
+    return { deleted: true };
+  }
 }

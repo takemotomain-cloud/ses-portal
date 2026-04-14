@@ -35,6 +35,7 @@ interface PayrollApiItem {
   standardRemunerationGrade: number | null;
   standardMonthlyRemuneration: number | null;
   healthInsurance: number | null;
+  nursingCareInsurance: number | null;
   pension: number | null;
   employmentInsurance: number | null;
   incomeTax: number | null;
@@ -148,6 +149,7 @@ function toRow(item: PayrollApiItem): PayrollRow {
     earnings: earningsItems,
     deductionItems: [
       { label: '健康保険', amount: item.healthInsurance },
+      { label: '介護保険', amount: item.nursingCareInsurance },
       { label: '厚生年金', amount: item.pension },
       { label: '雇用保険', amount: item.employmentInsurance },
       { label: '所得税', amount: item.incomeTax },
@@ -196,6 +198,7 @@ interface EditFormState {
   commuteAllowance: string;
   otherAllowance: string;
   healthInsurance: string;
+  nursingCareInsurance: string;
   pension: string;
   employmentInsurance: string;
   incomeTax: string;
@@ -221,6 +224,7 @@ const fieldLabel: Record<string, string> = {
   commuteAllowance: '通勤手当',
   otherAllowance: 'その他手当',
   healthInsurance: '健康保険',
+  nursingCareInsurance: '介護保険',
   pension: '厚生年金',
   employmentInsurance: '雇用保険',
   incomeTax: '所得税',
@@ -247,7 +251,7 @@ function AdminPayrollPage() {
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<EditFormState>({
     baseSalary: '', fixedOvertimePay: '', absenceDeduction: '', overtimePay: '', commuteAllowance: '', otherAllowance: '',
-    healthInsurance: '', pension: '', employmentInsurance: '', incomeTax: '', residentTax: '',
+    healthInsurance: '', nursingCareInsurance: '', pension: '', employmentInsurance: '', incomeTax: '', residentTax: '',
     reason: '',
   });
   const [editSaving, setEditSaving] = useState(false);
@@ -307,6 +311,7 @@ function AdminPayrollPage() {
       commuteAllowance: getByLabel(selected.earnings, '通勤手当'),
       otherAllowance: getByLabel(selected.earnings, 'その他手当'),
       healthInsurance: getByLabel(selected.deductionItems, '健康保険'),
+      nursingCareInsurance: getByLabel(selected.deductionItems, '介護保険'),
       pension: getByLabel(selected.deductionItems, '厚生年金'),
       employmentInsurance: getByLabel(selected.deductionItems, '雇用保険'),
       incomeTax: getByLabel(selected.deductionItems, '所得税'),
@@ -322,7 +327,7 @@ function AdminPayrollPage() {
     const payload: Record<string, any> = {};
     const fields: (keyof EditFormState)[] = [
       'baseSalary', 'overtimePay', 'commuteAllowance', 'otherAllowance',
-      'healthInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
+      'healthInsurance', 'nursingCareInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
     ];
     for (const f of fields) {
       const v = editForm[f];
@@ -550,7 +555,7 @@ function AdminPayrollPage() {
                   </div>
                   <div>
                     <div className="text-2xs text-secondary uppercase tracking-widest mb-2">控除</div>
-                    {(['healthInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax'] as const).map(k => (
+                    {(['healthInsurance', 'nursingCareInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax'] as const).map(k => (
                       <div key={k} className="flex items-center justify-between py-1.5 border-b border-border/20 text-sm">
                         <span className="text-secondary">{fieldLabel[k]}</span>
                         <input

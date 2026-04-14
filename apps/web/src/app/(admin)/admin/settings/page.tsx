@@ -14,6 +14,8 @@ import { useAuth } from '@/lib/auth-context';
 
 interface RateMaster {
   healthInsurance: number;
+  healthInsuranceStdRate: number;
+  nursingCareRate: number;
   employeePension: number;
   employmentInsurance: number;
   incomeTax: number;
@@ -242,6 +244,8 @@ export default function AdminSettingsPage() {
   const [rateMaster, setRateMaster] = useState<RateMaster | null>(null);
   const [rateForm, setRateForm] = useState({
     healthInsurance: '',
+    healthInsuranceStdRate: '',
+    nursingCareRate: '',
     employeePension: '',
     employmentInsurance: '',
     incomeTax: '',
@@ -255,6 +259,8 @@ export default function AdminSettingsPage() {
       setRateMaster(data);
       setRateForm({
         healthInsurance: String(data.healthInsurance * 100),
+        healthInsuranceStdRate: String(data.healthInsuranceStdRate * 100),
+        nursingCareRate: String(data.nursingCareRate * 100),
         employeePension: String(data.employeePension * 100),
         employmentInsurance: String(data.employmentInsurance * 100),
         incomeTax: String(data.incomeTax * 100),
@@ -271,12 +277,14 @@ export default function AdminSettingsPage() {
 
   const handleSaveRateMaster = async () => {
     const health = parseFloat(rateForm.healthInsurance);
+    const healthStd = parseFloat(rateForm.healthInsuranceStdRate);
+    const nursing = parseFloat(rateForm.nursingCareRate);
     const pension = parseFloat(rateForm.employeePension);
     const empIns = parseFloat(rateForm.employmentInsurance);
     const income = parseFloat(rateForm.incomeTax);
     const residentFixed = parseInt(rateForm.residentTaxFixed, 10);
 
-    if ([health, pension, empIns, income].some((v) => isNaN(v) || v < 0 || v > 100)) {
+    if ([health, healthStd, nursing, pension, empIns, income].some((v) => isNaN(v) || v < 0 || v > 100)) {
       toast('料率は 0〜100(%) の範囲で入力してください');
       return;
     }
@@ -291,6 +299,8 @@ export default function AdminSettingsPage() {
         method: 'PATCH',
         body: JSON.stringify({
           healthInsurance: health / 100,
+          healthInsuranceStdRate: healthStd / 100,
+          nursingCareRate: nursing / 100,
           employeePension: pension / 100,
           employmentInsurance: empIns / 100,
           incomeTax: income / 100,
@@ -476,24 +486,31 @@ export default function AdminSettingsPage() {
           </div>
           <div className="space-y-3">
             {[
-              { key: 'healthInsurance', label: '健康保険料率（%）', unit: '%' },
+              { key: 'healthInsuranceStdRate', label: '健康保険料率（標準報酬月額用・%）', unit: '%', help: '協会けんぽ都道府県別料率の被保険者負担分' },
+              { key: 'nursingCareRate', label: '介護保険料率（%）', unit: '%', help: '40〜64歳に適用。被保険者負担分' },
               { key: 'employeePension', label: '厚生年金料率（%）', unit: '%' },
               { key: 'employmentInsurance', label: '雇用保険料率（%）', unit: '%' },
-              { key: 'incomeTax', label: '所得税率（%）', unit: '%' },
-              { key: 'residentTaxFixed', label: '住民税（固定額／円）', unit: '円' },
+              { key: 'healthInsurance', label: '健康保険料率（上書き用・%）', unit: '%', help: '社員別上書き時のデフォルト値' },
+              { key: 'incomeTax', label: '所得税率（上書き用・%）', unit: '%', help: '社員別上書き時のデフォルト値' },
+              { key: 'residentTaxFixed', label: '住民税（デフォルト固定額／円）', unit: '円', help: '個別の特別徴収額が未登録の場合に使用' },
             ].map((row) => (
-              <div key={row.key} className="flex items-center gap-3">
-                <label className="text-sm text-secondary min-w-[180px]">{row.label}</label>
-                <input
-                  type="number"
-                  step={row.key === 'residentTaxFixed' ? '1' : '0.01'}
-                  value={(rateForm as any)[row.key]}
-                  onChange={(e) =>
-                    setRateForm((prev) => ({ ...prev, [row.key]: e.target.value }))
-                  }
-                  className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-40 focus:border-primary focus:outline-none"
-                />
-                <span className="text-xs text-secondary">{row.unit}</span>
+              <div key={row.key}>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-secondary min-w-[240px]">{row.label}</label>
+                  <input
+                    type="number"
+                    step={row.key === 'residentTaxFixed' ? '1' : '0.01'}
+                    value={(rateForm as any)[row.key]}
+                    onChange={(e) =>
+                      setRateForm((prev) => ({ ...prev, [row.key]: e.target.value }))
+                    }
+                    className="h-10 px-3 rounded-md border border-border/30 bg-card text-sm w-40 focus:border-primary focus:outline-none"
+                  />
+                  <span className="text-xs text-secondary">{row.unit}</span>
+                </div>
+                {'help' in row && row.help && (
+                  <p className="text-xs text-secondary/60 ml-[252px] mt-0.5">{row.help}</p>
+                )}
               </div>
             ))}
           </div>

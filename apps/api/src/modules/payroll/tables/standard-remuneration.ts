@@ -73,14 +73,19 @@ export function findGrade(monthlyRemuneration: number): { grade: number; standar
   return { grade: found.grade, standardAmount: found.standardAmount };
 }
 
-// 東京都 令和6年度 協会けんぽ 9.98%（折半 4.99%）
-const HEALTH_INSURANCE_RATE = 0.0499;
+// デフォルト: 東京都 令和6年度 協会けんぽ 9.98%（折半 4.99%）
+const DEFAULT_HEALTH_INSURANCE_RATE = 0.0499;
 // 厚生年金 18.3%（折半 9.15%）
 const PENSION_RATE = 0.0915;
 
-/** 健康保険料（被保険者負担分） */
-export function calcHealthInsurance(standardAmount: number): number {
-  return Math.round(standardAmount * HEALTH_INSURANCE_RATE);
+/** 健康保険料（被保険者負担分）— rate は RateMaster.healthInsuranceStdRate から取得 */
+export function calcHealthInsurance(standardAmount: number, rate: number = DEFAULT_HEALTH_INSURANCE_RATE): number {
+  return Math.round(standardAmount * rate);
+}
+
+/** 介護保険料（被保険者負担分・40歳以上65歳未満） */
+export function calcNursingCareInsurance(standardAmount: number, rate: number): number {
+  return Math.round(standardAmount * rate);
 }
 
 /** 厚生年金保険料（被保険者負担分）— 上限: 等級32（650,000円） */

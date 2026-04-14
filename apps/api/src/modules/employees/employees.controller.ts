@@ -270,6 +270,66 @@ export class EmployeesController {
     return this.employeesService.createEmergencyContact(id, body);
   }
 
+  // ----------------------------------------
+  // 住民税（特別徴収）管理
+  // ----------------------------------------
+
+  @Get(':id/resident-taxes')
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '住民税（特別徴収）月額一覧' })
+  @ApiQuery({ name: 'fiscalYear', required: true, type: Number })
+  async getResidentTaxes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('fiscalYear') fiscalYear: number,
+  ) {
+    return this.employeesService.getResidentTaxes(id, Number(fiscalYear));
+  }
+
+  @Patch(':id/resident-taxes')
+  @Roles('admin')
+  @ApiOperation({ summary: '住民税（特別徴収）12ヶ月分を一括保存' })
+  async upsertResidentTaxes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { fiscalYear: number; amounts: Record<string, number> },
+  ) {
+    return this.employeesService.upsertResidentTaxes(id, body.fiscalYear, body.amounts);
+  }
+
+  // ----------------------------------------
+  // 扶養家族管理
+  // ----------------------------------------
+
+  @Post(':id/dependents')
+  @Roles('admin')
+  @ApiOperation({ summary: '扶養家族を追加' })
+  async createDependent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name: string; relationship: string; birthDate: string; annualIncome?: number },
+  ) {
+    return this.employeesService.createDependent(id, body);
+  }
+
+  @Patch(':id/dependents/:depId')
+  @Roles('admin')
+  @ApiOperation({ summary: '扶養家族を更新' })
+  async updateDependent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('depId', ParseUUIDPipe) depId: string,
+    @Body() body: { name?: string; relationship?: string; birthDate?: string; annualIncome?: number },
+  ) {
+    return this.employeesService.updateDependent(id, depId, body);
+  }
+
+  @Delete(':id/dependents/:depId')
+  @Roles('admin')
+  @ApiOperation({ summary: '扶養家族を削除' })
+  async deleteDependent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('depId', ParseUUIDPipe) depId: string,
+  ) {
+    return this.employeesService.deleteDependent(id, depId);
+  }
+
   /**
    * 社員詳細を取得
    *

@@ -148,6 +148,7 @@ model Employee {
   closedClosures          AttendanceMonthlyClosure[] @relation("ClosureClosedBy")
   reopenedClosures        AttendanceMonthlyClosure[] @relation("ClosureReopenedBy")
   adminAttendanceEdits    AdminAttendanceEdit[] @relation("AdminEditsEmployee")
+  residentTaxes           EmployeeResidentTax[]
 
   @@map("employees")
 }
@@ -236,6 +237,25 @@ model Dependent {
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@map("dependents")
+}
+
+// ----------------------------------------
+// 住民税（特別徴収）月額管理
+// 毎年6月〜翌5月の12ヶ月分を fiscalYear + month で管理
+// ----------------------------------------
+model EmployeeResidentTax {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  fiscalYear  Int      @map("fiscal_year")
+  month       Int
+  amount      Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, fiscalYear, month])
+  @@map("employee_resident_taxes")
 }
 
 // ----------------------------------------
@@ -611,6 +631,7 @@ model Payroll {
   standardRemunerationGrade   Int?  @map("standard_remuneration_grade")
   standardMonthlyRemuneration Int?  @map("standard_monthly_remuneration")
   healthInsurance     Int      @default(0) @map("health_insurance")
+  nursingCareInsurance Int     @default(0) @map("nursing_care_insurance")
   pension             Int      @default(0)
   employmentInsurance Int      @default(0) @map("employment_insurance")
   incomeTax           Int      @default(0) @map("income_tax")
@@ -1137,6 +1158,8 @@ model PayrollEditHistory {
 model RateMaster {
   id                      String   @id @default("default") @db.VarChar(20)
   healthInsurance         Decimal  @default(0.05) @map("health_insurance") @db.Decimal(6, 4)
+  healthInsuranceStdRate  Decimal  @default(0.0499) @map("health_insurance_std_rate") @db.Decimal(6, 4)
+  nursingCareRate         Decimal  @default(0.0080) @map("nursing_care_rate") @db.Decimal(6, 4)
   employeePension         Decimal  @default(0.0915) @map("employee_pension") @db.Decimal(6, 4)
   employmentInsurance     Decimal  @default(0.006) @map("employment_insurance") @db.Decimal(6, 4)
   incomeTax               Decimal  @default(0.033) @map("income_tax") @db.Decimal(6, 4)

@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
@@ -296,6 +296,27 @@ export default function EmployeeEditPage() {
   const [roleDraft, setRoleDraft] = useState<string>('employee');
   const [roleSubmitting, setRoleSubmitting] = useState(false);
 
+  // 扶養家族管理
+  interface DependentRow {
+    id: string;
+    name: string;
+    relationship: string;
+    birthDate: string;
+    annualIncome: number | null;
+    isNew?: boolean;
+  }
+  const [dependents, setDependents] = useState<DependentRow[]>([]);
+  const [depSaving, setDepSaving] = useState(false);
+
+  // 住民税（特別徴収）管理
+  interface ResidentTaxMonth { month: number; amount: number; id: string | null }
+  const [residentTaxYear, setResidentTaxYear] = useState<number>(() => {
+    const now = new Date();
+    return now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1; // 6月〜=当年, 1〜5月=前年
+  });
+  const [residentTaxes, setResidentTaxes] = useState<ResidentTaxMonth[]>([]);
+  const [rtSaving, setRtSaving] = useState(false);
+
   // 給与等級マスタ
   interface SalaryGradeItem {
     id: string;
@@ -381,6 +402,16 @@ export default function EmployeeEditPage() {
         const role = d.user?.role ?? 'employee';
         setCurrentRole(role);
         setRoleDraft(role);
+        // 扶養家族を読み込み
+        if (d.dependents) {
+          setDependents(d.dependents.filter((dep: any) => !dep.deletedAt).map((dep: any) => ({
+            id: dep.id,
+            name: dep.name,
+            relationship: dep.relationship,
+            birthDate: dep.birthDate ? String(dep.birthDate).slice(0, 10) : '',
+            annualIncome: dep.annualIncome,
+          })));
+        }
       })
       .catch((err) => {
         console.error('Failed to fetch employee detail:', err);
@@ -393,6 +424,78 @@ export default function EmployeeEditPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  };
+
+  // 住民税の年度切替時にフェッチ
+  const fetchResidentTaxes = useCallback(async (fy: number) => {
+    try {
+      const data = await apiClient<ResidentTaxMonth[]>(`/employees/${id}/resident-taxes?fiscalYear=${fy}`);
+      setResidentTaxes(data);
+    } catch { /* ignore */ }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    fetchResidentTaxes(residentTaxYear);
+  }, [id, residentTaxYear, fetchResidentTaxes]);
+
+  // 住民税保存
+  const handleSaveResidentTaxes = async () => {
+    setRtSaving(true);
+    try {
+      const amounts: Record<string, number> = {};
+      residentTaxes.forEach(rt => { amounts[String(rt.month)] = rt.amount; });
+      const data = await apiClient<ResidentTaxMonth[]>(`/employees/${id}/resident-taxes`, {
+        method: 'PATCH',
+        body: JSON.stringify({ fiscalYear: residentTaxYear, amounts }),
+      });
+      setResidentTaxes(data);
+      toast('住民税を保存しました');
+    } catch (err: any) {
+      toast(err?.message || '住民税の保存に失敗しました');
+    } finally {
+      setRtSaving(false);
+    }
+  };
+
+  // 扶養家族追加
+  const handleAddDependent = async () => {
+    setDepSaving(true);
+    try {
+      const dep = await apiClient<DependentRow>(`/employees/${id}/dependents`, {
+        method: 'POST',
+        body: JSON.stringify({ name: '（氏名未入力）', relationship: '子', birthDate: '2000-01-01' }),
+      });
+      setDependents(prev => [...prev, { ...dep, birthDate: String(dep.birthDate).slice(0, 10) }]);
+      toast('扶養家族を追加しました');
+    } catch (err: any) {
+      toast(err?.message || '追加に失敗しました');
+    } finally {
+      setDepSaving(false);
+    }
+  };
+
+  // 扶養家族更新
+  const handleUpdateDependent = async (depId: string, field: string, value: string | number) => {
+    try {
+      await apiClient(`/employees/${id}/dependents/${depId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ [field]: value }),
+      });
+    } catch (err: any) {
+      toast(err?.message || '更新に失敗しました');
+    }
+  };
+
+  // 扶養家族削除
+  const handleDeleteDependent = async (depId: string) => {
+    try {
+      await apiClient(`/employees/${id}/dependents/${depId}`, { method: 'DELETE' });
+      setDependents(prev => prev.filter(d => d.id !== depId));
+      toast('扶養家族を削除しました');
+    } catch (err: any) {
+      toast(err?.message || '削除に失敗しました');
+    }
   };
 
   const handleSubmit = async () => {
@@ -951,19 +1054,158 @@ export default function EmployeeEditPage() {
             );
           })()}
 
+          {/* 扶養家族 */}
+          <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-primary">
+                扶養家族（扶養人数: {dependents.length}人 — 源泉徴収税額表の計算に使用）
+              </div>
+              <button
+                type="button"
+                onClick={handleAddDependent}
+                disabled={depSaving}
+                className="text-xs text-primary hover:underline disabled:opacity-50"
+              >
+                + 追加
+              </button>
+            </div>
+            {dependents.length === 0 ? (
+              <p className="text-xs text-secondary/60">扶養家族なし</p>
+            ) : (
+              <div className="space-y-1">
+                <div className="grid grid-cols-[1fr_80px_110px_100px_40px] gap-1 text-[10px] text-secondary font-medium px-1">
+                  <span>氏名</span><span>続柄</span><span>生年月日</span><span>年収(万円)</span><span></span>
+                </div>
+                {dependents.map((dep) => (
+                  <div key={dep.id} className="grid grid-cols-[1fr_80px_110px_100px_40px] gap-1 items-center">
+                    <input
+                      className={inputCls}
+                      value={dep.name}
+                      onChange={(e) => {
+                        setDependents(prev => prev.map(d => d.id === dep.id ? { ...d, name: e.target.value } : d));
+                      }}
+                      onBlur={() => handleUpdateDependent(dep.id, 'name', dep.name)}
+                    />
+                    <select
+                      className={selectCls}
+                      value={dep.relationship}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDependents(prev => prev.map(d => d.id === dep.id ? { ...d, relationship: val } : d));
+                        handleUpdateDependent(dep.id, 'relationship', val);
+                      }}
+                    >
+                      {['配偶者','子','父','母','祖父','祖母','兄弟姉妹','その他'].map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={dep.birthDate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDependents(prev => prev.map(d => d.id === dep.id ? { ...d, birthDate: val } : d));
+                      }}
+                      onBlur={() => dep.birthDate && handleUpdateDependent(dep.id, 'birthDate', dep.birthDate)}
+                    />
+                    <input
+                      type="number"
+                      className={inputCls}
+                      placeholder="0"
+                      value={dep.annualIncome !== null ? String(Math.round((dep.annualIncome ?? 0) / 10000)) : ''}
+                      onChange={(e) => {
+                        const val = e.target.value ? Number(e.target.value) * 10000 : null;
+                        setDependents(prev => prev.map(d => d.id === dep.id ? { ...d, annualIncome: val } : d));
+                      }}
+                      onBlur={() => handleUpdateDependent(dep.id, 'annualIncome', dep.annualIncome ?? 0)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDependent(dep.id)}
+                      className="text-xs text-[#A32D2D] hover:underline"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 住民税（特別徴収）12ヶ月入力 */}
+          <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-primary">
+                住民税（特別徴収）
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  className="border border-border/30 rounded px-2 py-1 text-xs"
+                  value={residentTaxYear}
+                  onChange={(e) => setResidentTaxYear(Number(e.target.value))}
+                >
+                  {Array.from({ length: 5 }, (_, i) => {
+                    const y = new Date().getFullYear() - 2 + i;
+                    return <option key={y} value={y}>{y}年度（{y}年6月〜{y + 1}年5月）</option>;
+                  })}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {[6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5].map((m) => {
+                const rt = residentTaxes.find(r => r.month === m);
+                return (
+                  <div key={m}>
+                    <label className="text-[10px] text-secondary">{m}月</label>
+                    <input
+                      type="number"
+                      step="1"
+                      className={inputCls}
+                      placeholder="0"
+                      value={rt?.amount ?? 0}
+                      onChange={(e) => {
+                        const val = Number(e.target.value) || 0;
+                        setResidentTaxes(prev => {
+                          const exists = prev.find(r => r.month === m);
+                          if (exists) return prev.map(r => r.month === m ? { ...r, amount: val } : r);
+                          return [...prev, { month: m, amount: val, id: null }];
+                        });
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs text-secondary">
+                年間合計: {residentTaxes.reduce((s, r) => s + r.amount, 0).toLocaleString()}円
+              </span>
+              <button
+                type="button"
+                onClick={handleSaveResidentTaxes}
+                disabled={rtSaving}
+                className="text-xs text-primary hover:underline disabled:opacity-50"
+              >
+                {rtSaving ? '保存中...' : '住民税を保存'}
+              </button>
+            </div>
+          </div>
+
           {/* J1: 社員別料率上書き */}
           <div className="mt-3 mb-2 p-3 border border-border/30 rounded-md bg-[#FAFAFA]">
-            <div className="text-xs font-medium text-primary mb-2">
-              料率の社員別上書き（空白の場合はデフォルト値を使用）
+            <div className="text-xs font-medium text-primary mb-1">
+              料率の社員別上書き（空白 = 標準報酬月額テーブルから自動計算）
             </div>
-            <div className="grid grid-cols-5 gap-2">
+            <p className="text-[10px] text-secondary/60 mb-2">入力すると自動計算を無効化し、指定した料率で計算します</p>
+            <div className="grid grid-cols-4 gap-2">
               <div>
                 <label className={labelCls}>健康保険(%)</label>
                 <input
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="5.00"
+                  placeholder="自動計算"
                   value={form.rateHealthInsurance}
                   onChange={set('rateHealthInsurance')}
                 />
@@ -974,7 +1216,7 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="9.15"
+                  placeholder="自動計算"
                   value={form.rateEmployeePension}
                   onChange={set('rateEmployeePension')}
                 />
@@ -996,21 +1238,11 @@ export default function EmployeeEditPage() {
                   type="number"
                   step="0.01"
                   className={inputCls}
-                  placeholder="3.30"
+                  placeholder="自動計算"
                   value={form.rateIncomeTax}
                   onChange={set('rateIncomeTax')}
                 />
-              </div>
-              <div>
-                <label className={labelCls}>住民税(円)</label>
-                <input
-                  type="number"
-                  step="1"
-                  className={inputCls}
-                  placeholder="18000"
-                  value={form.rateResidentTaxFixed}
-                  onChange={set('rateResidentTaxFixed')}
-                />
+                <p className="text-[9px] text-[#A32D2D] mt-0.5">入力すると源泉徴収税額表を無効化</p>
               </div>
             </div>
           </div>

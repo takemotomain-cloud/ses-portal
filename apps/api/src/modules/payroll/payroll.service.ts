@@ -20,7 +20,7 @@ import { AttendanceConfirmedEvent } from '../attendance/events/attendance-confir
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { isHoliday } from '@holiday-jp/holiday_jp';
-import { findGrade, calcHealthInsurance, calcPension } from './tables/standard-remuneration';
+import { findGrade, calcHealthInsurance, calcNursingCareInsurance, calcPension } from './tables/standard-remuneration';
 import { calcWithholdingTax } from './tables/income-tax-table';
 import { calculateOvertimeBreakdown } from './utils/overtime-calculator';
 import { checkOvertimeLimits } from './utils/overtime-limit-checker';
@@ -49,6 +49,55 @@ export class PayrollService {
       count++;
     }
     return count;
+  }
+
+  /**
+   * 住民税（特別徴収）月額を取得
+   * EmployeeResidentTax → Employee.rateResidentTaxFixed → RateMaster.residentTaxFixed の順でフォールバック
+   */
+  private async getResidentTax(
+    employeeId: string,
+    year: number,
+    month: number,
+    empFixed: number | null | undefined,
+    masterFixed: number,
+  ): Promise<number> {
+    // 特別徴収の年度: 6月〜12月は当年、1月〜5月は前年
+    const fiscalYear = month >= 6 ? year : year - 1;
+    const record = await this.db.employeeResidentTax.findUnique({
+      where: { employeeId_fiscalYear_month: { employeeId, fiscalYear, month } },
+    });
+    if (record) return record.amount;
+    // フォールバック: 社員別固定額 → マスタデフォルト
+    if (empFixed !== null && empFixed !== undefined) return empFixed;
+    return masterFixed;
+  }
+
+  /**
+   * 対象月時点の年齢を算出（介護保険の判定用）
+   * 前日基準: 誕生日が1日の場合は前月から適用
+   */
+  private calcAgeAtMonth(birthDate: Date, year: number, month: number): number {
+    const targetDate = new Date(year, month - 1, 1);
+    let age = targetDate.getFullYear() - birthDate.getFullYear();
+    const birthMonth = birthDate.getMonth(); // 0-indexed
+    const birthDay = birthDate.getDate();
+    // 前日基準: 1日生まれは前月末が誕生日前日なので、その月から適用
+    if (birthDay === 1) {
+      // 1日生まれ → 誕生月の前月から適用
+      if (targetDate.getMonth() < birthMonth || (targetDate.getMonth() === birthMonth - 1)) {
+        // 通常の年齢計算で対応
+      }
+      const adjustedBirthMonth = birthMonth - 1 < 0 ? 11 : birthMonth - 1;
+      const adjustedBirthYear = birthMonth === 0 ? birthDate.getFullYear() - 1 : birthDate.getFullYear();
+      age = targetDate.getFullYear() - adjustedBirthYear;
+      if (targetDate.getMonth() < adjustedBirthMonth) age--;
+    } else {
+      if (targetDate.getMonth() < birthMonth || (targetDate.getMonth() === birthMonth && targetDate.getDate() < birthDay)) {
+        age--;
+      }
+    }
+    return age;
   }
 
   /**
@@ -216,6 +265,7 @@ export class PayrollService {
         otherAllowance: null,
         grossSalary: null,
         healthInsurance: null,
+        nursingCareInsurance: null,
         pension: null,
         employmentInsurance: null,
         incomeTax: null,
@@ -391,17 +441,25 @@ export class PayrollService {
       // --- 社会保険料: 標準報酬月額テーブル or 社員別上書き ---
       let healthInsurance: number;
       let pension: number;
+      const monthlyRemuneration = baseSalary + fixedOvertimePay;
+      const gradeInfo = findGrade(monthlyRemuneration);
       if (emp.rateHealthInsurance === null || emp.rateHealthInsurance === undefined) {
-        // 標準報酬月額テーブルから算出（報酬月額 = 基本給 + 固定残業手当）
-        const monthlyRemuneration = baseSalary + fixedOvertimePay;
-        const gradeInfo = findGrade(monthlyRemuneration);
-        healthInsurance = calcHealthInsurance(gradeInfo.standardAmount);
+        healthInsurance = calcHealthInsurance(gradeInfo.standardAmount, Number(rateMaster.healthInsuranceStdRate));
         pension = calcPension(gradeInfo.standardAmount);
       } else {
         healthInsurance = Math.round(grossSalary * Number(emp.rateHealthInsurance));
         const pensionRate = emp.rateEmployeePension !== null && emp.rateEmployeePension !== undefined
           ? Number(emp.rateEmployeePension) : Number(rateMaster.employeePension);
         pension = Math.round(grossSalary * pensionRate);
+      }
+
+      // 介護保険: 40歳以上65歳未満
+      let nursingCareInsurance = 0;
+      if (emp.birthDate) {
+        const age = this.calcAgeAtMonth(new Date(emp.birthDate), year, month);
+        if (age >= 40 && age < 65) {
+          nursingCareInsurance = calcNursingCareInsurance(gradeInfo.standardAmount, Number(rateMaster.nursingCareRate));
+        }
       }
 
       // 雇用保険: grossSalary × 料率
@@ -413,21 +471,20 @@ export class PayrollService {
       // --- 所得税: 源泉徴収税額表 or 社員別上書き ---
       let incomeTax: number;
       if (emp.rateIncomeTax === null || emp.rateIncomeTax === undefined) {
-        // 課税対象額 = 総支給 - 社会保険料控除
-        const taxableIncome = grossSalary - healthInsurance - pension - employmentInsurance;
+        // 課税対象額 = 総支給 - 社会保険料控除（介護保険含む）
+        const taxableIncome = grossSalary - healthInsurance - nursingCareInsurance - pension - employmentInsurance;
         const dependents = depCountMap.get(emp.id) ?? 0;
         incomeTax = calcWithholdingTax(taxableIncome, dependents);
       } else {
         incomeTax = Math.round(grossSalary * Number(emp.rateIncomeTax));
       }
 
-      // 住民税: 固定額
-      const residentTaxFixed = emp.rateResidentTaxFixed !== null && emp.rateResidentTaxFixed !== undefined
-        ? emp.rateResidentTaxFixed
-        : rateMaster.residentTaxFixed;
-      const residentTax = residentTaxFixed;
+      // 住民税: EmployeeResidentTax → 社員別固定額 → マスタデフォルト
+      const residentTax = await this.getResidentTax(
+        emp.id, year, month, emp.rateResidentTaxFixed, rateMaster.residentTaxFixed,
+      );
 
-      const totalDeductions = healthInsurance + pension + employmentInsurance + incomeTax + residentTax;
+      const totalDeductions = healthInsurance + nursingCareInsurance + pension + employmentInsurance + incomeTax + residentTax;
       const netSalary = grossSalary - totalDeductions;
 
       // 標準報酬月額の等級情報
@@ -445,7 +502,7 @@ export class PayrollService {
           commuteAllowance, otherAllowance: 0, grossSalary,
           standardRemunerationGrade: gradeResult.grade,
           standardMonthlyRemuneration: gradeResult.standardAmount,
-          healthInsurance, pension, employmentInsurance, incomeTax, residentTax,
+          healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax, residentTax,
           totalDeductions, netSalary,
           businessDays, actualWorkDays,
           overtimeWarnings: overtimeWarnings ? overtimeWarnings : undefined,
@@ -459,7 +516,7 @@ export class PayrollService {
           commuteAllowance, grossSalary,
           standardRemunerationGrade: gradeResult.grade,
           standardMonthlyRemuneration: gradeResult.standardAmount,
-          healthInsurance, pension, employmentInsurance, incomeTax,
+          healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax,
           residentTax, totalDeductions, netSalary,
           businessDays, actualWorkDays,
           overtimeWarnings: overtimeWarnings ? overtimeWarnings : undefined,
@@ -593,16 +650,25 @@ export class PayrollService {
 
     let healthInsurance: number;
     let pension: number;
+    const monthlyRemuneration = baseSalary + fixedOvertimePay;
+    const gradeInfo = findGrade(monthlyRemuneration);
     if (emp.rateHealthInsurance === null || emp.rateHealthInsurance === undefined) {
-      const monthlyRemuneration = baseSalary + fixedOvertimePay;
-      const gradeInfo = findGrade(monthlyRemuneration);
-      healthInsurance = calcHealthInsurance(gradeInfo.standardAmount);
+      healthInsurance = calcHealthInsurance(gradeInfo.standardAmount, Number(rateMaster.healthInsuranceStdRate));
       pension = calcPension(gradeInfo.standardAmount);
     } else {
       healthInsurance = Math.round(grossSalary * Number(emp.rateHealthInsurance));
       const pensionRate = emp.rateEmployeePension !== null && emp.rateEmployeePension !== undefined
         ? Number(emp.rateEmployeePension) : Number(rateMaster.employeePension);
       pension = Math.round(grossSalary * pensionRate);
+    }
+
+    // 介護保険: 40歳以上65歳未満
+    let nursingCareInsurance = 0;
+    if (emp.birthDate) {
+      const age = this.calcAgeAtMonth(new Date(emp.birthDate), year, month);
+      if (age >= 40 && age < 65) {
+        nursingCareInsurance = calcNursingCareInsurance(gradeInfo.standardAmount, Number(rateMaster.nursingCareRate));
+      }
     }
 
     const empInsRate = emp.rateEmploymentInsurance !== null && emp.rateEmploymentInsurance !== undefined
@@ -612,18 +678,18 @@ export class PayrollService {
 
     let incomeTax: number;
     if (emp.rateIncomeTax === null || emp.rateIncomeTax === undefined) {
-      const taxableIncome = grossSalary - healthInsurance - pension - employmentInsurance;
+      const taxableIncome = grossSalary - healthInsurance - nursingCareInsurance - pension - employmentInsurance;
       incomeTax = calcWithholdingTax(taxableIncome, depCount);
     } else {
       incomeTax = Math.round(grossSalary * Number(emp.rateIncomeTax));
     }
 
-    const residentTaxFixed = emp.rateResidentTaxFixed !== null && emp.rateResidentTaxFixed !== undefined
-      ? emp.rateResidentTaxFixed
-      : rateMaster.residentTaxFixed;
-    const residentTax = residentTaxFixed;
+    // 住民税: EmployeeResidentTax → 社員別固定額 → マスタデフォルト
+    const residentTax = await this.getResidentTax(
+      emp.id, year, month, emp.rateResidentTaxFixed, rateMaster.residentTaxFixed,
+    );
 
-    const totalDeductions = healthInsurance + pension + employmentInsurance + incomeTax + residentTax;
+    const totalDeductions = healthInsurance + nursingCareInsurance + pension + employmentInsurance + incomeTax + residentTax;
     const netSalary = grossSalary - totalDeductions;
 
     const monthlyRem = baseSalary + fixedOvertimePay;
@@ -639,7 +705,7 @@ export class PayrollService {
         commuteAllowance, otherAllowance: 0, grossSalary,
         standardRemunerationGrade: gradeResult.grade,
         standardMonthlyRemuneration: gradeResult.standardAmount,
-        healthInsurance, pension, employmentInsurance, incomeTax, residentTax,
+        healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax, residentTax,
         totalDeductions, netSalary,
         businessDays, actualWorkDays,
         overtimeWarnings: overtimeWarnings ? overtimeWarnings : undefined,
@@ -653,7 +719,7 @@ export class PayrollService {
         commuteAllowance, grossSalary,
         standardRemunerationGrade: gradeResult.grade,
         standardMonthlyRemuneration: gradeResult.standardAmount,
-        healthInsurance, pension, employmentInsurance, incomeTax,
+        healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax,
         residentTax, totalDeductions, netSalary,
         businessDays, actualWorkDays,
         overtimeWarnings: overtimeWarnings ? overtimeWarnings : undefined,
@@ -743,6 +809,7 @@ export class PayrollService {
       commuteAllowance?: number;
       otherAllowance?: number;
       healthInsurance?: number;
+      nursingCareInsurance?: number;
       pension?: number;
       employmentInsurance?: number;
       incomeTax?: number;
@@ -775,7 +842,7 @@ export class PayrollService {
     const editableFields: (keyof typeof data)[] = [
       'baseSalary', 'fixedOvertimePay', 'absenceDeduction',
       'overtimePay', 'commuteAllowance', 'otherAllowance',
-      'healthInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
+      'healthInsurance', 'nursingCareInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
     ];
 
     // 差分検出
@@ -803,11 +870,12 @@ export class PayrollService {
     const grossSalary = newBase + newFixedOt - newAbsDed + newOt + newCommute + newOther;
 
     const newHealth = data.healthInsurance ?? payroll.healthInsurance;
+    const newNursing = data.nursingCareInsurance ?? payroll.nursingCareInsurance;
     const newPension = data.pension ?? payroll.pension;
     const newEmpIns = data.employmentInsurance ?? payroll.employmentInsurance;
     const newIncome = data.incomeTax ?? payroll.incomeTax;
     const newResident = data.residentTax ?? payroll.residentTax;
-    const totalDeductions = newHealth + newPension + newEmpIns + newIncome + newResident;
+    const totalDeductions = newHealth + newNursing + newPension + newEmpIns + newIncome + newResident;
     const netSalary = grossSalary - totalDeductions;
 
     // トランザクションで更新 + 履歴追加
@@ -821,6 +889,7 @@ export class PayrollService {
           otherAllowance: newOther,
           grossSalary,
           healthInsurance: newHealth,
+          nursingCareInsurance: newNursing,
           pension: newPension,
           employmentInsurance: newEmpIns,
           incomeTax: newIncome,
@@ -898,6 +967,8 @@ export class PayrollService {
     });
     return {
       healthInsurance: Number(master.healthInsurance),
+      healthInsuranceStdRate: Number(master.healthInsuranceStdRate),
+      nursingCareRate: Number(master.nursingCareRate),
       employeePension: Number(master.employeePension),
       employmentInsurance: Number(master.employmentInsurance),
       incomeTax: Number(master.incomeTax),
@@ -913,6 +984,8 @@ export class PayrollService {
   async updateRateMaster(
     data: {
       healthInsurance?: number;
+      healthInsuranceStdRate?: number;
+      nursingCareRate?: number;
       employeePension?: number;
       employmentInsurance?: number;
       incomeTax?: number;
@@ -922,6 +995,8 @@ export class PayrollService {
   ) {
     const update: any = {};
     if (data.healthInsurance !== undefined) update.healthInsurance = data.healthInsurance;
+    if (data.healthInsuranceStdRate !== undefined) update.healthInsuranceStdRate = data.healthInsuranceStdRate;
+    if (data.nursingCareRate !== undefined) update.nursingCareRate = data.nursingCareRate;
     if (data.employeePension !== undefined) update.employeePension = data.employeePension;
     if (data.employmentInsurance !== undefined) update.employmentInsurance = data.employmentInsurance;
     if (data.incomeTax !== undefined) update.incomeTax = data.incomeTax;
@@ -935,6 +1010,8 @@ export class PayrollService {
     });
     return {
       healthInsurance: Number(updated.healthInsurance),
+      healthInsuranceStdRate: Number(updated.healthInsuranceStdRate),
+      nursingCareRate: Number(updated.nursingCareRate),
       employeePension: Number(updated.employeePension),
       employmentInsurance: Number(updated.employmentInsurance),
       incomeTax: Number(updated.incomeTax),
