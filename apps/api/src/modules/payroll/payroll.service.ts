@@ -19,6 +19,7 @@ import { DatabaseService } from '../../database/database.service';
 import { AttendanceConfirmedEvent } from '../attendance/events/attendance-confirmed.event';
 import { AuditService } from '../audit-logs/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PayslipPdfService } from './payslip-pdf.service';
 import { isHoliday } from '@holiday-jp/holiday_jp';
 import { findGrade, calcHealthInsurance, calcNursingCareInsurance, calcPension } from './tables/standard-remuneration';
 import { calcWithholdingTax } from './tables/income-tax-table';
@@ -33,6 +34,7 @@ export class PayrollService {
     private readonly db: DatabaseService,
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
+    private readonly payslipPdfService: PayslipPdfService,
   ) {}
 
   /**
@@ -814,6 +816,13 @@ export class PayrollService {
     });
 
     this.logger.log(`Payroll confirmed: ${payrollId}`);
+
+    // 給与明細PDFを発行 (Drive保存 + DocumentIssuance記録)
+    // fire-and-forget: 確定処理の応答時間を伸ばさないため、エラーは内部でログのみ
+    this.payslipPdfService.issueForPayroll(payrollId, actorUserId).catch((e) => {
+      this.logger.error(`給与明細PDF発行失敗: ${e?.message}`);
+    });
+
     return { confirmed: true };
   }
 

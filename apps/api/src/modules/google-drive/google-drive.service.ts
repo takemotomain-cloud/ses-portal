@@ -30,6 +30,8 @@ export class GoogleDriveService implements OnModuleInit {
   private sheets!: sheets_v4.Sheets;
   private rootFolderId: string | null = null;
   private enabled = false;
+  /** ensureFolderPath のキャッシュ（同一プロセス内で folder ID を再検索しない） */
+  private folderPathCache = new Map<string, string>();
 
   constructor(private readonly db: DatabaseService) {}
 
@@ -199,24 +201,138 @@ export class GoogleDriveService implements OnModuleInit {
   }
 
   /**
-   * 月次フォルダ構成を確保して返す
+   * ルート (SES Portal) フォルダ ID を確保
+   */
+  private async getRootFolderId(): Promise<string> {
+    if (this.rootFolderId) return this.rootFolderId;
+    this.rootFolderId = await this.ensureFolder(null, 'SES Portal');
+    return this.rootFolderId;
+  }
+
+  /**
+   * 任意の階層パスを順に作成・確保し、最深部のフォルダIDを返す
+   * 例: ensureFolderPath(['2026年度', '2026年5月', '給与明細'])
+   */
+  async ensureFolderPath(segments: string[]): Promise<string> {
+    if (!this.enabled) {
+      throw new Error('Google Drive 連携が無効です');
+    }
+    const cacheKey = segments.join('/');
+    const cached = this.folderPathCache.get(cacheKey);
+    if (cached) return cached;
+
+    let parentId = await this.getRootFolderId();
+    for (const seg of segments) {
+      parentId = await this.ensureFolder(parentId, seg);
+    }
+    this.folderPathCache.set(cacheKey, parentId);
+    return parentId;
+  }
+
+  /**
+   * 5月始まり年度ラベルを返す。例: 2026/4 → "2025年度", 2026/5 → "2026年度"
+   */
+  getFiscalYearLabel(date: Date): string {
+    const y = date.getFullYear();
+    const m = date.getMonth() + 1;
+    return `${m >= 5 ? y : y - 1}年度`;
+  }
+
+  /**
+   * 月ラベルを返す。例: 2026/5 → "2026年5月"
+   */
+  getMonthLabel(date: Date): string {
+    return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+  }
+
+  /**
+   * 書類PDFを Drive に保存する高レベルAPI
+   *
+   * 階層: SES Portal/{年度}/{YYYY年M月}/{categoryFolder}/
+   *
+   * @param opts.fiscalYearDate 年度判定に使う日付（給与明細は対象月、他は発行日）
+   * @param opts.monthDate     月フォルダ判定に使う日付（給与明細は対象月、他は発行日）
+   * @param opts.categoryFolder 書類カテゴリフォルダ名（例: '給与明細', '内定通知書'）
+   * @param opts.fileName      ファイル名（拡張子含む）
+   * @param opts.pdf           PDF Buffer
+   */
+  async saveDocumentPdf(opts: {
+    categoryFolder: string;
+    fiscalYearDate: Date;
+    monthDate: Date;
+    fileName: string;
+    pdf: Buffer;
+  }): Promise<{ fileId: string; webViewLink: string }> {
+    if (!this.enabled) {
+      throw new Error('Google Drive 連携が無効です');
+    }
+    await this.refreshTokenIfNeeded();
+
+    const fiscalLabel = this.getFiscalYearLabel(opts.fiscalYearDate);
+    const monthLabel = this.getMonthLabel(opts.monthDate);
+    const folderId = await this.ensureFolderPath([fiscalLabel, monthLabel, opts.categoryFolder]);
+
+    return this.uploadBuffer({
+      folderId,
+      fileName: opts.fileName,
+      buffer: opts.pdf,
+      mimeType: 'application/pdf',
+    });
+  }
+
+  /**
+   * Buffer をそのまま Drive にアップロード（同名は上書き）
+   */
+  async uploadBuffer(params: {
+    folderId: string;
+    fileName: string;
+    buffer: Buffer;
+    mimeType: string;
+  }): Promise<{ fileId: string; webViewLink: string }> {
+    await this.refreshTokenIfNeeded();
+    const { folderId, fileName, buffer, mimeType } = params;
+    const { Readable } = await import('stream');
+
+    const query = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+    const existing = await this.drive.files.list({ q: query, fields: 'files(id)' });
+
+    let fileId: string;
+    if (existing.data.files?.length) {
+      fileId = existing.data.files[0].id!;
+      await this.drive.files.update({
+        fileId,
+        media: { mimeType, body: Readable.from(buffer) },
+      });
+      this.logger.log(`Drive 上書き: ${fileName} (${fileId})`);
+    } else {
+      const created = await this.drive.files.create({
+        requestBody: { name: fileName, parents: [folderId] },
+        media: { mimeType, body: Readable.from(buffer) },
+        fields: 'id',
+      });
+      fileId = created.data.id!;
+      this.logger.log(`Drive 新規: ${fileName} (${fileId})`);
+    }
+
+    return { fileId, webViewLink: `https://drive.google.com/file/d/${fileId}/view` };
+  }
+
+  /**
+   * 月次フォルダ構成を確保して返す（旧API・後方互換のため残置）
+   * 新しいコードでは ensureFolderPath を使うこと
    */
   async ensureMonthlyFolders(year: number, month: number) {
     if (!this.enabled) {
       throw new Error('Google Drive 連携が無効です');
     }
 
-    // ルートフォルダを確保（初回のみ作成）
-    if (!this.rootFolderId) {
-      this.rootFolderId = await this.ensureFolder(null, 'SESポータル勤怠');
-    }
+    // 新フォルダ構成: SES Portal/{年度}/{YYYY年M月}/勤怠/本人勤怠 (および 現場勤怠)
+    const targetDate = new Date(year, month - 1, 1);
+    const fiscalLabel = this.getFiscalYearLabel(targetDate);
+    const monthLabel = this.getMonthLabel(targetDate);
 
-    const monthFolder = await this.ensureFolder(
-      this.rootFolderId,
-      `${year}年${month}月_勤怠表`,
-    );
-    const selfFolder = await this.ensureFolder(monthFolder, '本人勤怠');
-    const clientFolder = await this.ensureFolder(monthFolder, '現場勤怠');
+    const selfFolder = await this.ensureFolderPath([fiscalLabel, monthLabel, '勤怠', '本人勤怠']);
+    const clientFolder = await this.ensureFolderPath([fiscalLabel, monthLabel, '勤怠', '現場勤怠']);
 
     return { selfFolderId: selfFolder, clientFolderId: clientFolder };
   }

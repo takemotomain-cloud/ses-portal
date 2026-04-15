@@ -8,9 +8,17 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
+import { apiClient } from '@/lib/api-client';
+
+interface EmployeeOption {
+  id: string;
+  employeeCode: string;
+  lastName: string;
+  firstName: string;
+}
 
 /* ---------- form state ---------- */
 interface MukiNewForm {
@@ -120,9 +128,64 @@ export default function AdminNoticesMukiNewPage() {
     router.push('/admin/notices-muki/preview');
   };
 
-  const handleSave = () => {
-    toast('通知書を発行しました');
-    router.push('/admin/notices-muki');
+  /* ---- 候補社員の読み込み ---- */
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  useEffect(() => {
+    apiClient<EmployeeOption[]>('/employees')
+      .then((data) => setEmployees(Array.isArray(data) ? data : []))
+      .catch(() => { /* noop */ });
+  }, []);
+
+  const [issuing, setIssuing] = useState(false);
+  const handleSave = async () => {
+    if (!form.person) {
+      toast('対象社員を選択してください');
+      return;
+    }
+    setIssuing(true);
+    try {
+      const empName = employees.find((e) => e.id === form.person);
+      const fullName = empName ? `${empName.lastName}${empName.firstName}` : '';
+      const res = await apiClient<{ driveViewLink?: string }>(
+        `/notices/labor-open/${form.person}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            laborDate: form.laborDate,
+            person: fullName,
+            convertDate: form.convertDate,
+            workplace: form.workplace,
+            workplaceRange: form.workplaceRange,
+            jobDesc: form.jobDesc,
+            jobRange: form.jobRange,
+            startTime: form.startTime,
+            endTime: form.endTime,
+            breakTime: form.breakTime,
+            workTimeSystem: form.workTimeSystem,
+            overtime: form.overtime,
+            holidays: [form.holSat && '土', form.holSun && '日', form.holHoliday && '祝'].filter(Boolean).join('・') + (form.holOther ? `（${form.holOther}）` : ''),
+            leave: form.leave,
+            salary: form.salary,
+            fixedOvertime: form.fixedOvertime,
+            jobAllowance: form.jobAllowance,
+            salaryTotal: salaryTotal > 0 ? salaryTotal.toLocaleString() : '',
+            commutePay: form.commutePay,
+            payClose: form.payClose,
+            payDay: form.payDay,
+            raise: form.raise,
+            bonus: form.bonus,
+            severance: form.severance,
+            insurance: form.insurance,
+          }),
+        },
+      );
+      toast(res.driveViewLink ? '労働条件通知書（無期）を発行・Drive保存しました' : '労働条件通知書（無期）を発行しました（Drive未連携）');
+      router.push('/admin/notices-muki');
+    } catch (e: any) {
+      toast(`発行に失敗しました: ${e?.message || ''}`);
+    } finally {
+      setIssuing(false);
+    }
   };
 
   return (
@@ -140,8 +203,12 @@ export default function AdminNoticesMukiNewPage() {
           <button className="btn-outline text-sm py-2" onClick={handlePreview}>
             プレビュー
           </button>
-          <button className="btn-primary text-sm py-2" onClick={handleSave}>
-            保存・発行
+          <button
+            className="btn-primary text-sm py-2 disabled:opacity-50"
+            onClick={handleSave}
+            disabled={issuing}
+          >
+            {issuing ? '発行中...' : '保存・発行'}
           </button>
         </div>
       </div>
@@ -161,6 +228,11 @@ export default function AdminNoticesMukiNewPage() {
                 onChange={(e) => set('person', e.target.value)}
               >
                 <option value="">選択してください</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.employeeCode} {e.lastName} {e.firstName}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

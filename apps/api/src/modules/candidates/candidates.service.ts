@@ -81,9 +81,11 @@ export class CandidatesService {
    * Candidateのsource/statusを集計して返す
    */
   async getAnalytics(year?: number) {
-    const targetYear = year || new Date().getFullYear();
-    const startDate = new Date(targetYear, 0, 1);
-    const endDate = new Date(targetYear + 1, 0, 1);
+    // year は「年度」(5月始まり)。2026年度 = 2026/5/1 〜 2027/4/30
+    const now = new Date();
+    const targetYear = year || (now.getMonth() + 1 >= 5 ? now.getFullYear() : now.getFullYear() - 1);
+    const startDate = new Date(targetYear, 4, 1);       // 5月1日
+    const endDate = new Date(targetYear + 1, 4, 1);     // 翌年5月1日
 
     const candidates = await this.db.candidate.findMany({
       where: {

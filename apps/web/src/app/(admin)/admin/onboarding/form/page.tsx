@@ -26,29 +26,64 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, getToken } from '@/lib/api-client';
 
-/* ── ファイルアップロード用コンポーネント ── */
-function UploadBox({ id, label }: { id: string; label: string }) {
-  const [fileName, setFileName] = useState<string | null>(null);
+/* ── ファイルアップロード用コンポーネント（制御コンポーネント） ── */
+function UploadBox({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: File | null;
+  onChange: (f: File | null) => void;
+}) {
   return (
     <div>
       <label className="text-xs text-secondary block mb-1.5">{label}</label>
       <label
         htmlFor={id}
         className={`block border border-dashed rounded-lg p-5 text-center text-sm cursor-pointer transition-colors
-          ${fileName ? 'border-green-400 bg-green-50 text-green-700' : 'border-border text-secondary hover:bg-page'}`}
+          ${value ? 'border-green-400 bg-green-50 text-green-700' : 'border-border text-secondary hover:bg-page'}`}
       >
-        {fileName ? (
-          <span>{fileName}</span>
+        {value ? (
+          <span>{value.name}</span>
         ) : (
-          <>タップして撮影 / 選択<br /><span className="text-xs text-[#BDBDBD]">JPG, PNG（10MB以下）</span></>
+          <>タップして撮影 / 選択<br /><span className="text-xs text-[#BDBDBD]">JPG, PNG, PDF（10MB以下）</span></>
         )}
       </label>
-      <input id={id} type="file" accept="image/*" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) setFileName(f.name); }} />
+      <input
+        id={id}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; onChange(f || null); }}
+      />
     </div>
   );
+}
+
+/** OnboardingDocuments: multipart で本人確認書類を送る（apiClient は JSON 固定のため fetch を使う） */
+async function uploadOnboardingDocument(
+  employeeId: string,
+  documentType: string,
+  file: File,
+): Promise<void> {
+  const token = getToken();
+  const fd = new FormData();
+  fd.append('documentType', documentType);
+  fd.append('file', file);
+  const res = await fetch(`/api/onboarding-documents/${employeeId}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: fd,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.message || `アップロード失敗 (${documentType})`);
+  }
 }
 
 /* ── Controlled Input ── */
@@ -150,6 +185,14 @@ export default function OnboardFormPage() {
   // 資格
   const [certs, setCerts] = useState<string[]>([]);
 
+  // 本人確認書類（File オブジェクト）
+  const [docLicenseFront, setDocLicenseFront] = useState<File | null>(null);
+  const [docLicenseBack, setDocLicenseBack] = useState<File | null>(null);
+  const [docMynumberFront, setDocMynumberFront] = useState<File | null>(null);
+  const [docMynumberBack, setDocMynumberBack] = useState<File | null>(null);
+  const [docPensionBook, setDocPensionBook] = useState<File | null>(null);
+  const [docHealthCheck, setDocHealthCheck] = useState<File | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
 
   function addCert() {
@@ -250,7 +293,31 @@ export default function OnboardFormPage() {
         }).catch(() => {});
       }
 
-      toast(`社員を登録しました（${result.employeeCode}）`);
+      // 5. 本人確認書類を Drive にアップロード（失敗しても社員登録自体は成功扱い）
+      const docs: Array<[string, File | null]> = [
+        ['license_front', docLicenseFront],
+        ['license_back', docLicenseBack],
+        ['mynumber_front', docMynumberFront],
+        ['mynumber_back', docMynumberBack],
+        ['pension_book', docPensionBook],
+        ['health_check', docHealthCheck],
+      ];
+      const uploadFailures: string[] = [];
+      for (const [type, f] of docs) {
+        if (!f) continue;
+        try {
+          await uploadOnboardingDocument(result.id, type, f);
+        } catch (e: unknown) {
+          uploadFailures.push(type);
+          console.warn('本人確認書類アップロード失敗', type, e);
+        }
+      }
+
+      if (uploadFailures.length > 0) {
+        toast(`社員を登録しました。ただし書類の一部アップロードに失敗: ${uploadFailures.join(', ')}`);
+      } else {
+        toast(`社員を登録しました（${result.employeeCode}）`);
+      }
       setTimeout(() => router.push('/admin/onboarding'), 1500);
     } catch (err: unknown) {
       const message = (err as { message?: string })?.message || '登録に失敗しました';
@@ -368,8 +435,8 @@ export default function OnboardFormPage() {
           <h2 className="text-sm font-medium mb-1">本人確認書類のアップロード <span className="text-red-600">*</span></h2>
           <p className="text-xs text-secondary mb-3">以下のいずれかをアップロードしてください。Google Driveに安全に保管されます。</p>
           <div className="grid grid-cols-2 gap-3">
-            <UploadBox id="ob-upload-1" label="運転免許証（表）" />
-            <UploadBox id="ob-upload-2" label="運転免許証（裏）" />
+            <UploadBox id="ob-upload-1" label="運転免許証（表）" value={docLicenseFront} onChange={setDocLicenseFront} />
+            <UploadBox id="ob-upload-2" label="運転免許証（裏）" value={docLicenseBack} onChange={setDocLicenseBack} />
           </div>
         </div>
 
@@ -378,8 +445,8 @@ export default function OnboardFormPage() {
           <h2 className="text-sm font-medium mb-1">マイナンバー <span className="text-red-600">*</span></h2>
           <p className="text-xs text-secondary mb-3">マイナンバーカードまたは通知カードの写真をアップロードしてください</p>
           <div className="grid grid-cols-2 gap-3">
-            <UploadBox id="ob-upload-3" label="マイナンバーカード（表）" />
-            <UploadBox id="ob-upload-4" label="マイナンバーカード（裏）" />
+            <UploadBox id="ob-upload-3" label="マイナンバーカード（表）" value={docMynumberFront} onChange={setDocMynumberFront} />
+            <UploadBox id="ob-upload-4" label="マイナンバーカード（裏）" value={docMynumberBack} onChange={setDocMynumberBack} />
           </div>
         </div>
 
@@ -387,14 +454,14 @@ export default function OnboardFormPage() {
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">年金手帳</h2>
           <p className="text-xs text-secondary mb-3">基礎年金番号が記載されたページを撮影してください</p>
-          <div className="w-1/2"><UploadBox id="ob-upload-5" label="年金手帳" /></div>
+          <div className="w-1/2"><UploadBox id="ob-upload-5" label="年金手帳" value={docPensionBook} onChange={setDocPensionBook} /></div>
         </div>
 
         {/* ── 9. 健康診断結果 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">健康診断結果</h2>
           <p className="text-xs text-secondary mb-3">直近3ヶ月以内の健康診断結果をアップロードしてください</p>
-          <div className="w-1/2"><UploadBox id="ob-upload-6" label="健康診断結果" /></div>
+          <div className="w-1/2"><UploadBox id="ob-upload-6" label="健康診断結果" value={docHealthCheck} onChange={setDocHealthCheck} /></div>
         </div>
 
         {/* ── 10. 保有資格 ── */}

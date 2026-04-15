@@ -26,7 +26,7 @@ interface BudgetGroup {
   actual: MonthlyData;
 }
 
-const MONTHS = ['4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月'];
+const MONTHS = ['5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月', '4月'];
 const CATEGORY_LABELS: Record<string, string> = {
   agent: 'エージェント手数料',
   media: '媒体掲載費',
@@ -81,8 +81,8 @@ function toBudgetGroups(rows: BudgetRow[]): BudgetGroup[] {
       });
     }
     const g = catMap.get(r.category)!;
-    // month 1-12 → index: month 4→0, 5→1, ..., 3→11
-    const idx = r.month >= 4 ? r.month - 4 : r.month + 8;
+    // month 1-12 → index: month 5→0, 6→1, ..., 4→11 (年度は5月始まり)
+    const idx = r.month >= 5 ? r.month - 5 : r.month + 7;
     g.budget[idx] = r.budget;
     g.actual[idx] = r.actual;
   }

@@ -45,6 +45,9 @@ import { MailerModule } from './modules/mailer/mailer.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { UsersModule } from './modules/users/users.module';
 import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
+import { PdfModule } from './modules/pdf/pdf.module';
+import { NoticesModule } from './modules/notices/notices.module';
+import { OnboardingDocumentsModule } from './modules/onboarding-documents/onboarding-documents.module';
 
 @Module({
   imports: [
@@ -56,6 +59,7 @@ import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
     EventEmitterModule.forRoot(),
     DatabaseModule,
     GoogleDriveModule,
+    PdfModule,
     MailerModule,
     AuditLogsModule,
     AuthModule,
@@ -85,6 +89,8 @@ import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
     FreeeModule,
     ProjectsModule,
     LeaveOfAbsenceModule,
+    NoticesModule,
+    OnboardingDocumentsModule,
   ],
   controllers: [HealthController],
 })

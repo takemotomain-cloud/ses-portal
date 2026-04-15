@@ -33,7 +33,11 @@ export default function RecruitAnalyticsPage() {
   const { toast, ToastUI } = useToast();
   const [rows, setRows] = useState<AnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [year, setYear] = useState<number>(new Date().getFullYear());
+  // 年度（5月始まり）。4月までは前年度扱い
+  const [year, setYear] = useState<number>(() => {
+    const d = new Date();
+    return d.getMonth() + 1 >= 5 ? d.getFullYear() : d.getFullYear() - 1;
+  });
 
   const fetchData = useCallback(async () => {
     setLoading(true);

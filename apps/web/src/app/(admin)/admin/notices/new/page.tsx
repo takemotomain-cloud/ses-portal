@@ -7,9 +7,17 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
+import { apiClient } from '@/lib/api-client';
+
+interface EmployeeOption {
+  id: string;
+  employeeCode: string;
+  lastName: string;
+  firstName: string;
+}
 
 /* ---------- helper ---------- */
 const Label = ({
@@ -128,9 +136,88 @@ export default function AdminNoticeNewPage() {
   const isLabor = noticeType === '労働条件通知書';
   const showRenewal = contractTerm === '期間の定めあり';
 
-  const handleSave = () => {
-    toast('通知書を発行しました');
-    router.push('/admin/notices');
+  /* ---- 候補社員の読み込み ---- */
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  useEffect(() => {
+    apiClient<EmployeeOption[]>('/employees')
+      .then((data) => setEmployees(Array.isArray(data) ? data : []))
+      .catch(() => { /* noop */ });
+  }, []);
+
+  const [issuing, setIssuing] = useState(false);
+  const handleSave = async () => {
+    if (!person) {
+      toast('対象社員を選択してください');
+      return;
+    }
+    setIssuing(true);
+    try {
+      if (isOffer) {
+        // 採用内定通知書
+        const res = await apiClient<{ driveViewLink?: string }>(
+          `/notices/offer/${person}`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              date: offerDate,
+              person: employees.find((e) => e.id === person)
+                ? `${employees.find((e) => e.id === person)!.lastName}${employees.find((e) => e.id === person)!.firstName}`
+                : '',
+              joinDate,
+              workplace: workplaceOffer,
+              salary: salaryOffer,
+              transport,
+              trial,
+              deadline,
+              cancelReasons: cancelReasons.split('\n').map((s) => s.replace(/^\d+\.\s*/, '').trim()).filter(Boolean),
+              requiredDocs,
+            }),
+          },
+        );
+        toast(res.driveViewLink ? '内定通知書を発行・Drive保存しました' : '内定通知書を発行しました（Drive未連携）');
+      } else {
+        // 労働条件通知書（有期）
+        const empName = employees.find((e) => e.id === person);
+        const fullName = empName ? `${empName.lastName}${empName.firstName}` : '';
+        const res = await apiClient<{ driveViewLink?: string }>(
+          `/notices/labor-fixed/${person}`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              date: laborDate,
+              person: fullName,
+              contractTerm: `${contractStart}〜${contractEnd}`,
+              contractRange: contractTerm,
+              workplace,
+              jobDesc,
+              startTime,
+              endTime,
+              breakTime,
+              overtime,
+              holidays: [holSat && '土', holSun && '日', holHoliday && '祝'].filter(Boolean).join('・') + (holOther ? `（${holOther}）` : ''),
+              leave,
+              salaryBase: salary,
+              fixedOvertime,
+              jobAllowance,
+              salaryTotal: salaryTotal.replace('円', ''),
+              commute: commutePay,
+              payclose,
+              payday,
+              raise,
+              bonus,
+              severance,
+              insurance,
+            }),
+          },
+        );
+        toast(res.driveViewLink ? '労働条件通知書を発行・Drive保存しました' : '労働条件通知書を発行しました（Drive未連携）');
+      }
+      router.push('/admin/notices');
+    } catch (e: any) {
+      toast(`発行に失敗しました: ${e?.message || ''}`);
+    } finally {
+      setIssuing(false);
+    }
   };
 
   const handlePreview = () => {
@@ -155,8 +242,12 @@ export default function AdminNoticeNewPage() {
           >
             プレビュー
           </button>
-          <button className="btn-primary text-sm py-2" onClick={handleSave}>
-            保存・発行
+          <button
+            className="btn-primary text-sm py-2 disabled:opacity-50"
+            onClick={handleSave}
+            disabled={issuing}
+          >
+            {issuing ? '発行中...' : '保存・発行'}
           </button>
         </div>
       </div>
@@ -174,6 +265,11 @@ export default function AdminNoticeNewPage() {
                 onChange={(e) => setPerson(e.target.value)}
               >
                 <option value="">選択してください</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.employeeCode} {e.lastName} {e.firstName}
+                  </option>
+                ))}
               </select>
             </div>
             <div>

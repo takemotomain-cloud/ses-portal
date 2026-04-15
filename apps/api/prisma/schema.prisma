@@ -1312,3 +1312,48 @@ model IntegrationToken {
 
   @@map("integration_tokens")
 }
+
+// ----------------------------------------
+// 発行系書類の発行履歴 (給与明細/内定通知書/労働条件通知書)
+// ----------------------------------------
+model DocumentIssuance {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String   @map("employee_id") @db.Uuid
+  documentType  String   @map("document_type") @db.VarChar(32) // 'payslip' | 'offer' | 'notice_fixed' | 'notice_open'
+  targetDate    DateTime @map("target_date") @db.Date
+  issuedAt      DateTime @default(now()) @map("issued_at") @db.Timestamptz
+  fileName      String   @map("file_name") @db.VarChar(255)
+  driveFileId   String?  @map("drive_file_id") @db.VarChar(128)
+  driveViewLink String?  @map("drive_view_link") @db.VarChar(512)
+  issuedBy      String?  @map("issued_by") @db.Uuid
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([employeeId])
+  @@index([documentType, targetDate])
+  @@index([issuedAt(sort: Desc)])
+  @@map("document_issuances")
+}
+
+/// 入社情報フォームで本人確認書類を社員単位に管理（Drive 保管）
+model OnboardingDocument {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId    String   @map("employee_id") @db.Uuid
+  documentType  String   @map("document_type") @db.VarChar(32)
+  fileName      String   @map("file_name") @db.VarChar(255)
+  mimeType      String?  @map("mime_type") @db.VarChar(64)
+  fileSize      Int?     @map("file_size")
+  localPath     String?  @map("local_path") @db.VarChar(512)
+  driveFileId   String?  @map("drive_file_id") @db.VarChar(128)
+  driveViewLink String?  @map("drive_view_link") @db.VarChar(512)
+  uploadedBy    String?  @map("uploaded_by") @db.Uuid
+  uploadedAt    DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([employeeId])
+  @@index([documentType])
+  @@index([uploadedAt(sort: Desc)])
+  @@map("onboarding_documents")
+}
