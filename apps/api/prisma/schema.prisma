@@ -126,6 +126,8 @@ model Employee {
   leaveRequests      LeaveRequest[]
   leaveBalances      LeaveBalance[]
   expenseRequests    ExpenseRequest[]
+  preApprovals       PreApproval[]
+  generalExpenses    GeneralExpense[]
   changeRequests     ChangeRequest[]
   payrolls           Payroll[]
   notifications      Notification[]
@@ -559,6 +561,7 @@ model ExpenseRequest {
   status      String    @default("pending") @db.VarChar(20)
   approverId  String?   @map("approver_id") @db.Uuid
   approvedAt  DateTime? @map("approved_at") @db.Timestamptz
+  rejectReason String?  @map("reject_reason")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -580,6 +583,8 @@ model ExpenseItem {
   departure        String   @db.VarChar(100)
   destination      String   @db.VarChar(100)
   amount           Int
+  receiptPath      String?  @map("receipt_path") @db.VarChar(500)
+  receiptName      String?  @map("receipt_name") @db.VarChar(255)
   sortOrder        Int      @default(0) @map("sort_order")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -587,6 +592,53 @@ model ExpenseItem {
   expenseRequest ExpenseRequest @relation(fields: [expenseRequestId], references: [id], onDelete: Cascade)
 
   @@map("expense_items")
+}
+
+// ----------------------------------------
+// 事前申請（経費の事前承認）
+// ----------------------------------------
+model PreApproval {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId      String    @map("employee_id") @db.Uuid
+  expectedDate    DateTime  @map("expected_date") @db.Date   // 発生予定日（未来日のみ）
+  description     String    @db.VarChar(500)
+  estimatedAmount Int       @map("estimated_amount")          // 見積金額
+  status          String    @default("pending") @db.VarChar(20) // pending / approved / rejected
+  approverId      String?   @map("approver_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at") @db.Timestamptz
+  rejectReason    String?   @map("reject_reason")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee        Employee         @relation(fields: [employeeId], references: [id])
+  generalExpenses GeneralExpense[]
+
+  @@map("pre_approvals")
+}
+
+// ----------------------------------------
+// 一般経費申請（交通費以外）
+// ----------------------------------------
+model GeneralExpense {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId     String    @map("employee_id") @db.Uuid
+  preApprovalId  String?   @map("pre_approval_id") @db.Uuid  // 事前申請とのペア（admin以外は必須）
+  expenseDate    DateTime  @map("expense_date") @db.Date
+  description    String    @db.VarChar(500)
+  amount         Int
+  receiptPath    String?   @map("receipt_path") @db.VarChar(500)
+  receiptName    String?   @map("receipt_name") @db.VarChar(255)
+  status         String    @default("pending") @db.VarChar(20)
+  approverId     String?   @map("approver_id") @db.Uuid
+  approvedAt     DateTime? @map("approved_at") @db.Timestamptz
+  rejectReason   String?   @map("reject_reason")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  employee    Employee     @relation(fields: [employeeId], references: [id])
+  preApproval PreApproval? @relation(fields: [preApprovalId], references: [id])
+
+  @@map("general_expenses")
 }
 
 // ----------------------------------------
@@ -626,6 +678,7 @@ model Payroll {
   lateNightPay        Int      @default(0) @map("late_night_pay")
   holidayPay          Int      @default(0) @map("holiday_pay")
   commuteAllowance    Int      @default(0) @map("commute_allowance")
+  expenseReimbursement Int     @default(0) @map("expense_reimbursement")
   otherAllowance      Int      @default(0) @map("other_allowance")
   grossSalary         Int      @map("gross_salary")
   standardRemunerationGrade   Int?  @map("standard_remuneration_grade")

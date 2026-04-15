@@ -30,6 +30,7 @@ interface PayrollApiItem {
   lateNightPay: number | null;
   holidayPay: number | null;
   commuteAllowance: number | null;
+  expenseReimbursement: number | null;
   otherAllowance: number | null;
   grossSalary: number | null;
   standardRemunerationGrade: number | null;
@@ -56,6 +57,7 @@ interface PayrollApiItem {
 /** UI 用に整形した給与データ */
 interface PayrollRow {
   id: string;
+  employeeId: string;
   name: string;
   unitPrice: number;
   ratio: number;
@@ -128,6 +130,7 @@ function toRow(item: PayrollApiItem): PayrollRow {
 
   earningsItems.push(
     { label: '通勤手当', amount: item.commuteAllowance },
+    { label: '経費精算', amount: item.expenseReimbursement },
     { label: 'その他手当', amount: item.otherAllowance },
   );
 
@@ -136,6 +139,7 @@ function toRow(item: PayrollApiItem): PayrollRow {
     name,
     unitPrice: item.unitPrice ?? 0,
     ratio: item.ratio ?? 0,
+    employeeId: item.employeeId,
     gross: item.grossSalary,
     deductions: item.totalDeductions,
     net: item.netSalary,
@@ -190,12 +194,39 @@ function buildMonthOptions(): { value: string; label: string; year: number; mont
   return options;
 }
 
+/** 交通費申請（給与ページ内承認用） */
+interface ExpenseRequestForPayroll {
+  id: string;
+  employeeId: string;
+  targetMonth: string;
+  totalAmount: number;
+  status: string;
+  createdAt: string;
+  items: {
+    kind: string;
+    expenseDate: string;
+    passEndDate: string | null;
+    departure: string;
+    destination: string;
+    amount: number;
+    receiptPath: string | null;
+    receiptName: string | null;
+  }[];
+}
+
+const kindLabel: Record<string, string> = {
+  onetime: '都度',
+  monthly_pass: '1ヶ月定期',
+  three_month_pass: '3ヶ月定期',
+};
+
 interface EditFormState {
   baseSalary: string;
   fixedOvertimePay: string;
   absenceDeduction: string;
   overtimePay: string;
   commuteAllowance: string;
+  expenseReimbursement: string;
   otherAllowance: string;
   healthInsurance: string;
   nursingCareInsurance: string;
@@ -222,6 +253,7 @@ const fieldLabel: Record<string, string> = {
   absenceDeduction: '欠勤控除',
   overtimePay: '超過残業手当',
   commuteAllowance: '通勤手当',
+  expenseReimbursement: '経費精算',
   otherAllowance: 'その他手当',
   healthInsurance: '健康保険',
   nursingCareInsurance: '介護保険',
@@ -250,13 +282,19 @@ function AdminPayrollPage() {
   /* J6: 直接編集 + 履歴 */
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState<EditFormState>({
-    baseSalary: '', fixedOvertimePay: '', absenceDeduction: '', overtimePay: '', commuteAllowance: '', otherAllowance: '',
+    baseSalary: '', fixedOvertimePay: '', absenceDeduction: '', overtimePay: '', commuteAllowance: '', expenseReimbursement: '', otherAllowance: '',
     healthInsurance: '', nursingCareInsurance: '', pension: '', employmentInsurance: '', incomeTax: '', residentTax: '',
     reason: '',
   });
   const [editSaving, setEditSaving] = useState(false);
   const [editHistory, setEditHistory] = useState<EditHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // 交通費申請データ（承認用）
+  const [expenseRequests, setExpenseRequests] = useState<ExpenseRequestForPayroll[]>([]);
+  const [expenseActioning, setExpenseActioning] = useState<string | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   /** 対象年月（デフォルトは現在月）— 月切替可能 */
   const monthOptions = buildMonthOptions();
@@ -277,8 +315,38 @@ function AdminPayrollPage() {
   const fetchPayroll = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiClient<PayrollApiItem[]>(`/payroll/${targetYear}/${targetMonth}`);
-      setPayrollData((Array.isArray(data) ? data : []).map(toRow));
+      const [data, allExpenses] = await Promise.all([
+        apiClient<PayrollApiItem[]>(`/payroll/${targetYear}/${targetMonth}`),
+        apiClient<ExpenseRequestForPayroll[]>(
+          `/expense/all?year=${targetYear}&month=${targetMonth}`,
+        ).catch(() => [] as ExpenseRequestForPayroll[]),
+      ]);
+      setExpenseRequests(allExpenses);
+
+      // 社員ごとの未承認/承認済み交通費
+      const pendingMap = new Map<string, number>();
+      const approvedSet = new Set<string>();
+      for (const e of allExpenses) {
+        if (e.status === 'pending') {
+          pendingMap.set(e.employeeId, (pendingMap.get(e.employeeId) || 0) + 1);
+        }
+        if (e.status === 'approved') {
+          approvedSet.add(e.employeeId);
+        }
+      }
+      const rows = (Array.isArray(data) ? data : []).map(toRow);
+      // 交通費警告を調整
+      for (const row of rows) {
+        if (approvedSet.has(row.employeeId)) {
+          const idx = row.warnings.indexOf('交通費未入力');
+          if (idx !== -1) row.warnings.splice(idx, 1);
+        }
+        const cnt = pendingMap.get(row.employeeId) || 0;
+        if (cnt > 0) {
+          row.warnings.push(`未承認の交通費申請あり（${cnt}件）`);
+        }
+      }
+      setPayrollData(rows);
     } catch {
       toast('給与データの取得に失敗しました');
       setPayrollData([]);
@@ -290,6 +358,46 @@ function AdminPayrollPage() {
   useEffect(() => {
     fetchPayroll();
   }, [fetchPayroll]);
+
+  // 選択中社員の交通費申請
+  const selectedExpenses = selected
+    ? expenseRequests.filter(e => e.employeeId === selected.employeeId)
+    : [];
+
+  async function handleExpenseApprove(expenseId: string) {
+    setExpenseActioning(expenseId);
+    try {
+      await apiClient(`/expense/${expenseId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toast('承認しました');
+      fetchPayroll();
+    } catch (err: any) {
+      toast(err?.message || '承認に失敗しました');
+    } finally {
+      setExpenseActioning(null);
+    }
+  }
+
+  async function handleExpenseReject(expenseId: string) {
+    if (!rejectReason.trim()) return;
+    setExpenseActioning(expenseId);
+    try {
+      await apiClient(`/expense/${expenseId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: rejectReason.trim() }),
+      });
+      toast('却下しました');
+      setRejectTarget(null);
+      setRejectReason('');
+      fetchPayroll();
+    } catch (err: any) {
+      toast(err?.message || '却下に失敗しました');
+    } finally {
+      setExpenseActioning(null);
+    }
+  }
 
   /** 総支給額合計（マスクされた行は除外） */
   const totalGross = payrollData.reduce((sum, p) => sum + (p.masked ? 0 : p.gross ?? 0), 0);
@@ -309,6 +417,7 @@ function AdminPayrollPage() {
       absenceDeduction: String(Math.abs(selected.earnings.find(i => i.label === '欠勤控除')?.amount ?? 0)),
       overtimePay: getByLabel(selected.earnings, '超過残業手当'),
       commuteAllowance: getByLabel(selected.earnings, '通勤手当'),
+      expenseReimbursement: getByLabel(selected.earnings, '経費精算'),
       otherAllowance: getByLabel(selected.earnings, 'その他手当'),
       healthInsurance: getByLabel(selected.deductionItems, '健康保険'),
       nursingCareInsurance: getByLabel(selected.deductionItems, '介護保険'),
@@ -326,7 +435,7 @@ function AdminPayrollPage() {
     if (!selected) return;
     const payload: Record<string, any> = {};
     const fields: (keyof EditFormState)[] = [
-      'baseSalary', 'overtimePay', 'commuteAllowance', 'otherAllowance',
+      'baseSalary', 'overtimePay', 'commuteAllowance', 'expenseReimbursement', 'otherAllowance',
       'healthInsurance', 'nursingCareInsurance', 'pension', 'employmentInsurance', 'incomeTax', 'residentTax',
     ];
     for (const f of fields) {
@@ -545,7 +654,7 @@ function AdminPayrollPage() {
                   </div>
                   <div>
                     <div className="text-2xs text-secondary uppercase tracking-widest mb-2">支給</div>
-                    {(['baseSalary', 'fixedOvertimePay', 'absenceDeduction', 'overtimePay', 'commuteAllowance', 'otherAllowance'] as const).map(k => (
+                    {(['baseSalary', 'fixedOvertimePay', 'absenceDeduction', 'overtimePay', 'commuteAllowance', 'expenseReimbursement', 'otherAllowance'] as const).map(k => (
                       <div key={k} className="flex items-center justify-between py-1.5 border-b border-border/20 text-sm">
                         <span className="text-secondary">{fieldLabel[k]}</span>
                         <input
@@ -610,6 +719,91 @@ function AdminPayrollPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* 交通費申請（承認/却下） */}
+                  {selectedExpenses.length > 0 && (
+                    <div>
+                      <div className="text-2xs text-secondary uppercase tracking-widest mb-2">交通費申請</div>
+                      <div className="space-y-2">
+                        {selectedExpenses.map(exp => (
+                          <div key={exp.id} className="border border-border/30 rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                exp.status === 'pending' ? 'bg-yellow-50 text-yellow-700'
+                                : exp.status === 'approved' ? 'bg-green-50 text-green-700'
+                                : 'bg-red-50 text-red-700'
+                              }`}>
+                                {exp.status === 'pending' ? '未承認' : exp.status === 'approved' ? '承認済' : '却下'}
+                              </span>
+                              <span className="text-sm font-medium tabular-nums">{exp.totalAmount.toLocaleString()}円</span>
+                            </div>
+                            {exp.items.map((it, i) => (
+                              <div key={i} className="text-xs text-secondary">
+                                <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                                  {kindLabel[it.kind] || it.kind}
+                                </span>
+                                {it.departure} → {it.destination}
+                                <span className="ml-1 tabular-nums">{it.amount.toLocaleString()}円</span>
+                                {it.receiptPath && (
+                                  <a
+                                    href={it.receiptPath.startsWith('/') ? it.receiptPath : `/uploads/expense-receipts/${it.receiptPath}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-1 text-primary underline"
+                                  >領収書</a>
+                                )}
+                              </div>
+                            ))}
+                            {exp.status === 'pending' && (
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  onClick={() => handleExpenseApprove(exp.id)}
+                                  disabled={expenseActioning === exp.id}
+                                  className="flex-1 py-1.5 text-xs rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                                >
+                                  承認
+                                </button>
+                                <button
+                                  onClick={() => { setRejectTarget(exp.id); setRejectReason(''); }}
+                                  disabled={expenseActioning === exp.id}
+                                  className="flex-1 py-1.5 text-xs rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+                                >
+                                  却下
+                                </button>
+                              </div>
+                            )}
+                            {rejectTarget === exp.id && (
+                              <div className="space-y-2 pt-1">
+                                <textarea
+                                  value={rejectReason}
+                                  onChange={e => setRejectReason(e.target.value)}
+                                  placeholder="却下理由を入力..."
+                                  className="w-full px-2 py-1.5 text-sm border border-border rounded-lg bg-card outline-none focus:border-primary resize-none"
+                                  rows={2}
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setRejectTarget(null)}
+                                    className="flex-1 py-1.5 text-xs rounded-lg border border-border text-secondary hover:bg-page"
+                                  >
+                                    キャンセル
+                                  </button>
+                                  <button
+                                    onClick={() => handleExpenseReject(exp.id)}
+                                    disabled={!rejectReason.trim() || expenseActioning === exp.id}
+                                    className="flex-1 py-1.5 text-xs rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+                                  >
+                                    却下する
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* 出勤日数 */}
                   {selected.businessDays !== null && (
                     <div className="text-xs text-secondary">

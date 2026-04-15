@@ -435,8 +435,21 @@ export class PayrollService {
       });
       const commuteAllowance = approvedExpenses.reduce((s, it) => s + (it.amount || 0), 0);
 
-      // 総支給額 = 基本給 + 固定残業手当 - 欠勤控除 + 超過残業手当 + 通勤手当
-      const grossSalary = baseSalary + fixedOvertimePay - absenceDeduction + overtimePay + commuteAllowance;
+      // 経費精算（一般経費）: 当月承認済みの一般経費を合算
+      const [tmYear, tmMonth] = targetMonth.split('-').map(Number);
+      const approvedGeneralStart = new Date(tmYear, tmMonth - 1, 1);
+      const approvedGeneralEnd = new Date(tmYear, tmMonth, 1);
+      const approvedGeneralExpenses = await this.db.generalExpense.findMany({
+        where: {
+          employeeId: emp.id,
+          status: 'approved',
+          approvedAt: { gte: approvedGeneralStart, lt: approvedGeneralEnd },
+        },
+      });
+      const expenseReimbursement = approvedGeneralExpenses.reduce((s, it) => s + (it.amount || 0), 0);
+
+      // 総支給額 = 基本給 + 固定残業手当 - 欠勤控除 + 超過残業手当 + 通勤手当 + 経費精算
+      const grossSalary = baseSalary + fixedOvertimePay - absenceDeduction + overtimePay + commuteAllowance + expenseReimbursement;
 
       // --- 社会保険料: 標準報酬月額テーブル or 社員別上書き ---
       let healthInsurance: number;
@@ -499,7 +512,7 @@ export class PayrollService {
           fixedOvertimeHours: fixedOvertime,
           absenceDeduction, overtimePay,
           regularOvertimePay, excessOvertimePay, lateNightPay, holidayPay,
-          commuteAllowance, otherAllowance: 0, grossSalary,
+          commuteAllowance, expenseReimbursement, otherAllowance: 0, grossSalary,
           standardRemunerationGrade: gradeResult.grade,
           standardMonthlyRemuneration: gradeResult.standardAmount,
           healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax, residentTax,
@@ -513,7 +526,7 @@ export class PayrollService {
           fixedOvertimeHours: fixedOvertime,
           absenceDeduction, overtimePay,
           regularOvertimePay, excessOvertimePay, lateNightPay, holidayPay,
-          commuteAllowance, grossSalary,
+          commuteAllowance, expenseReimbursement, grossSalary,
           standardRemunerationGrade: gradeResult.grade,
           standardMonthlyRemuneration: gradeResult.standardAmount,
           healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax,
@@ -646,7 +659,20 @@ export class PayrollService {
     });
     const commuteAllowance = approvedExpenses.reduce((s, it) => s + (it.amount || 0), 0);
 
-    const grossSalary = baseSalary + fixedOvertimePay - absenceDeduction + overtimePay + commuteAllowance;
+    // 経費精算（一般経費）: 当月承認済みの一般経費を合算
+    const [tmYear2, tmMonth2] = targetMonth.split('-').map(Number);
+    const genExpStart = new Date(tmYear2, tmMonth2 - 1, 1);
+    const genExpEnd = new Date(tmYear2, tmMonth2, 1);
+    const approvedGeneralExpenses = await this.db.generalExpense.findMany({
+      where: {
+        employeeId: emp.id,
+        status: 'approved',
+        approvedAt: { gte: genExpStart, lt: genExpEnd },
+      },
+    });
+    const expenseReimbursement = approvedGeneralExpenses.reduce((s, it) => s + (it.amount || 0), 0);
+
+    const grossSalary = baseSalary + fixedOvertimePay - absenceDeduction + overtimePay + commuteAllowance + expenseReimbursement;
 
     let healthInsurance: number;
     let pension: number;
@@ -702,7 +728,7 @@ export class PayrollService {
         fixedOvertimeHours: fixedOvertime,
         absenceDeduction, overtimePay,
         regularOvertimePay, excessOvertimePay, lateNightPay, holidayPay,
-        commuteAllowance, otherAllowance: 0, grossSalary,
+        commuteAllowance, expenseReimbursement, otherAllowance: 0, grossSalary,
         standardRemunerationGrade: gradeResult.grade,
         standardMonthlyRemuneration: gradeResult.standardAmount,
         healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax, residentTax,
@@ -716,7 +742,7 @@ export class PayrollService {
         fixedOvertimeHours: fixedOvertime,
         absenceDeduction, overtimePay,
         regularOvertimePay, excessOvertimePay, lateNightPay, holidayPay,
-        commuteAllowance, grossSalary,
+        commuteAllowance, expenseReimbursement, grossSalary,
         standardRemunerationGrade: gradeResult.grade,
         standardMonthlyRemuneration: gradeResult.standardAmount,
         healthInsurance, nursingCareInsurance, pension, employmentInsurance, incomeTax,

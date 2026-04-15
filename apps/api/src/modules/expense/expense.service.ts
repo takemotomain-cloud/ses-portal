@@ -104,7 +104,7 @@ export class ExpenseService {
   async createRequest(employeeId: string, data: {
     targetMonth: string;
     items: ExpenseItemInput[];
-  }) {
+  }, fileMap?: Map<number, Express.Multer.File>) {
     if (!data.items || data.items.length === 0) {
       throw new BadRequestException('明細が1件もありません');
     }
@@ -152,6 +152,11 @@ export class ExpenseService {
         ? null
         : (item.passEndDate ? parseDate(item.passEndDate) : calcPassEndDate(expenseDate, kind));
 
+      // 領収書ファイル情報
+      const file = fileMap?.get(idx);
+      const receiptPath = file ? `/uploads/expense-receipts/${file.filename}` : null;
+      const receiptName = file ? Buffer.from(file.originalname, 'latin1').toString('utf8').replace(/^receipt_\d+_/, '') : null;
+
       return {
         kind,
         expenseDate,
@@ -159,6 +164,8 @@ export class ExpenseService {
         departure: item.departure.trim(),
         destination: item.destination.trim(),
         amount: Math.floor(item.amount),
+        receiptPath,
+        receiptName,
         sortOrder: idx,
       };
     });
@@ -224,6 +231,8 @@ export class ExpenseService {
           departure: item.departure,
           destination: item.destination,
           amount: item.amount,
+          receiptPath: item.receiptPath,
+          receiptName: item.receiptName,
           sortOrder: item.sortOrder,
         })),
       });
@@ -256,6 +265,24 @@ export class ExpenseService {
       where: { status: 'pending' },
       include: {
         employee: { select: { lastName: true, firstName: true, employeeCode: true } },
+        items: { orderBy: { sortOrder: 'asc' } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 全ステータス経費一覧（管理者用・月別フィルタ）
+   */
+  async getAllRequests(targetMonth: string, status?: string) {
+    const where: any = { targetMonth };
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      where.status = status;
+    }
+    return this.db.expenseRequest.findMany({
+      where,
+      include: {
+        employee: { select: { id: true, lastName: true, firstName: true, employeeCode: true } },
         items: { orderBy: { sortOrder: 'asc' } },
       },
       orderBy: { createdAt: 'desc' },
@@ -344,6 +371,7 @@ export class ExpenseService {
     approverEmployeeId: string,
     actorUserId?: string,
     approverRole?: string,
+    reason?: string,
   ) {
     const request = await this.db.expenseRequest.findUnique({ where: { id: requestId } });
     if (!request) throw new NotFoundException('経費申請が見つかりません');
@@ -353,7 +381,12 @@ export class ExpenseService {
 
     await this.db.expenseRequest.update({
       where: { id: requestId },
-      data: { status: 'rejected', approverId: approverEmployeeId, approvedAt: new Date() },
+      data: {
+        status: 'rejected',
+        approverId: approverEmployeeId,
+        approvedAt: new Date(),
+        rejectReason: reason || null,
+      },
     });
 
     this.logger.log(`Expense request ${requestId} rejected by ${approverEmployeeId}`);

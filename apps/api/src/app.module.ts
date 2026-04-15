@@ -23,6 +23,7 @@ import { AssignmentsModule } from './modules/assignments/assignments.module';
 import { WorkRulesModule } from './modules/work-rules/work-rules.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { ExpenseModule } from './modules/expense/expense.module';
+import { GeneralExpenseModule } from './modules/general-expense/general-expense.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
@@ -66,6 +67,7 @@ import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
     WorkRulesModule,
     ProfileModule,
     ExpenseModule,
+    GeneralExpenseModule,
     PayrollModule,
     NotificationsModule,
     CertificatesModule,

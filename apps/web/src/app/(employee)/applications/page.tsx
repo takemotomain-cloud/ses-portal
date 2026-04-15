@@ -31,6 +31,14 @@ interface ExpenseResponse {
   items: unknown[];
 }
 
+interface GeneralExpenseResponse {
+  id: string;
+  category: string;
+  amount: number;
+  status: 'approved' | 'pending' | 'rejected';
+  createdAt: string;
+}
+
 interface LeaveBalanceResponse {
   remaining: number;
 }
@@ -67,17 +75,26 @@ export default function ApplicationsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [expenses, leaveBalance] = await Promise.all([
+      const [expenses, generalExpenses, leaveBalance] = await Promise.all([
         apiClient<ExpenseResponse[]>('/expense/my').catch(() => [] as ExpenseResponse[]),
+        apiClient<GeneralExpenseResponse[]>('/general-expense/my').catch(() => [] as GeneralExpenseResponse[]),
         apiClient<LeaveBalanceResponse>('/leave/balance').catch(() => null),
       ]);
 
-      const mapped: ApplicationHistoryItem[] = expenses.map((e) => ({
-        id: e.id,
-        type: '交通費申請',
-        date: formatJapaneseDate(e.createdAt),
-        status: e.status,
-      }));
+      const mapped: ApplicationHistoryItem[] = [
+        ...expenses.map((e) => ({
+          id: e.id,
+          type: '交通費申請',
+          date: formatJapaneseDate(e.createdAt),
+          status: e.status,
+        })),
+        ...generalExpenses.map((e) => ({
+          id: e.id,
+          type: '経費申請',
+          date: formatJapaneseDate(e.createdAt),
+          status: e.status,
+        })),
+      ].sort((a, b) => b.date.localeCompare(a.date));
       setApplicationHistory(mapped);
 
       if (leaveBalance) {
@@ -105,6 +122,11 @@ export default function ApplicationsPage() {
       label: '交通費申請',
       desc: '今月未申請',
       href: '/mypage/expense',
+    },
+    {
+      label: '経費申請',
+      desc: '交通費以外の経費精算',
+      href: '/mypage/general-expense',
     },
     {
       label: '遅延証明書',
