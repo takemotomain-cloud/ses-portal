@@ -46,7 +46,7 @@ export class DelayCertificateService {
     });
 
     this.logger.log(`遅延証明書提出: employee=${employeeId}, date=${data.targetDate}`);
-    this.notifications.notifyAdmins('遅延証明書', '遅延証明書が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('遅延証明書', 'が遅延証明書を提出しました。', employeeId).catch(() => {});
     return cert;
   }
 

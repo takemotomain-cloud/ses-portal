@@ -186,7 +186,7 @@ export class LeaveService {
       },
     });
 
-    this.notifications.notifyAdmins('有給休暇申請', '有給休暇申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('有給休暇申請', 'が有給休暇申請を提出しました。', employeeId).catch(() => {});
 
     return result;
   }

@@ -82,8 +82,20 @@ export class NotificationsService {
 
   /**
    * 管理者全員に通知を送信する（申請が来た時など）
+   * employeeId を渡すと社員名を自動解決して body に含める
    */
-  async notifyAdmins(title: string, body: string) {
+  async notifyAdmins(title: string, body: string, employeeId?: string) {
+    let resolvedBody = body;
+    if (employeeId) {
+      const emp = await this.db.employee.findUnique({
+        where: { id: employeeId },
+        select: { employeeCode: true, lastName: true, firstName: true },
+      });
+      if (emp) {
+        resolvedBody = `${emp.lastName} ${emp.firstName}（${emp.employeeCode}）${body}`;
+      }
+    }
+
     const admins = await this.db.user.findMany({
       where: { role: 'admin' },
       select: { employeeId: true },
@@ -93,7 +105,7 @@ export class NotificationsService {
       data: admins.map(a => ({
         employeeId: a.employeeId,
         title,
-        body,
+        body: resolvedBody,
         category: 'system',
       })),
     });

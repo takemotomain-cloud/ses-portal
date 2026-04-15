@@ -92,7 +92,7 @@ export class ProfileService {
       },
     });
 
-    this.notifications.notifyAdmins('個人情報変更', '氏名変更申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('個人情報変更', 'が氏名変更申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
@@ -160,7 +160,7 @@ export class ProfileService {
       },
     });
 
-    this.notifications.notifyAdmins('個人情報変更', '住所変更申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('個人情報変更', 'が住所変更申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
@@ -195,7 +195,7 @@ export class ProfileService {
       },
     });
 
-    this.notifications.notifyAdmins('個人情報変更', '口座変更申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('個人情報変更', 'が口座変更申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 

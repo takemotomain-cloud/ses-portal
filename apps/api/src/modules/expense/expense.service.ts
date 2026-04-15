@@ -241,7 +241,7 @@ export class ExpenseService {
       return request;
     });
 
-    this.notifications.notifyAdmins('交通費申請', '交通費申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('交通費申請', 'が交通費申請を提出しました。', employeeId).catch(() => {});
 
     return result;
   }

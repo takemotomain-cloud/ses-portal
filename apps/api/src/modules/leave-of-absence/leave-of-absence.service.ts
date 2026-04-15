@@ -88,7 +88,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`休職届を提出: employee=${employeeId}, type=${data.absenceType}`);
-    this.notifications.notifyAdmins('休職届', '休職届が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('休職届', 'が休職届を提出しました。', employeeId).catch(() => {});
     return { id: record.id };
   }
 
@@ -171,7 +171,7 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`復職届を提出: id=${id}, employee=${employeeId}`);
-    this.notifications.notifyAdmins('復職届', '復職届が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('復職届', 'が復職届を提出しました。', employeeId).catch(() => {});
     return { id };
   }
 

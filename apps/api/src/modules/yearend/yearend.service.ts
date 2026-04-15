@@ -57,7 +57,7 @@ export class YearendService {
     });
 
     this.logger.log(`Yearend adjustment submitted: employee ${employeeId}, year ${fiscalYear}`);
-    this.notifications.notifyAdmins('年末調整', '年末調整が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('年末調整', 'が年末調整を提出しました。', employeeId).catch(() => {});
     return result;
   }
 

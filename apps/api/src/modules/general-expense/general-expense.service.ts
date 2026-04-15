@@ -52,7 +52,7 @@ export class GeneralExpenseService {
       throw new BadRequestException('発生予定日は未来日を指定してください');
     }
 
-    return this.db.preApproval.create({
+    const result = await this.db.preApproval.create({
       data: {
         employeeId,
         expectedDate,
@@ -61,6 +61,9 @@ export class GeneralExpenseService {
         status: 'pending',
       },
     });
+
+    this.notifications.notifyAdmins('事前申請', 'が事前申請を提出しました。', employeeId).catch(() => {});
+    return result;
   }
 
   async getMyPreApprovals(employeeId: string) {
@@ -214,7 +217,7 @@ export class GeneralExpenseService {
     });
 
     this.logger.log(`General expense created: ${result.id} (${data.amount}円)`);
-    this.notifications.notifyAdmins('経費申請', '経費申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('経費申請', 'が経費申請を提出しました。', employeeId).catch(() => {});
 
     return result;
   }

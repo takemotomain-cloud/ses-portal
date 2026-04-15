@@ -419,7 +419,7 @@ export class AttendanceService {
 
     this.logger.log(`勤怠修正申請を作成: employee=${employeeId}, attendance=${attendanceId}, correction=${correction.id}`);
 
-    this.notifications.notifyAdmins('勤怠修正申請', '勤怠修正申請が提出されました。').catch(() => {});
+    this.notifications.notifyAdmins('勤怠修正申請', 'が勤怠修正申請を提出しました。', employeeId).catch(() => {});
 
     return { id: correction.id };
   }
