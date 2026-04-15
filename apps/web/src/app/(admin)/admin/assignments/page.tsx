@@ -25,6 +25,8 @@ interface Assignment {
   contractPrice: number;
   settlementLower: number;
   settlementUpper: number;
+  overtimeRate: number | null;
+  deductionRate: number | null;
   workLocation: string | null;
   area: string | null;
   defaultStartTime: string | null;
@@ -164,6 +166,8 @@ export default function AdminAssignmentsPage() {
     rewardRate: '',
     settlementLower: '',
     settlementUpper: '',
+    overtimeRate: '',
+    deductionRate: '',
     contractStartDate: '',
     contractEndDate: '',
     workStartTime: '',
@@ -374,6 +378,8 @@ export default function AdminAssignmentsPage() {
       rewardRate: '',
       settlementLower: selected.settlementLower ? String(selected.settlementLower) : '',
       settlementUpper: selected.settlementUpper ? String(selected.settlementUpper) : '',
+      overtimeRate: selected.overtimeRate ? String(selected.overtimeRate) : '',
+      deductionRate: selected.deductionRate ? String(selected.deductionRate) : '',
       contractStartDate: selected.startDate?.split('T')[0] || '',
       contractEndDate: selected.endDate?.split('T')[0] || '',
       workStartTime: selected.defaultStartTime || '9:00',
@@ -398,6 +404,8 @@ export default function AdminAssignmentsPage() {
           contractPrice: editForm.contractPrice ? parseInt(editForm.contractPrice.replace(/,/g, ''), 10) : undefined,
           settlementLower: editForm.settlementLower ? parseInt(editForm.settlementLower, 10) : undefined,
           settlementUpper: editForm.settlementUpper ? parseInt(editForm.settlementUpper, 10) : undefined,
+          overtimeRate: editForm.overtimeRate ? parseInt(editForm.overtimeRate.replace(/,/g, ''), 10) : null,
+          deductionRate: editForm.deductionRate ? parseInt(editForm.deductionRate.replace(/,/g, ''), 10) : null,
           startDate: editForm.contractStartDate || undefined,
           endDate: editForm.contractEndDate || undefined,
           defaultStartTime: editForm.workStartTime || undefined,
@@ -577,6 +585,8 @@ export default function AdminAssignmentsPage() {
                   ['案件名', selected.projectName || '--'],
                   ['契約単価（月額）', selected.contractPrice ? fmt(selected.contractPrice) + '円' : '--'],
                   ['精算幅', selected.settlementLower ? `${selected.settlementLower}〜${selected.settlementUpper}h` : '--'],
+                  ['超過1h単価', selected.overtimeRate ? fmt(selected.overtimeRate) + '円' : '自動（契約単価÷上限）'],
+                  ['控除1h単価', selected.deductionRate ? fmt(selected.deductionRate) + '円' : '自動（契約単価÷下限）'],
                   ['契約期間', `${formatDate(selected.startDate)} 〜 ${formatDate(selected.endDate)}`],
                   ['稼働開始時刻', selected.defaultStartTime || '--'],
                   ['現場勤怠', selected.clientAttendanceRequired ? 'あり' : 'なし'],
@@ -764,6 +774,16 @@ export default function AdminAssignmentsPage() {
                   <div>
                     <label className="block text-2xs text-secondary mb-1">精算幅（上限）</label>
                     <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="180" value={editForm.settlementUpper} onChange={e => setEditForm(f => ({ ...f, settlementUpper: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">超過1時間あたり単価（円）</label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="未設定なら自動計算" value={editForm.overtimeRate} onChange={e => setEditForm(f => ({ ...f, overtimeRate: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-2xs text-secondary mb-1">控除1時間あたり単価（円）</label>
+                    <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="未設定なら自動計算" value={editForm.deductionRate} onChange={e => setEditForm(f => ({ ...f, deductionRate: e.target.value }))} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 mb-2">

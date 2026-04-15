@@ -31,6 +31,8 @@ export class AssignmentsService {
     contractPrice: number;
     settlementLower: number;
     settlementUpper: number;
+    overtimeRate?: number | null;
+    deductionRate?: number | null;
     workLocation?: string;
     area?: string;
     defaultStartTime?: string;
@@ -49,6 +51,8 @@ export class AssignmentsService {
         contractPrice: data.contractPrice,
         settlementLower: data.settlementLower,
         settlementUpper: data.settlementUpper,
+        overtimeRate: data.overtimeRate ?? null,
+        deductionRate: data.deductionRate ?? null,
         workLocation: data.workLocation || null,
         area: data.area || null,
         defaultStartTime: data.defaultStartTime || null,
@@ -127,6 +131,8 @@ export class AssignmentsService {
     contractPrice?: number;
     settlementLower?: number;
     settlementUpper?: number;
+    overtimeRate?: number | null;
+    deductionRate?: number | null;
     workLocation?: string | null;
     area?: string | null;
     defaultStartTime?: string | null;
@@ -147,6 +153,8 @@ export class AssignmentsService {
         contractPrice: true,
         settlementLower: true,
         settlementUpper: true,
+        overtimeRate: true,
+        deductionRate: true,
       },
     });
 
@@ -155,6 +163,8 @@ export class AssignmentsService {
     if (data.contractPrice !== undefined) updateData.contractPrice = data.contractPrice;
     if (data.settlementLower !== undefined) updateData.settlementLower = data.settlementLower;
     if (data.settlementUpper !== undefined) updateData.settlementUpper = data.settlementUpper;
+    if (data.overtimeRate !== undefined) updateData.overtimeRate = data.overtimeRate;
+    if (data.deductionRate !== undefined) updateData.deductionRate = data.deductionRate;
     if (data.workLocation !== undefined) updateData.workLocation = data.workLocation;
     if (data.area !== undefined) updateData.area = data.area;
     if (data.defaultStartTime !== undefined) updateData.defaultStartTime = data.defaultStartTime;
@@ -169,7 +179,9 @@ export class AssignmentsService {
       existing &&
       ((data.contractPrice !== undefined && data.contractPrice !== existing.contractPrice) ||
         (data.settlementLower !== undefined && data.settlementLower !== existing.settlementLower) ||
-        (data.settlementUpper !== undefined && data.settlementUpper !== existing.settlementUpper));
+        (data.settlementUpper !== undefined && data.settlementUpper !== existing.settlementUpper) ||
+        (data.overtimeRate !== undefined && data.overtimeRate !== existing.overtimeRate) ||
+        (data.deductionRate !== undefined && data.deductionRate !== existing.deductionRate));
 
     return this.db.$transaction(async (tx) => {
       const updated = await tx.assignment.update({
@@ -195,6 +207,8 @@ export class AssignmentsService {
             contractPrice: data.contractPrice ?? existing.contractPrice,
             settlementLower: data.settlementLower ?? existing.settlementLower,
             settlementUpper: data.settlementUpper ?? existing.settlementUpper,
+            overtimeRate: data.overtimeRate !== undefined ? data.overtimeRate : existing.overtimeRate,
+            deductionRate: data.deductionRate !== undefined ? data.deductionRate : existing.deductionRate,
             reason: data.rateChangeReason ?? null,
             changedBy: data.rateChangedBy ?? null,
           },

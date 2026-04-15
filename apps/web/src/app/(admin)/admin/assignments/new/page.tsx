@@ -40,6 +40,8 @@ interface AssignForm {
   rewardRate: string;
   settlementLower: string;
   settlementUpper: string;
+  overtimeRate: string;
+  deductionRate: string;
   contractStartDate: string;
   contractEndDate: string;
   workStartTime: string;
@@ -60,6 +62,8 @@ const initialForm: AssignForm = {
   rewardRate: '',
   settlementLower: '',
   settlementUpper: '',
+  overtimeRate: '',
+  deductionRate: '',
   contractStartDate: '',
   contractEndDate: '',
   workStartTime: '9:00',
@@ -254,6 +258,8 @@ export default function NewAssignmentPage() {
           contractPrice: parseInt(form.contractPrice.replace(/,/g, ''), 10) || 0,
           settlementLower: parseInt(form.settlementLower, 10) || 140,
           settlementUpper: parseInt(form.settlementUpper, 10) || 180,
+          overtimeRate: form.overtimeRate ? parseInt(form.overtimeRate.replace(/,/g, ''), 10) : null,
+          deductionRate: form.deductionRate ? parseInt(form.deductionRate.replace(/,/g, ''), 10) : null,
           workLocation: form.workLocation || undefined,
           area: form.area || undefined,
           defaultStartTime: form.workStartTime || undefined,
@@ -408,6 +414,29 @@ export default function NewAssignmentPage() {
                 placeholder="180"
                 value={form.settlementUpper}
                 onChange={(e) => update('settlementUpper', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+            <div>
+              <label className={labelCls}>超過1時間あたり単価（円）</label>
+              <input
+                type="text"
+                className={inputCls}
+                placeholder="未設定なら 契約単価÷上限 で自動計算"
+                value={form.overtimeRate}
+                onChange={(e) => update('overtimeRate', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>控除1時間あたり単価（円）</label>
+              <input
+                type="text"
+                className={inputCls}
+                placeholder="未設定なら 契約単価÷下限 で自動計算"
+                value={form.deductionRate}
+                onChange={(e) => update('deductionRate', e.target.value)}
               />
             </div>
           </div>

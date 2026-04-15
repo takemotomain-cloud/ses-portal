@@ -378,6 +378,10 @@ model Assignment {
   contractPrice   Int       @map("contract_price")
   settlementLower Int       @map("settlement_lower")
   settlementUpper Int       @map("settlement_upper")
+  // 超過時の1時間あたり請求単価（円）。null時は contractPrice/settlementUpper で自動計算
+  overtimeRate    Int?      @map("overtime_rate")
+  // 控除時の1時間あたり控除単価（円）。null時は contractPrice/settlementLower で自動計算
+  deductionRate   Int?      @map("deduction_rate")
   workLocation       String?   @map("work_location") @db.VarChar(200)
   area               String?   @db.VarChar(20)
   defaultStartTime   String?   @map("default_start_time") @db.VarChar(5)
@@ -412,6 +416,8 @@ model AssignmentRateHistory {
   contractPrice      Int      @map("contract_price")
   settlementLower    Int      @map("settlement_lower")
   settlementUpper    Int      @map("settlement_upper")
+  overtimeRate       Int?     @map("overtime_rate")
+  deductionRate      Int?     @map("deduction_rate")
   // 変更理由（任意）
   reason             String?  @db.VarChar(200)
   // 変更実施者

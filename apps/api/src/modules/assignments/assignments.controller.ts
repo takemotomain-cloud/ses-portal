@@ -38,6 +38,8 @@ export class AssignmentsController {
       contractPrice: number;
       settlementLower: number;
       settlementUpper: number;
+      overtimeRate?: number | null;
+      deductionRate?: number | null;
       workLocation?: string;
       area?: string;
       defaultStartTime?: string;
@@ -84,6 +86,8 @@ export class AssignmentsController {
       contractPrice?: number;
       settlementLower?: number;
       settlementUpper?: number;
+      overtimeRate?: number | null;
+      deductionRate?: number | null;
       workLocation?: string;
       area?: string;
       defaultStartTime?: string;

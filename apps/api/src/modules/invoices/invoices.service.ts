@@ -300,8 +300,10 @@ export class InvoicesService {
       const contractPrice = rate?.contractPrice ?? assignment.contractPrice;
       const lower = rate?.settlementLower ?? assignment.settlementLower;
       const upper = rate?.settlementUpper ?? assignment.settlementUpper;
+      const overtimeRate = rate?.overtimeRate ?? assignment.overtimeRate ?? null;
+      const deductionRate = rate?.deductionRate ?? assignment.deductionRate ?? null;
 
-      const settlement = this.calculateSettlement(totalHours, contractPrice, lower, upper);
+      const settlement = this.calculateSettlement(totalHours, contractPrice, lower, upper, overtimeRate, deductionRate);
 
       const emp: BillableEmployee = {
         employeeId: assignment.employeeId,
@@ -425,8 +427,10 @@ export class InvoicesService {
       const contractPrice = rate?.contractPrice ?? assignment.contractPrice;
       const lower = rate?.settlementLower ?? assignment.settlementLower;
       const upper = rate?.settlementUpper ?? assignment.settlementUpper;
+      const overtimeRate = rate?.overtimeRate ?? assignment.overtimeRate ?? null;
+      const deductionRate = rate?.deductionRate ?? assignment.deductionRate ?? null;
 
-      const settlement = this.calculateSettlement(totalHours, contractPrice, lower, upper);
+      const settlement = this.calculateSettlement(totalHours, contractPrice, lower, upper, overtimeRate, deductionRate);
 
       items.push({
         employeeName: `${assignment.employee.lastName} ${assignment.employee.firstName}`,
@@ -514,14 +518,26 @@ export class InvoicesService {
   private async getEffectiveRate(
     assignmentId: string,
     targetDate: Date,
-  ): Promise<{ contractPrice: number; settlementLower: number; settlementUpper: number } | null> {
+  ): Promise<{
+    contractPrice: number;
+    settlementLower: number;
+    settlementUpper: number;
+    overtimeRate: number | null;
+    deductionRate: number | null;
+  } | null> {
     const history = await this.db.assignmentRateHistory.findFirst({
       where: {
         assignmentId,
         effectiveFrom: { lte: targetDate },
       },
       orderBy: { effectiveFrom: 'desc' },
-      select: { contractPrice: true, settlementLower: true, settlementUpper: true },
+      select: {
+        contractPrice: true,
+        settlementLower: true,
+        settlementUpper: true,
+        overtimeRate: true,
+        deductionRate: true,
+      },
     });
     return history;
   }
@@ -543,25 +559,38 @@ export class InvoicesService {
     return Number(result._sum.workMinutes || 0);
   }
 
-  /** SES精算計算 */
+  /**
+   * SES精算計算
+   *
+   * 案件別に超過・控除の1時間単価が設定されていればそれを優先する。
+   * 未設定（null/0）の場合は contractPrice / settlement{Upper,Lower} で自動計算（後方互換）。
+   */
   private calculateSettlement(
     workHours: number,
     contractPrice: number,
     settlementLower: number,
     settlementUpper: number,
+    overtimeRate?: number | null,
+    deductionRate?: number | null,
   ): SettlementResult {
     const baseAmount = contractPrice;
     let overtimeAmount = 0;
     let deductionAmount = 0;
 
     if (settlementUpper > 0 && workHours > settlementUpper) {
-      // 超過精算: (超過時間) × (単価÷上限) → 時間単価ベース
-      overtimeAmount = Math.round((workHours - settlementUpper) * (contractPrice / settlementUpper));
+      // 超過精算: 案件別単価が設定されていればそれを使用、無ければ contractPrice / settlementUpper
+      const rate = overtimeRate && overtimeRate > 0
+        ? overtimeRate
+        : contractPrice / settlementUpper;
+      overtimeAmount = Math.round((workHours - settlementUpper) * rate);
     }
 
     if (settlementLower > 0 && workHours < settlementLower) {
-      // 控除: (不足時間) × (単価÷下限)
-      deductionAmount = Math.round((settlementLower - workHours) * (contractPrice / settlementLower));
+      // 控除: 案件別単価が設定されていればそれを使用、無ければ contractPrice / settlementLower
+      const rate = deductionRate && deductionRate > 0
+        ? deductionRate
+        : contractPrice / settlementLower;
+      deductionAmount = Math.round((settlementLower - workHours) * rate);
     }
 
     return {
