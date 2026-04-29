@@ -1,0 +1,44 @@
+# ============================================================
+# ローカル開発環境用 Docker Compose
+# ============================================================
+# 何をするか: PostgreSQL 16 + Redis 7 をローカルで起動
+# なぜ: 本番環境(RDS/ElastiCache)と同等の環境をローカルで再現
+# 注意: volumeはdocker_dataに永続化。不要時は docker compose down -v で削除
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ses-portal-db
+    environment:
+      POSTGRES_USER: ses_dev
+      POSTGRES_PASSWORD: ses_dev_password
+      POSTGRES_DB: ses_portal
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 初回起動時にpgcrypto拡張を自動有効化
+      - ./migrations/001_extensions_and_functions.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ses_dev -d ses_portal"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ses-portal-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
