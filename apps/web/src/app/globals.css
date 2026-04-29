@@ -77,6 +77,69 @@
     @apply bg-transparent border border-border px-4 py-2 rounded-md text-base cursor-pointer
            text-primary transition-colors hover:bg-page whitespace-nowrap;
   }
+
+  /* AI エージェント応答の Markdown レンダリング用 */
+  .markdown-body {
+    @apply text-primary leading-7;
+  }
+  .markdown-body > * + * {
+    margin-top: 0.6em;
+  }
+  .markdown-body h1 {
+    @apply text-lg font-semibold mt-3;
+  }
+  .markdown-body h2 {
+    @apply text-base font-semibold mt-3;
+  }
+  .markdown-body h3 {
+    @apply text-sm font-semibold mt-2;
+  }
+  .markdown-body p {
+    @apply leading-7;
+  }
+  .markdown-body strong {
+    @apply font-semibold text-primary;
+  }
+  .markdown-body em {
+    font-style: italic;
+  }
+  .markdown-body ul {
+    @apply list-disc pl-5 space-y-1;
+  }
+  .markdown-body ol {
+    @apply list-decimal pl-5 space-y-1;
+  }
+  .markdown-body li {
+    @apply leading-7;
+  }
+  .markdown-body code {
+    @apply rounded bg-page px-1.5 py-0.5 text-[12px] font-mono text-primary;
+  }
+  .markdown-body pre {
+    @apply rounded-lg bg-page p-3 text-[12px] font-mono overflow-x-auto;
+  }
+  .markdown-body pre code {
+    @apply bg-transparent p-0;
+  }
+  .markdown-body blockquote {
+    @apply border-l-2 border-border pl-3 text-secondary;
+  }
+  .markdown-body table {
+    @apply border-collapse my-2 text-sm;
+  }
+  .markdown-body th,
+  .markdown-body td {
+    @apply border border-border px-3 py-1.5 text-left;
+  }
+  .markdown-body th {
+    @apply bg-page font-semibold;
+  }
+  .markdown-body a {
+    @apply text-status-blue-text underline;
+  }
+  .markdown-body hr {
+    @apply my-3 border-border;
+  }
 }
 
 /* ---------- 印刷用スタイル ---------- */

@@ -46,7 +46,7 @@ const navSections: NavSection[] = [
   {
     label: '営業',
     items: [
-      { label: 'ダッシュボード', href: '/admin/dashboard' },
+      { label: 'AIエージェント', href: '/admin/dashboard' },
       { label: '稼働管理', href: '/admin/assignments' },
       { label: '営業管理', href: '/admin/sales' },
       { label: 'スキルシート', href: '/admin/skillsheets' },
