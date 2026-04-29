@@ -31,6 +31,9 @@ jobs:
       - name: Secret scan
         run: node scripts/check-no-secrets.mjs
 
+      - name: Build shared package
+        run: pnpm --filter @ses-portal/shared build
+
       - name: Build web
         run: pnpm --filter @ses-portal/web build
 
