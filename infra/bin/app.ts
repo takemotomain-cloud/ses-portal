@@ -38,9 +38,10 @@ const data = new DataStack(app, 'SesPortalData', {
 new AppStack(app, 'SesPortalApp', {
   env,
   vpc: network.vpc,
-  appSecurityGroup: network.appSecurityGroup,
   dbInstance: data.dbInstance,
+  dbSecurityGroup: network.dbSecurityGroup,
   redisCluster: data.redisCluster,
+  redisSecurityGroup: network.redisSecurityGroup,
   dbSecret: data.dbSecret,
 });
 

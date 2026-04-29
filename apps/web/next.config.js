@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 
 /**
@@ -8,6 +10,11 @@
  * 注意: rewrites()でAPIリクエストをNestJSに転送。フロントとAPIが同一ドメインに見える。
  */
 const nextConfig = {
+  output: 'standalone',
+  experimental: {
+    outputFileTracingRoot: path.join(__dirname, '../../'),
+  },
+
   // APIリクエストをNestJSにプロキシ（CORSの複雑さを回避）
   async rewrites() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';

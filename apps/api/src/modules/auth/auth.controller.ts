@@ -17,14 +17,42 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
+
+const AUTH_COOKIE_NAME = 'ses_portal_token';
+
+function setAuthCookie(req: Request, res: Response, token: string) {
+  const forwardedProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim();
+  const isSecure = process.env.NODE_ENV === 'production' || forwardedProto === 'https';
+
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: 'strict',
+    path: '/',
+    maxAge: 24 * 60 * 60 * 1000,
+  });
+}
+
+function clearAuthCookie(req: Request, res: Response) {
+  const forwardedProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim();
+  const isSecure = process.env.NODE_ENV === 'production' || forwardedProto === 'https';
+
+  res.clearCookie(AUTH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: 'strict',
+    path: '/',
+  });
+}
 
 function extractMeta(req: Request): { ipAddress?: string; userAgent?: string } {
   const forwarded = (req.headers['x-forwarded-for'] as string) || '';
@@ -49,8 +77,10 @@ export class AuthController {
   @ApiOperation({ summary: 'ログイン' })
   @ApiResponse({ status: 200, description: 'ログイン成功。JWTトークンを返却' })
   @ApiResponse({ status: 401, description: '認証失敗' })
-  async login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.authService.login(dto.email, dto.password, extractMeta(req));
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.login(dto.email, dto.password, extractMeta(req));
+    setAuthCookie(req, res, result.accessToken);
+    return result;
   }
 
   /**
@@ -61,8 +91,13 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'ログアウト（監査ログのみ記録）' })
-  async logout(@CurrentUser() user: RequestUser, @Req() req: Request) {
+  async logout(
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     await this.authService.logout(user.userId, extractMeta(req));
+    clearAuthCookie(req, res);
     return { ok: true };
   }
 }

@@ -32,6 +32,7 @@ Thumbs.db
 
 # Turbo
 .turbo/
+infra/cdk.out/
 
 # Prisma
 apps/api/prisma/migrations/

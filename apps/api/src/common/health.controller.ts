@@ -5,7 +5,7 @@
  * DB接続も確認して、APIだけ動いてDBが落ちている状態を検知する。
  */
 
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DatabaseService } from '../database/database.service';
 
@@ -26,12 +26,12 @@ export class HealthController {
         timestamp: new Date().toISOString(),
         database: 'connected',
       };
-    } catch (error) {
-      return {
+    } catch {
+      throw new ServiceUnavailableException({
         status: 'degraded',
         timestamp: new Date().toISOString(),
         database: 'disconnected',
-      };
+      });
     }
   }
 }

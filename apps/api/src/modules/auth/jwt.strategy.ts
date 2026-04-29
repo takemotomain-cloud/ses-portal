@@ -26,6 +26,17 @@ interface JwtPayload {
   exp: number;
 }
 
+function extractJwtFromCookie(cookieHeader?: string): string | null {
+  if (!cookieHeader) return null;
+
+  const cookie = cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('ses_portal_token='));
+
+  return cookie ? decodeURIComponent(cookie.slice('ses_portal_token='.length)) : null;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -33,7 +44,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly db: DatabaseService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (req: { headers?: { cookie?: string } }) => extractJwtFromCookie(req?.headers?.cookie),
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey: config.get<string>('JWT_SECRET'),
     });

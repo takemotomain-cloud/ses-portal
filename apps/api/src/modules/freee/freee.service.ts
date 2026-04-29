@@ -1,9 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 
 @Injectable()
 export class FreeeService {
   constructor(private readonly db: DatabaseService) {}
+
+  private ensureSyncEnabled() {
+    if (process.env.FREEE_SYNC_MODE === 'live') {
+      return;
+    }
+
+    throw new ServiceUnavailableException(
+      'freee連携の実送信はまだ有効化されていません。FREEE_SYNC_MODE=live を設定した環境でのみ実行してください。',
+    );
+  }
 
   async getJournals(status?: string) {
     return this.db.freeeJournal.findMany({
@@ -51,13 +61,15 @@ export class FreeeService {
   }
 
   async sendAll() {
+    this.ensureSyncEnabled();
+
     const unsent = await this.db.freeeJournal.findMany({ where: { status: 'unsent' } });
     let success = 0;
     let errors = 0;
 
     for (const j of unsent) {
       try {
-        // TODO: 実際のfreee API連携時はここで送信処理
+        // 実際の freee API 送信は live モードの実装時にここへ入れる。
         await this.db.freeeJournal.update({
           where: { id: j.id },
           data: { status: 'sent', sentAt: new Date() },

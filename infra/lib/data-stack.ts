@@ -11,7 +11,7 @@
  *
  * ElastiCache Redis 7:
  * - セッション管理・キャッシュ用
- * - 暗号化（at-rest + in-transit）
+ * - 暗号化（in-transit）
  *
  * セキュリティ:
  * - DB認証情報はSecrets Managerで管理
@@ -121,9 +121,10 @@ export class DataStack extends cdk.Stack {
       vpcSecurityGroupIds: [props.redisSecurityGroup.securityGroupId],
       cacheSubnetGroupName: redisSubnetGroup.ref,
 
-      // 暗号化
+      // NOTE:
+      // CfnCacheCluster では at-rest 暗号化を直接持てないため、
+      // 将来は ReplicationGroup 化して強化する。
       transitEncryptionEnabled: true,
-      atRestEncryptionEnabled: true,
     });
 
     // Outputs

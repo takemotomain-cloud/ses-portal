@@ -111,6 +111,11 @@ export class GoogleDriveCallbackController {
   @ApiOperation({ summary: 'Google Drive OAuthコールバック' })
   async googleDriveCallback(@Query('code') code: string, @Res() res: Response) {
     await this.googleDrive.handleCallback(code);
-    res.redirect('http://localhost:3000/admin/settings?tab=integrations&connected=1');
+    const appBaseUrl =
+      process.env.APP_BASE_URL ||
+      process.env.NEXTAUTH_URL ||
+      process.env.CORS_ORIGIN ||
+      'http://localhost:3000';
+    res.redirect(`${appBaseUrl}/admin/settings?tab=integrations&connected=1`);
   }
 }

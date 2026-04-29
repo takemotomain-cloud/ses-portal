@@ -19,7 +19,6 @@ import { Construct } from 'constructs';
 
 export class NetworkStack extends cdk.Stack {
   public readonly vpc: ec2.Vpc;
-  public readonly appSecurityGroup: ec2.SecurityGroup;
   public readonly dbSecurityGroup: ec2.SecurityGroup;
   public readonly redisSecurityGroup: ec2.SecurityGroup;
 
@@ -49,25 +48,12 @@ export class NetworkStack extends cdk.Stack {
       ],
     });
 
-    // Security Group: アプリケーション（ECS Fargate）
-    this.appSecurityGroup = new ec2.SecurityGroup(this, 'AppSg', {
-      vpc: this.vpc,
-      description: 'ECS Fargate tasks',
-      allowAllOutbound: true,
-    });
-
     // Security Group: データベース（RDS）
     this.dbSecurityGroup = new ec2.SecurityGroup(this, 'DbSg', {
       vpc: this.vpc,
       description: 'RDS PostgreSQL',
       allowAllOutbound: false, // DBからのアウトバウンドは不要
     });
-    // アプリからDBへのアクセスのみ許可
-    this.dbSecurityGroup.addIngressRule(
-      this.appSecurityGroup,
-      ec2.Port.tcp(5432),
-      'Allow PostgreSQL from app'
-    );
 
     // Security Group: Redis（ElastiCache）
     this.redisSecurityGroup = new ec2.SecurityGroup(this, 'RedisSg', {
@@ -75,11 +61,6 @@ export class NetworkStack extends cdk.Stack {
       description: 'ElastiCache Redis',
       allowAllOutbound: false,
     });
-    this.redisSecurityGroup.addIngressRule(
-      this.appSecurityGroup,
-      ec2.Port.tcp(6379),
-      'Allow Redis from app'
-    );
 
     // Outputs
     new cdk.CfnOutput(this, 'VpcId', { value: this.vpc.vpcId });

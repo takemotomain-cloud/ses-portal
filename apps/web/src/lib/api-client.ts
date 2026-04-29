@@ -15,29 +15,21 @@
 
 import type { ApiError } from '@ses-portal/shared';
 
-/** ローカルストレージのトークンキー */
-const TOKEN_KEY = 'ses_portal_token';
+/** 旧実装との互換用: localStorage に残った古いトークンを消す */
+const LEGACY_TOKEN_KEY = 'ses_portal_token';
 
-/**
- * 認証トークンを取得
- */
 export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return null;
 }
 
-/**
- * 認証トークンを保存
- */
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+export function setToken(_token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
 }
 
-/**
- * 認証トークンを削除（ログアウト時）
- */
 export function removeToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
 }
 
 /**
@@ -58,21 +50,15 @@ export async function apiClient<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = getToken();
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  // 認証トークンがあればAuthorizationヘッダーに付与
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   const response = await fetch(`/api${path}`, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   // レスポンスボディのパース

@@ -1,9 +1,9 @@
 /**
- * App Stack — ECS Fargate + CloudFront + S3
+ * App Stack — ECS Fargate + CloudFront
  *
  * 構成:
  *   CloudFront (CDN)
- *   ├── /* → S3 (Next.js静的ビルド)
+ *   ├── /* → ALB → ECS Fargate (Next.js Web)
  *   └── /api/* → ALB → ECS Fargate (NestJS API)
  *
  * ECS Fargate:
@@ -18,9 +18,8 @@
  * - 環境変数に機密情報をハードコードしない
  *
  * パフォーマンス:
- * - CloudFrontで静的アセットをエッジキャッシュ
- * - S3にNext.jsのビルド済み静的ファイルを配置
- * - API はFargate で水平スケーリング
+ * - CloudFrontでWeb/APIの入口を一本化
+ * - Next.js Web / NestJS API をそれぞれ Fargate で水平スケーリング
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -29,7 +28,6 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecsPatterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -38,9 +36,10 @@ import { Construct } from 'constructs';
 
 interface AppStackProps extends cdk.StackProps {
   vpc: ec2.Vpc;
-  appSecurityGroup: ec2.SecurityGroup;
   dbInstance: rds.DatabaseInstance;
+  dbSecurityGroup: ec2.SecurityGroup;
   redisCluster: elasticache.CfnCacheCluster;
+  redisSecurityGroup: ec2.SecurityGroup;
   dbSecret: secretsmanager.ISecret;
 }
 
@@ -48,13 +47,37 @@ export class AppStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: AppStackProps) {
     super(scope, id, props);
 
+    const portalUrl = 'https://portal.example.com';
+
     // ============================================================
     // ECS Cluster
     // ============================================================
     const cluster = new ecs.Cluster(this, 'SesPortalCluster', {
       vpc: props.vpc,
       clusterName: 'ses-portal',
-      containerInsights: true,
+    });
+
+    const serviceSecurityGroup = new ec2.SecurityGroup(this, 'ServiceSg', {
+      vpc: props.vpc,
+      description: 'ECS services for SES Portal',
+      allowAllOutbound: true,
+    });
+
+    new ec2.CfnSecurityGroupIngress(this, 'DbFromServiceIngress', {
+      groupId: props.dbSecurityGroup.securityGroupId,
+      ipProtocol: 'tcp',
+      fromPort: 5432,
+      toPort: 5432,
+      sourceSecurityGroupId: serviceSecurityGroup.securityGroupId,
+      description: 'Allow PostgreSQL from ECS services',
+    });
+    new ec2.CfnSecurityGroupIngress(this, 'RedisFromServiceIngress', {
+      groupId: props.redisSecurityGroup.securityGroupId,
+      ipProtocol: 'tcp',
+      fromPort: 6379,
+      toPort: 6379,
+      sourceSecurityGroupId: serviceSecurityGroup.securityGroupId,
+      description: 'Allow Redis from ECS services',
     });
 
     // ============================================================
@@ -71,6 +94,7 @@ export class AppStack extends cdk.Stack {
         cpu: 512, // 0.5 vCPU
         memoryLimitMiB: 1024, // 1 GB
         desiredCount: 1, // 初期タスク数
+        minHealthyPercent: 100,
 
         taskImageOptions: {
           // ECRにプッシュしたAPIイメージを指定
@@ -82,8 +106,10 @@ export class AppStack extends cdk.Stack {
           environment: {
             NODE_ENV: 'production',
             PORT: '3001',
-            CORS_ORIGIN: 'https://portal.example.com', // CloudFrontドメインに変更
+            CORS_ORIGIN: portalUrl,
+            APP_BASE_URL: portalUrl,
             JWT_EXPIRY: '24h',
+            FREEE_SYNC_MODE: 'disabled',
           },
 
           // Secrets Managerから注入（環境変数にハードコードしない）
@@ -105,7 +131,7 @@ export class AppStack extends cdk.Stack {
 
         // ネットワーク
         assignPublicIp: false, // Privateサブネット
-        securityGroups: [props.appSecurityGroup],
+        securityGroups: [serviceSecurityGroup],
 
         // ヘルスチェック
         healthCheck: {
@@ -130,30 +156,55 @@ export class AppStack extends cdk.Stack {
     });
 
     // ============================================================
-    // S3: Next.js静的ビルド
+    // Web Service (Next.js on Fargate + ALB)
     // ============================================================
-    const webBucket = new s3.Bucket(this, 'WebBucket', {
-      bucketName: `ses-portal-web-${this.account}`,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-
-      // 静的ファイルのキャッシュ設定
-      cors: [{
-        allowedMethods: [s3.HttpMethods.GET],
-        allowedOrigins: ['*'],
-        allowedHeaders: ['*'],
-      }],
-    });
+    const webService = new ecsPatterns.ApplicationLoadBalancedFargateService(
+      this,
+      'WebService',
+      {
+        cluster,
+        serviceName: 'ses-portal-web',
+        cpu: 512,
+        memoryLimitMiB: 1024,
+        desiredCount: 1,
+        minHealthyPercent: 100,
+        taskImageOptions: {
+          image: ecs.ContainerImage.fromRegistry('ses-portal-web:latest'),
+          containerPort: 3000,
+          environment: {
+            NODE_ENV: 'production',
+            PORT: '3000',
+            NEXT_PUBLIC_API_URL: `http://${apiService.loadBalancer.loadBalancerDnsName}`,
+            NEXTAUTH_URL: portalUrl,
+          },
+          logDriver: ecs.LogDrivers.awsLogs({
+            streamPrefix: 'ses-portal-web',
+            logRetention: logs.RetentionDays.ONE_MONTH,
+          }),
+        },
+        assignPublicIp: false,
+        securityGroups: [serviceSecurityGroup],
+        healthCheck: {
+          command: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3000/login || exit 1'],
+          interval: cdk.Duration.seconds(30),
+          timeout: cdk.Duration.seconds(5),
+          retries: 3,
+        },
+      },
+    );
 
     // ============================================================
     // CloudFront CDN
     // ============================================================
     const distribution = new cloudfront.Distribution(this, 'CdnDistribution', {
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(webBucket),
+        origin: new origins.LoadBalancerV2Origin(webService.loadBalancer, {
+          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+        }),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
 
         // セキュリティヘッダー
         responseHeadersPolicy: new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeaders', {
@@ -192,25 +243,15 @@ export class AppStack extends cdk.Stack {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
         },
+        '/_next/static/*': {
+          origin: new origins.LoadBalancerV2Origin(webService.loadBalancer, {
+            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+          }),
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        },
       },
-
-      defaultRootObject: 'index.html',
-
-      // エラーページ（SPAのフォールバック）
-      errorResponses: [
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.seconds(0),
-        },
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-          ttl: cdk.Duration.seconds(0),
-        },
-      ],
     });
 
     // ============================================================
@@ -224,9 +265,9 @@ export class AppStack extends cdk.Stack {
       value: apiService.loadBalancer.loadBalancerDnsName,
       description: 'API ALB DNS（内部アクセス用）',
     });
-    new cdk.CfnOutput(this, 'WebBucketName', {
-      value: webBucket.bucketName,
-      description: 'Next.jsビルド出力先S3バケット',
+    new cdk.CfnOutput(this, 'WebAlbUrl', {
+      value: webService.loadBalancer.loadBalancerDnsName,
+      description: 'Web ALB DNS（内部アクセス用）',
     });
   }
 }

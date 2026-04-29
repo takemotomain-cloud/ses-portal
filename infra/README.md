@@ -12,19 +12,25 @@
                     │      CloudFront        │
                     │  ・HTTPS終端            │
                     │  ・セキュリティヘッダー   │
-                    │  ・静的アセットキャッシュ  │
+                    │  ・Web/API入口を統一     │
                     └───┬───────────┬────────┘
                         │           │
                    /*   │     /api/*│
                         │           │
            ┌────────────▼──┐  ┌─────▼──────────┐
-           │  S3 Bucket    │  │      ALB        │
-           │  Next.js静的  │  │  (Public Subnet)│
-           │  ビルド出力    │  └─────┬──────────┘
-           └───────────────┘        │
+           │      ALB      │  │      ALB        │
+           │  Web (Next.js)│  │  (Public Subnet)│
+           └──────┬────────┘  └─────┬──────────┘
+                  │                 │
+                  │                 │
                                     │
           ┌─────────────────────────▼──────────────────────┐
           │              ECS Fargate (Private Subnet)       │
+          │  ┌─────────────────────┐                        │
+          │  │  Next.js Web        │                        │
+          │  │  ・App Router        │                        │
+          │  │  ・standalone build  │                        │
+          │  └─────────────────────┘                        │
           │  ┌─────────────────────┐                        │
           │  │  NestJS API         │                        │
           │  │  ・認証(JWT)         │                        │
@@ -50,7 +56,7 @@
 |----------|----------|------|
 | SesPortalNetwork | VPC, Subnets, Security Groups | ネットワーク基盤 |
 | SesPortalData | RDS PostgreSQL, ElastiCache Redis | データ層 |
-| SesPortalApp | ECS Fargate, ALB, CloudFront, S3 | アプリケーション層 |
+| SesPortalApp | ECS Fargate, ALB, CloudFront | アプリケーション層 |
 
 ## デプロイ手順
 
@@ -97,13 +103,16 @@ aws ecr get-login-password | docker login --username AWS --password-stdin ACCOUN
 docker push ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com/ses-portal-api:latest
 ```
 
-### Next.jsビルド＆S3アップロード
+### Webコンテナのビルド＆プッシュ
 
 ```bash
+aws ecr create-repository --repository-name ses-portal-web
+
 cd apps/web
-pnpm build
-aws s3 sync out/ s3://ses-portal-web-ACCOUNT_ID/ --delete
-aws cloudfront create-invalidation --distribution-id DIST_ID --paths "/*"
+docker build -f Dockerfile -t ses-portal-web ../..
+docker tag ses-portal-web:latest ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com/ses-portal-web:latest
+aws ecr get-login-password | docker login --username AWS --password-stdin ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com
+docker push ACCOUNT_ID.dkr.ecr.ap-northeast-1.amazonaws.com/ses-portal-web:latest
 ```
 
 ## セキュリティ設定一覧
@@ -114,7 +123,7 @@ aws cloudfront create-invalidation --distribution-id DIST_ID --paths "/*"
 | DB接続 | SSL/TLS必須 (rds.force_ssl=1) |
 | DBサブネット | Isolated (インターネットアクセス不可) |
 | DB認証情報 | Secrets Manager (自動ローテーション対応) |
-| Redis暗号化 | at-rest + in-transit |
+| Redis暗号化 | in-transit（at-rest は ReplicationGroup 化時に追加予定） |
 | CloudFront | HTTPS強制リダイレクト |
 | セキュリティヘッダー | HSTS, X-Frame-Options, X-Content-Type, XSS-Protection |
 | コンテナ権限 | IAMロールで最小権限 |
@@ -140,9 +149,9 @@ aws cloudfront create-invalidation --distribution-id DIST_ID --paths "/*"
 | ECS Fargate | 0.5vCPU / 1GB × 1タスク | ~$30 |
 | ALB | 1台 | ~$25 |
 | CloudFront | 基本料金 | ~$10 |
-| S3 | 静的ファイル | ~$1 |
+| ECS Fargate(Web) | 0.5vCPU / 1GB × 1タスク | ~$30 |
 | NAT Gateway | 1台 | ~$45 |
 | Secrets Manager | 3シークレット | ~$2 |
-| **合計** | | **~$258/月** |
+| **合計** | | **~$287/月** |
 
 ※ 負荷増加時はFargateタスク数・RDSインスタンスサイズをスケールアップ

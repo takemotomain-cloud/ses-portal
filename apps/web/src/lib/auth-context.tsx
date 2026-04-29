@@ -9,8 +9,8 @@
  * 必要になるまで導入しない（依存最小限の原則）。
  *
  * セキュリティ:
- * - JWTはlocalStorageに保存（HttpOnly cookieは次フェーズで検討）
- * - ログアウト時にトークンを確実に削除
+ * - JWTはHttpOnly cookieで保持し、JSから直接読めないようにする
+ * - ログアウト時にcookieを破棄する
  * - 画面遷移時にトークン有効性をチェック
  */
 
@@ -25,7 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AuthUser, LoginResponse } from '@ses-portal/shared';
-import { apiClient, setToken, removeToken, getToken } from '@/lib/api-client';
+import { apiClient, setToken, removeToken } from '@/lib/api-client';
 
 interface AuthContextType {
   /** 現在のユーザー情報（未ログイン時はnull） */
@@ -35,7 +35,7 @@ interface AuthContextType {
   /** ログイン処理 */
   login: (email: string, password: string) => Promise<AuthUser>;
   /** ログアウト処理 */
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -51,15 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 初回マウント: トークンがあればユーザー情報を復元
+  // 初回マウント: HttpOnly cookie があればユーザー情報を復元
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
-
-    // トークンが有効かAPIで確認（GET /employees/me）
+    // cookie の有無はJSから読めないため、まずAPIで確認する
     apiClient<any>('/employees/me')
       .then((employee) => {
         setUser({
@@ -113,7 +107,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *
    * トークン削除 + ユーザー情報クリア + ログイン画面にリダイレクト
    */
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await apiClient('/auth/logout', {
+        method: 'POST',
+      });
+    } catch {
+      // 認証切れでもクライアント側の状態破棄は続行する
+    }
     removeToken();
     setUser(null);
     window.location.href = '/login';
