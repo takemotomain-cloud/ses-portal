@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ses_dev_password
       POSTGRES_DB: ses_portal
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # 初回起動時にpgcrypto拡張を自動有効化

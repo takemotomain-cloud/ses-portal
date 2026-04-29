@@ -33,13 +33,14 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login(email, password);
+      const user = await login(email, password);
 
-      // ログイン成功 → ロール別リダイレクト
-      // AuthContextのuserが更新されるので、
-      // middleware or layout側でリダイレクト判定する。
-      // Phase 1初期はマイページに遷移。
-      router.push('/mypage');
+      // ロール別に初期画面へ遷移
+      if (user.role === 'admin' || user.role === 'manager' || user.role === 'member') {
+        router.push('/admin/dashboard');
+      } else {
+        router.push('/mypage');
+      }
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message || 'ログインに失敗しました');

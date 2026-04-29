@@ -43,6 +43,8 @@ pnpm-debug.log*
 
 # Test coverage
 coverage/
+playwright-report/
+test-results/
 
 # Docker volumes
 docker_data/

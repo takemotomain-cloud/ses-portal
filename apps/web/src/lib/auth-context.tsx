@@ -33,7 +33,7 @@ interface AuthContextType {
   /** ログイン中フラグ（初期ロード中はtrue） */
   isLoading: boolean;
   /** ログイン処理 */
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   /** ログアウト処理 */
   logout: () => void;
 }
@@ -78,9 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           hasBonus: employee.hasBonus ?? false,
         } as any);
       })
-      .catch(() => {
-        // トークン無効 → クリア
-        removeToken();
+      .catch((error: { statusCode?: number }) => {
+        // 401 のときだけトークン無効として扱う。
+        // 一時的な 500 で強制ログアウトすると復旧しづらいため。
+        if (error?.statusCode === 401) {
+          removeToken();
+        }
       })
       .finally(() => {
         setIsLoading(false);
@@ -102,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setToken(response.accessToken);
     setUser(response.user);
+    return response.user;
   }, []);
 
   /**
