@@ -34,6 +34,9 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @ses-portal/shared build
 
+      - name: Generate Prisma client
+        run: pnpm --filter @ses-portal/api db:generate
+
       - name: Build web
         run: pnpm --filter @ses-portal/web build
 
