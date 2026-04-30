@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
+import { PaymentTermEditor, PaymentTermValue, EMPTY_PAYMENT_TERM } from '@/components/PaymentTermEditor';
 
 /* ---------- フォーム型定義 ---------- */
 
@@ -70,6 +71,8 @@ export default function EditClientPage() {
     startDate: '',
     invoiceEmail: '',
   });
+  const [paymentTermEnabled, setPaymentTermEnabled] = useState(false);
+  const [paymentTerm, setPaymentTerm] = useState<PaymentTermValue>(EMPTY_PAYMENT_TERM);
 
   useEffect(() => {
     apiClient<any>(`/clients/${clientId}`)
@@ -91,6 +94,17 @@ export default function EditClientPage() {
             ? new Date(data.tradeStartDate).toISOString().split('T')[0]
             : '',
           invoiceEmail: data.billingEmail || '',
+        });
+        // 支払サイクル
+        const hasTerm = data.closingDay != null || !!data.paymentMode;
+        setPaymentTermEnabled(hasTerm);
+        setPaymentTerm({
+          closingDay: data.closingDay ?? null,
+          paymentMode: data.paymentMode ?? null,
+          paymentMonths: data.paymentMonths ?? null,
+          paymentDay: data.paymentDay ?? null,
+          paymentDays: data.paymentDays ?? null,
+          bankHolidayAdj: data.bankHolidayAdj ?? null,
         });
       })
       .catch((err: any) => {
@@ -127,6 +141,13 @@ export default function EditClientPage() {
           contactPhone: form.phone || undefined,
           billingEmail: form.invoiceEmail || undefined,
           tradeStartDate: form.startDate || undefined,
+          // 支払サイクル: 無効なら全て null で保存
+          closingDay: paymentTermEnabled ? paymentTerm.closingDay : null,
+          paymentMode: paymentTermEnabled ? paymentTerm.paymentMode : null,
+          paymentMonths: paymentTermEnabled ? paymentTerm.paymentMonths : null,
+          paymentDay: paymentTermEnabled ? paymentTerm.paymentDay : null,
+          paymentDays: paymentTermEnabled ? paymentTerm.paymentDays : null,
+          bankHolidayAdj: paymentTermEnabled ? paymentTerm.bankHolidayAdj : null,
         }),
       });
       toast('更新しました');
@@ -329,6 +350,42 @@ export default function EditClientPage() {
               placeholder="keiri@example.co.jp"
             />
           </div>
+        </div>
+
+        {/* 支払サイクル設定 */}
+        <div className="card p-5 mb-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-medium">支払サイクル（請求書 dueDate 自動計算）</div>
+            <label className="inline-flex items-center gap-2 text-xs text-secondary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={paymentTermEnabled}
+                onChange={(e) => {
+                  setPaymentTermEnabled(e.target.checked);
+                  if (e.target.checked && !paymentTerm.paymentMode) {
+                    // ON にした時、未設定ならデフォルトプリセット (月末締め翌月末払い)
+                    setPaymentTerm({
+                      closingDay: 0,
+                      paymentMode: 'NEXT_MONTH_EOM',
+                      paymentMonths: 1,
+                      paymentDay: null,
+                      paymentDays: null,
+                      bankHolidayAdj: 'PREV_BUSINESS_DAY',
+                    });
+                  }
+                }}
+              />
+              <span>有効</span>
+            </label>
+          </div>
+          <div className="text-2xs text-secondary mb-3">
+            設定すると、このクライアントの請求書発行時に支払期日が自動計算されます。案件側で個別に上書きすることも可能です。
+          </div>
+          <PaymentTermEditor
+            value={paymentTerm}
+            onChange={setPaymentTerm}
+            disabled={!paymentTermEnabled}
+          />
         </div>
       </div>
 

@@ -11,6 +11,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { apiClient, getToken } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
+import { combineDateTimeAware, isCrossMidnight, isClockOutNextDay } from '@/lib/attendance-time';
 
 interface AttendanceRecordRaw {
   id: string;
@@ -81,12 +82,6 @@ function toTimeValue(iso: string | null): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** workDate(YYYY-MM-DD) + HH:MM → ISO文字列 */
-function combineDateTime(dateStr: string, time: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const [h, mi] = time.split(':').map(Number);
-  return new Date(y, m - 1, d, h, mi).toISOString();
-}
 
 const DOW = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -375,11 +370,15 @@ export default function AttendancePage() {
       const origOut = toTimeValue(editTarget.clockOut);
       const origBreak = String(editTarget.breakMinutes);
 
+      // 日跨ぎ補正: 出勤・退勤を組み立て、退勤が出勤より早い場合は退勤を翌日扱いに
+      const inHHMM = editClockIn && editClockIn !== origIn ? editClockIn : (origIn || undefined);
+      const outHHMM = editClockOut && editClockOut !== origOut ? editClockOut : (origOut || undefined);
+      const built = combineDateTimeAware(dateStr, inHHMM, outHHMM);
       if (editClockIn && editClockIn !== origIn) {
-        body.newClockIn = combineDateTime(dateStr, editClockIn);
+        body.newClockIn = built.clockIn;
       }
       if (editClockOut && editClockOut !== origOut) {
-        body.newClockOut = combineDateTime(dateStr, editClockOut);
+        body.newClockOut = built.clockOut;
       }
       if (editBreak !== origBreak) {
         body.newBreakMinutes = parseInt(editBreak, 10);
@@ -555,7 +554,14 @@ export default function AttendancePage() {
                             <td className={`px-3 py-2.5 tabular-nums ${isFieldEdited(adminEdits, cd.dateStr, 'clockOut') ? 'text-red-600 font-medium' : ''}`}>
                               {!row.clockOut ? (
                                 <span className="text-status-red-text">--:--</span>
-                              ) : formatTime(row.clockOut)}
+                              ) : (
+                                <>
+                                  {formatTime(row.clockOut)}
+                                  {isClockOutNextDay(cd.dateStr, row.clockOut) && (
+                                    <span className="ml-1 text-2xs text-secondary/70">(翌)</span>
+                                  )}
+                                </>
+                              )}
                             </td>
                             <td className="px-3 py-2.5">
                               <span className={isFieldEdited(adminEdits, cd.dateStr, 'breakMinutes') ? 'text-red-600 font-medium' : 'text-secondary'}>{row.breakMinutes}分</span>
@@ -801,7 +807,12 @@ export default function AttendancePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-secondary mb-1">退勤時間</label>
+                    <label className="block text-sm text-secondary mb-1">
+                      退勤時間
+                      {editClockIn && editClockOut && isCrossMidnight(editClockIn, editClockOut) && (
+                        <span className="ml-2 text-xs text-secondary/70">（翌日扱い）</span>
+                      )}
+                    </label>
                     <input
                       type="time"
                       value={editClockOut}

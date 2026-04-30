@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
+import { PaymentTermEditor, PaymentTermValue, EMPTY_PAYMENT_TERM } from '@/components/PaymentTermEditor';
 
 interface ClientDetail {
   id: string;
@@ -62,14 +63,23 @@ interface ProjectItem {
   rewardRate: string | null;
   settlementLower: number | null;
   settlementUpper: number | null;
+  overtimeRate: number | null;
+  deductionRate: number | null;
   startDate: string | null;
   endDate: string | null;
   workLocation: string | null;
   area: string | null;
   defaultStartTime: string | null;
   attendanceFormat: string;
+  clientAttendanceRequired: boolean;
   supplyChain: string | null;
   note: string | null;
+  closingDay: number | null;
+  paymentMode: string | null;
+  paymentMonths: number | null;
+  paymentDay: number | null;
+  paymentDays: number | null;
+  bankHolidayAdj: string | null;
   assignments: Assignment[];
 }
 
@@ -139,11 +149,16 @@ export default function ClientDetailPage() {
   const [editingProject, setEditingProject] = useState<ProjectItem | null>(null);
   const [projectForm, setProjectForm] = useState({
     name: '', contractPrice: '', rewardRate: '', settlementLower: '', settlementUpper: '',
+    overtimeRate: '', deductionRate: '',
     startDate: '', endDate: '', defaultStartTime: '', attendanceFormat: 'none',
+    clientAttendanceRequired: 'true',
     workLocation: '', area: '', supplyChain: '一次請け', note: '',
   });
   const [savingProject, setSavingProject] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
+  // 支払サイクル: 案件ごとの上書き
+  const [projectPaymentTermOverride, setProjectPaymentTermOverride] = useState(false);
+  const [projectPaymentTerm, setProjectPaymentTerm] = useState<PaymentTermValue>(EMPTY_PAYMENT_TERM);
 
   // 提案メール送信モーダル
 
@@ -378,14 +393,28 @@ export default function ClientDetailPage() {
                                     rewardRate: proj.rewardRate || '',
                                     settlementLower: proj.settlementLower ? String(proj.settlementLower) : '',
                                     settlementUpper: proj.settlementUpper ? String(proj.settlementUpper) : '',
+                                    overtimeRate: proj.overtimeRate != null ? String(proj.overtimeRate) : '',
+                                    deductionRate: proj.deductionRate != null ? String(proj.deductionRate) : '',
                                     startDate: proj.startDate ? proj.startDate.slice(0, 10) : '',
                                     endDate: proj.endDate ? proj.endDate.slice(0, 10) : '',
                                     defaultStartTime: proj.defaultStartTime || '',
                                     attendanceFormat: proj.attendanceFormat || 'none',
+                                    clientAttendanceRequired: proj.clientAttendanceRequired === false ? 'false' : 'true',
                                     workLocation: proj.workLocation || '',
                                     area: proj.area || '',
                                     supplyChain: proj.supplyChain || '一次請け',
                                     note: proj.note || '',
+                                  });
+                                  // 支払サイクル: 案件側に値があれば上書き ON、なければ OFF（クライアント既定を使う）
+                                  const hasProjTerm = proj.closingDay != null || !!proj.paymentMode;
+                                  setProjectPaymentTermOverride(hasProjTerm);
+                                  setProjectPaymentTerm({
+                                    closingDay: proj.closingDay ?? null,
+                                    paymentMode: proj.paymentMode ?? null,
+                                    paymentMonths: proj.paymentMonths ?? null,
+                                    paymentDay: proj.paymentDay ?? null,
+                                    paymentDays: proj.paymentDays ?? null,
+                                    bankHolidayAdj: proj.bankHolidayAdj ?? null,
                                   });
                                   setShowProjectForm(true);
                                 }}
@@ -438,14 +467,24 @@ export default function ClientDetailPage() {
                                 rewardRate: projectForm.rewardRate || undefined,
                                 settlementLower: projectForm.settlementLower ? parseInt(projectForm.settlementLower, 10) : undefined,
                                 settlementUpper: projectForm.settlementUpper ? parseInt(projectForm.settlementUpper, 10) : undefined,
+                                overtimeRate: projectForm.overtimeRate ? parseInt(projectForm.overtimeRate.replace(/,/g, ''), 10) : undefined,
+                                deductionRate: projectForm.deductionRate ? parseInt(projectForm.deductionRate.replace(/,/g, ''), 10) : undefined,
                                 startDate: projectForm.startDate || undefined,
                                 endDate: projectForm.endDate || undefined,
                                 defaultStartTime: projectForm.defaultStartTime || undefined,
                                 attendanceFormat: projectForm.attendanceFormat,
+                                clientAttendanceRequired: projectForm.clientAttendanceRequired === 'true',
                                 workLocation: projectForm.workLocation || undefined,
                                 area: projectForm.area || undefined,
                                 supplyChain: projectForm.supplyChain || undefined,
                                 note: projectForm.note || undefined,
+                                // 支払サイクル: 上書き OFF なら全 null（クライアント既定を使う）
+                                closingDay: projectPaymentTermOverride ? projectPaymentTerm.closingDay : null,
+                                paymentMode: projectPaymentTermOverride ? projectPaymentTerm.paymentMode : null,
+                                paymentMonths: projectPaymentTermOverride ? projectPaymentTerm.paymentMonths : null,
+                                paymentDay: projectPaymentTermOverride ? projectPaymentTerm.paymentDay : null,
+                                paymentDays: projectPaymentTermOverride ? projectPaymentTerm.paymentDays : null,
+                                bankHolidayAdj: projectPaymentTermOverride ? projectPaymentTerm.bankHolidayAdj : null,
                               };
                               if (editingProject) {
                                 await apiClient(`/projects/${editingProject.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -498,6 +537,16 @@ export default function ClientDetailPage() {
                             </div>
                             <div className="grid grid-cols-2 gap-3 mb-2">
                               <div>
+                                <label className="block text-2xs text-secondary mb-1">超過1時間あたり単価（円）</label>
+                                <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="(空欄=自動計算)" value={projectForm.overtimeRate} onChange={e => setProjectForm(f => ({ ...f, overtimeRate: e.target.value }))} />
+                              </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">控除1時間あたり単価（円）</label>
+                                <input type="text" className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" placeholder="(空欄=自動計算)" value={projectForm.deductionRate} onChange={e => setProjectForm(f => ({ ...f, deductionRate: e.target.value }))} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                              <div>
                                 <label className="block text-2xs text-secondary mb-1">契約開始日 <span className="text-red-600">*</span></label>
                                 <input type="date" value={projectForm.startDate} onChange={e => setProjectForm(f => ({ ...f, startDate: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" />
                               </div>
@@ -506,7 +555,7 @@ export default function ClientDetailPage() {
                                 <input type="date" value={projectForm.endDate} onChange={e => setProjectForm(f => ({ ...f, endDate: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/30" />
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-2 gap-3 mb-2">
                               <div>
                                 <label className="block text-2xs text-secondary mb-1">稼働開始時刻</label>
                                 <select value={projectForm.defaultStartTime} onChange={e => setProjectForm(f => ({ ...f, defaultStartTime: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
@@ -518,6 +567,15 @@ export default function ClientDetailPage() {
                                   <option value="10:00">10時00分</option>
                                 </select>
                               </div>
+                              <div>
+                                <label className="block text-2xs text-secondary mb-1">現場勤怠</label>
+                                <select value={projectForm.clientAttendanceRequired} onChange={e => setProjectForm(f => ({ ...f, clientAttendanceRequired: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
+                                  <option value="true">あり</option>
+                                  <option value="false">なし</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <label className="block text-2xs text-secondary mb-1">請求時の勤怠表添付</label>
                                 <select value={projectForm.attendanceFormat} onChange={e => setProjectForm(f => ({ ...f, attendanceFormat: e.target.value }))} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none appearance-none focus:ring-1 focus:ring-primary/30">
@@ -563,6 +621,43 @@ export default function ClientDetailPage() {
                               <label className="block text-2xs text-secondary mb-1">備考</label>
                               <textarea value={projectForm.note} onChange={e => setProjectForm(f => ({ ...f, note: e.target.value }))} rows={2} className="w-full border border-border rounded-md px-3 py-2 text-sm outline-none resize-y focus:ring-1 focus:ring-primary/30" placeholder="特記事項があれば入力" />
                             </div>
+                          </div>
+
+                          {/* 支払サイクル: 案件で上書き */}
+                          <div className="card p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-sm font-medium">支払サイクル</div>
+                              <label className="inline-flex items-center gap-2 text-xs text-secondary cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={projectPaymentTermOverride}
+                                  onChange={e => {
+                                    setProjectPaymentTermOverride(e.target.checked);
+                                    if (e.target.checked && !projectPaymentTerm.paymentMode) {
+                                      setProjectPaymentTerm({
+                                        closingDay: 0,
+                                        paymentMode: 'NEXT_MONTH_EOM',
+                                        paymentMonths: 1,
+                                        paymentDay: null,
+                                        paymentDays: null,
+                                        bankHolidayAdj: 'PREV_BUSINESS_DAY',
+                                      });
+                                    }
+                                  }}
+                                />
+                                <span>この案件で上書き</span>
+                              </label>
+                            </div>
+                            <div className="text-2xs text-secondary mb-3">
+                              {projectPaymentTermOverride
+                                ? '案件単位で支払サイクルを上書きします。請求書発行時はこの設定が優先されます。'
+                                : 'クライアント既定を使用します。クライアント側で支払サイクルが設定されていれば、その内容で請求書 dueDate が自動計算されます。'}
+                            </div>
+                            <PaymentTermEditor
+                              value={projectPaymentTerm}
+                              onChange={setProjectPaymentTerm}
+                              disabled={!projectPaymentTermOverride}
+                            />
                           </div>
 
                           <div className="flex gap-3 pt-1">

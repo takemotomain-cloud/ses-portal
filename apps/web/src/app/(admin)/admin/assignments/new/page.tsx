@@ -22,12 +22,15 @@ interface ProjectOption {
   rewardRate: string | null;
   settlementLower: number | null;
   settlementUpper: number | null;
+  overtimeRate: number | null;
+  deductionRate: number | null;
   startDate: string | null;
   endDate: string | null;
   workLocation: string | null;
   area: string | null;
   defaultStartTime: string | null;
   attendanceFormat: string;
+  clientAttendanceRequired: boolean;
   supplyChain: string | null;
 }
 
@@ -191,12 +194,15 @@ export default function NewAssignmentPage() {
           rewardRate: proj.rewardRate || prev.rewardRate,
           settlementLower: proj.settlementLower ? String(proj.settlementLower) : prev.settlementLower,
           settlementUpper: proj.settlementUpper ? String(proj.settlementUpper) : prev.settlementUpper,
+          overtimeRate: proj.overtimeRate != null ? String(proj.overtimeRate) : prev.overtimeRate,
+          deductionRate: proj.deductionRate != null ? String(proj.deductionRate) : prev.deductionRate,
           contractStartDate: proj.startDate ? proj.startDate.slice(0, 10) : prev.contractStartDate,
           contractEndDate: proj.endDate ? proj.endDate.slice(0, 10) : prev.contractEndDate,
           workLocation: proj.workLocation || prev.workLocation,
           area: proj.area || prev.area,
           workStartTime: proj.defaultStartTime || '9:00',
           attendanceFormat: proj.attendanceFormat || 'none',
+          clientAttendanceRequired: proj.clientAttendanceRequired === false ? 'false' : 'true',
           supplyChain: proj.supplyChain || prev.supplyChain,
         }));
       }
@@ -223,6 +229,8 @@ export default function NewAssignmentPage() {
         rewardRate: form.rewardRate || undefined,
         settlementLower: parseInt(form.settlementLower, 10) || undefined,
         settlementUpper: parseInt(form.settlementUpper, 10) || undefined,
+        overtimeRate: form.overtimeRate ? parseInt(form.overtimeRate.replace(/,/g, ''), 10) : undefined,
+        deductionRate: form.deductionRate ? parseInt(form.deductionRate.replace(/,/g, ''), 10) : undefined,
         startDate: form.contractStartDate || undefined,
         endDate: form.contractEndDate || undefined,
         workLocation: form.workLocation || undefined,

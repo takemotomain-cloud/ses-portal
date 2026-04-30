@@ -241,9 +241,8 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex h-[calc(100vh-160px)] flex-col">
-      {/* ヘッダー: タイトル + リセット */}
-      <div className="flex items-center justify-between border-b border-border pb-3">
-        <div className="text-sm text-secondary">{AGENT_NAME}</div>
+      {/* ヘッダー: リセット */}
+      <div className="flex items-center justify-end pb-3">
         {thread.length > 0 && (
           <button
             onClick={resetThread}

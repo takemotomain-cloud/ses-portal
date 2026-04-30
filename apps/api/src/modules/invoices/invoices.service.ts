@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import {
+  resolvePaymentTerm,
+  computeDueDate,
+} from '../payment-terms/payment-terms.util';
 
 /* ── 型定義 ── */
 
@@ -456,15 +460,64 @@ export class InvoicesService {
     const invoiceDate = data.invoiceDate
       ? new Date(data.invoiceDate)
       : new Date();
-    const dueDate = data.dueDate
-      ? new Date(data.dueDate)
-      : new Date(year, mon, 0); // デフォルト: 翌月末（= 対象月の翌月末日）
 
-    // クライアントの請求用メール取得
+    // クライアント取得（支払サイクル設定 + billingEmail）
     const client = await this.db.client.findUnique({
       where: { id: clientId },
-      select: { billingEmail: true },
+      select: {
+        billingEmail: true,
+        closingDay: true,
+        paymentMode: true,
+        paymentMonths: true,
+        paymentDay: true,
+        paymentDays: true,
+        bankHolidayAdj: true,
+      },
     });
+
+    // 案件の支払サイクル上書き判定（最初の社員の有効アサインから案件を引く）
+    let projectTerm: {
+      closingDay: number | null;
+      paymentMode: string | null;
+      paymentMonths: number | null;
+      paymentDay: number | null;
+      paymentDays: number | null;
+      bankHolidayAdj: string | null;
+    } | null = null;
+    if (employeeIds.length > 0) {
+      const firstAssignment = await this.db.assignment.findFirst({
+        where: {
+          employeeId: employeeIds[0],
+          clientId,
+          status: { in: ['active', 'ending_scheduled'] },
+        },
+        select: { projectId: true },
+      });
+      if (firstAssignment?.projectId) {
+        projectTerm = await this.db.project.findUnique({
+          where: { id: firstAssignment.projectId },
+          select: {
+            closingDay: true,
+            paymentMode: true,
+            paymentMonths: true,
+            paymentDay: true,
+            paymentDays: true,
+            bankHolidayAdj: true,
+          },
+        });
+      }
+    }
+
+    let dueDate: Date;
+    if (data.dueDate) {
+      // 明示指定あり → そのまま採用
+      dueDate = new Date(data.dueDate);
+    } else {
+      const term = resolvePaymentTerm(projectTerm, client);
+      dueDate = term
+        ? computeDueDate(targetMonth, term)
+        : new Date(year, mon, 0); // フォールバック: 翌月末
+    }
 
     // トランザクション内で Invoice + InvoiceItem を一括作成
     const invoice = await this.db.invoice.create({

@@ -282,6 +282,13 @@ model Client {
   billingEmail    String?   @map("billing_email") @db.VarChar(255)
   tradeStartDate  DateTime? @map("trade_start_date") @db.Date
   freeePartnerId  String?   @map("freee_partner_id") @db.VarChar(50)
+  // 支払サイクル既定（案件側で上書き可）
+  closingDay      Int?      @map("closing_day")
+  paymentMode     String?   @map("payment_mode") @db.VarChar(32)
+  paymentMonths   Int?      @map("payment_months")
+  paymentDay      Int?      @map("payment_day")
+  paymentDays     Int?      @map("payment_days")
+  bankHolidayAdj  String?   @map("bank_holiday_adj") @db.VarChar(32)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -313,8 +320,18 @@ model Project {
   area              String?   @db.VarChar(20)
   defaultStartTime  String?   @map("default_start_time") @db.VarChar(5)
   attendanceFormat  String    @default("none") @map("attendance_format") @db.VarChar(20)
+  clientAttendanceRequired Boolean @default(true) @map("client_attendance_required")
+  overtimeRate      Int?      @map("overtime_rate")
+  deductionRate     Int?      @map("deduction_rate")
   supplyChain       String?   @map("supply_chain") @db.VarChar(20)
   note              String?
+  // 支払サイクル上書き（全 null ならクライアント既定を継承）
+  closingDay        Int?      @map("closing_day")
+  paymentMode       String?   @map("payment_mode") @db.VarChar(32)
+  paymentMonths     Int?      @map("payment_months")
+  paymentDay        Int?      @map("payment_day")
+  paymentDays       Int?      @map("payment_days")
+  bankHolidayAdj    String?   @map("bank_holiday_adj") @db.VarChar(32)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

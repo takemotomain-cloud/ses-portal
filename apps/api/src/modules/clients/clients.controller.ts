@@ -62,6 +62,12 @@ export class ClientsController {
       tradeFlow?: string;
       billingEmail?: string;
       tradeStartDate?: string;
+      closingDay?: number | null;
+      paymentMode?: string | null;
+      paymentMonths?: number | null;
+      paymentDay?: number | null;
+      paymentDays?: number | null;
+      bankHolidayAdj?: string | null;
     },
   ) {
     return this.clientsService.create(body);
@@ -107,6 +113,12 @@ export class ClientsController {
       tradeFlow?: string;
       billingEmail?: string;
       tradeStartDate?: string;
+      closingDay?: number | null;
+      paymentMode?: string | null;
+      paymentMonths?: number | null;
+      paymentDay?: number | null;
+      paymentDays?: number | null;
+      bankHolidayAdj?: string | null;
     },
   ) {
     return this.clientsService.update(id, body);

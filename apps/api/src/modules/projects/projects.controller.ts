@@ -37,14 +37,23 @@ export class ProjectsController {
     rewardRate?: string;
     settlementLower?: number;
     settlementUpper?: number;
+    overtimeRate?: number;
+    deductionRate?: number;
     startDate?: string;
     endDate?: string;
     workLocation?: string;
     area?: string;
     defaultStartTime?: string;
     attendanceFormat?: string;
+    clientAttendanceRequired?: boolean;
     supplyChain?: string;
     note?: string;
+    closingDay?: number | null;
+    paymentMode?: string | null;
+    paymentMonths?: number | null;
+    paymentDay?: number | null;
+    paymentDays?: number | null;
+    bankHolidayAdj?: string | null;
   }) {
     return this.projectsService.create(body);
   }
@@ -59,14 +68,23 @@ export class ProjectsController {
       rewardRate?: string | null;
       settlementLower?: number | null;
       settlementUpper?: number | null;
+      overtimeRate?: number | null;
+      deductionRate?: number | null;
       startDate?: string | null;
       endDate?: string | null;
       workLocation?: string | null;
       area?: string | null;
       defaultStartTime?: string | null;
       attendanceFormat?: string;
+      clientAttendanceRequired?: boolean;
       supplyChain?: string | null;
       note?: string | null;
+      closingDay?: number | null;
+      paymentMode?: string | null;
+      paymentMonths?: number | null;
+      paymentDay?: number | null;
+      paymentDays?: number | null;
+      bankHolidayAdj?: string | null;
     },
   ) {
     return this.projectsService.update(id, body);
