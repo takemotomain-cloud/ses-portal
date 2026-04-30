@@ -41,6 +41,13 @@ export class ClientsService {
     tradeFlow?: string;
     billingEmail?: string;
     tradeStartDate?: string;
+    // 支払サイクル
+    closingDay?: number | null;
+    paymentMode?: string | null;
+    paymentMonths?: number | null;
+    paymentDay?: number | null;
+    paymentDays?: number | null;
+    bankHolidayAdj?: string | null;
   }) {
     return this.db.client.create({
       data: {
@@ -62,6 +69,12 @@ export class ClientsService {
         tradeStartDate: data.tradeStartDate
           ? new Date(data.tradeStartDate)
           : null,
+        closingDay: data.closingDay ?? null,
+        paymentMode: data.paymentMode ?? null,
+        paymentMonths: data.paymentMonths ?? null,
+        paymentDay: data.paymentDay ?? null,
+        paymentDays: data.paymentDays ?? null,
+        bankHolidayAdj: data.bankHolidayAdj ?? null,
       },
     });
   }
@@ -169,6 +182,12 @@ export class ClientsService {
       tradeFlow?: string;
       billingEmail?: string;
       tradeStartDate?: string;
+      closingDay?: number | null;
+      paymentMode?: string | null;
+      paymentMonths?: number | null;
+      paymentDay?: number | null;
+      paymentDays?: number | null;
+      bankHolidayAdj?: string | null;
     },
   ) {
     const client = await this.db.client.findFirst({
@@ -199,6 +218,12 @@ export class ClientsService {
         ...(data.tradeStartDate !== undefined && {
           tradeStartDate: data.tradeStartDate ? new Date(data.tradeStartDate) : null,
         }),
+        ...(data.closingDay !== undefined && { closingDay: data.closingDay }),
+        ...(data.paymentMode !== undefined && { paymentMode: data.paymentMode }),
+        ...(data.paymentMonths !== undefined && { paymentMonths: data.paymentMonths }),
+        ...(data.paymentDay !== undefined && { paymentDay: data.paymentDay }),
+        ...(data.paymentDays !== undefined && { paymentDays: data.paymentDays }),
+        ...(data.bankHolidayAdj !== undefined && { bankHolidayAdj: data.bankHolidayAdj }),
       },
     });
   }

@@ -26,6 +26,13 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { AttendanceConfirmedEvent } from './events/attendance-confirmed.event';
 import { STANDARD_WORK_MINUTES } from '@ses-portal/shared';
+import { buildClockTimes } from './utils/cross-midnight';
+
+/** Date を 'HH:MM' 文字列に変換 */
+function toHHMM(date: Date): string {
+  const d = new Date(date);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 @Injectable()
 export class AttendanceService {
@@ -403,6 +410,18 @@ export class AttendanceService {
       throw new BadRequestException('休憩時間は0〜480分で指定してください');
     }
 
+    // 日跨ぎ補正: フロントから ISO で来ても、newClockOut < newClockIn なら退勤を翌日に補正
+    let newClockIn = data.newClockIn ? new Date(data.newClockIn) : null;
+    let newClockOut = data.newClockOut ? new Date(data.newClockOut) : null;
+    // フロントが補正済みなら以下は no-op
+    if (newClockIn && newClockOut && newClockOut.getTime() < newClockIn.getTime()) {
+      newClockOut = new Date(newClockOut.getTime() + 24 * 60 * 60 * 1000);
+    }
+    // 比較用に originalClockIn 側も参照（newClockIn 未指定で newClockOut だけ送られたケース）
+    if (!newClockIn && newClockOut && record.clockIn && newClockOut.getTime() < new Date(record.clockIn).getTime()) {
+      newClockOut = new Date(newClockOut.getTime() + 24 * 60 * 60 * 1000);
+    }
+
     const correction = await this.db.attendanceCorrection.create({
       data: {
         attendanceId,
@@ -410,8 +429,8 @@ export class AttendanceService {
         originalClockIn: record.clockIn,
         originalClockOut: record.clockOut,
         originalBreakMinutes: record.breakMinutes,
-        newClockIn: data.newClockIn ? new Date(data.newClockIn) : null,
-        newClockOut: data.newClockOut ? new Date(data.newClockOut) : null,
+        newClockIn,
+        newClockOut,
         newBreakMinutes: data.newBreakMinutes ?? null,
         reason: data.reason,
       },
@@ -869,11 +888,13 @@ export class AttendanceService {
 
     const updateData: any = {};
 
-    if (data.clockIn !== undefined) {
-      updateData.clockIn = new Date(`${workDate}T${data.clockIn}:00`);
-    }
-    if (data.clockOut !== undefined) {
-      updateData.clockOut = new Date(`${workDate}T${data.clockOut}:00`);
+    // clockIn / clockOut の組み立て: 退勤が出勤より早いなら退勤を翌日扱いに補正（深夜残業対応）
+    const finalInHHMM = data.clockIn ?? (record.clockIn ? toHHMM(record.clockIn) : undefined);
+    const finalOutHHMM = data.clockOut ?? (record.clockOut ? toHHMM(record.clockOut) : undefined);
+    if (data.clockIn !== undefined || data.clockOut !== undefined) {
+      const built = buildClockTimes(workDate, finalInHHMM, finalOutHHMM);
+      if (data.clockIn !== undefined) updateData.clockIn = built.clockIn;
+      if (data.clockOut !== undefined) updateData.clockOut = built.clockOut;
     }
     if (data.breakMinutes !== undefined) {
       updateData.breakMinutes = data.breakMinutes;

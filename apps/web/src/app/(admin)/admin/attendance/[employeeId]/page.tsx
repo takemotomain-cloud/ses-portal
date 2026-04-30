@@ -14,6 +14,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/components/ui/toast';
+import { isCrossMidnight, isClockOutNextDay } from '@/lib/attendance-time';
 
 /* ---- 型定義 ---- */
 
@@ -521,13 +522,23 @@ export default function AttendanceDetailPage() {
                       {isEmpEditing ? (
                         <>
                           <td className="px-2 py-1"><input type="time" value={empEditClockIn} onChange={e => setEmpEditClockIn(e.target.value)} className="border rounded px-1 py-0.5 text-sm w-[90px]" /></td>
-                          <td className="px-2 py-1"><input type="time" value={empEditClockOut} onChange={e => setEmpEditClockOut(e.target.value)} className="border rounded px-1 py-0.5 text-sm w-[90px]" /></td>
+                          <td className="px-2 py-1">
+                            <input type="time" value={empEditClockOut} onChange={e => setEmpEditClockOut(e.target.value)} className="border rounded px-1 py-0.5 text-sm w-[90px]" />
+                            {empEditClockIn && empEditClockOut && isCrossMidnight(empEditClockIn, empEditClockOut) && (
+                              <div className="text-2xs text-secondary/70">（翌日扱い）</div>
+                            )}
+                          </td>
                           <td className="px-2 py-1"><input type="number" value={empEditBreak} onChange={e => setEmpEditBreak(Number(e.target.value))} className="border rounded px-1 py-0.5 text-sm w-[60px]" min={0} max={480} /></td>
                         </>
                       ) : (
                         <>
                           <td className={`px-4 py-2 text-sm text-right tabular-nums ${ciEdited ? 'text-red-600 font-medium' : ''}`}>{fmtTime(record.clockIn)}</td>
-                          <td className={`px-4 py-2 text-sm text-right tabular-nums ${coEdited ? 'text-red-600 font-medium' : ''}`}>{fmtTime(record.clockOut)}</td>
+                          <td className={`px-4 py-2 text-sm text-right tabular-nums ${coEdited ? 'text-red-600 font-medium' : ''}`}>
+                            {fmtTime(record.clockOut)}
+                            {record.clockOut && isClockOutNextDay(dateStr, record.clockOut) && (
+                              <span className="ml-1 text-2xs text-secondary/70">(翌)</span>
+                            )}
+                          </td>
                           <td className={`px-4 py-2 text-sm text-right tabular-nums ${brEdited ? 'text-red-600 font-medium' : ''}`}>{record.breakMinutes}分</td>
                         </>
                       )}
@@ -548,6 +559,7 @@ export default function AttendanceDetailPage() {
                             <button
                               disabled={empSaving}
                               onClick={() => {
+                                // HH:MM のままサーバーに送る (cross-midnight はサーバー側 buildClockTimes で補正)
                                 setPendingSave({ dateStr, clockIn: empEditClockIn, clockOut: empEditClockOut, breakMinutes: empEditBreak });
                                 setEditReason('');
                                 setShowReasonModal(true);

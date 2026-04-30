@@ -867,23 +867,6 @@ export default function AdminSalesPage() {
         </div>
       </div>
 
-      {/* N3: 送信失敗バッジ（クリックでモーダル） */}
-      {failedProposals.length > 0 && (
-        <div className="mb-4">
-          <button
-            type="button"
-            onClick={() => setShowFailedModal(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-status-red-text/30 bg-status-red-bg text-status-red-text text-sm hover:bg-status-red-text hover:text-white transition-colors"
-          >
-            <span>&#9888;</span>
-            <span>提案メール送信失敗</span>
-            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-status-red-text text-white text-xs font-medium">
-              {failedProposals.length}
-            </span>
-          </button>
-        </div>
-      )}
-
       {/* 今月確定一覧 */}
       {monthConfirmed.length > 0 && (
         <div className="card p-4 mb-4">
