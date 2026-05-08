@@ -13,12 +13,11 @@
  * 4. 扶養家族（名前・続柄・生年月日・年収）
  * 5. 給与振込口座（銀行名・支店名・口座種別・口座番号・口座名義）
  * 6. 通勤（通勤スタイル）
- * 7. 本人確認書類アップロード（運転免許証 表裏）※UI のみ（ファイルストレージは今後）
+ * 7. 本人確認書類アップロード（顔写真付き身分証の表裏）※UI のみ（ファイルストレージは今後）
  * 8. マイナンバーカード（表裏）※UI のみ
  * 9. 年金手帳 ※UI のみ
- * 10. 健康診断結果 ※UI のみ
- * 11. 保有資格（動的追加）
- * 12. 送信ボタン → API で DB に保存
+ * 10. 保有資格（動的追加）
+ * 11. 送信ボタン → API で DB に保存
  */
 
 'use client';
@@ -127,6 +126,115 @@ interface DependentInput {
   annualIncome: string;
 }
 
+const IT_CERT_OPTIONS = [
+  'ITパスポート試験',
+  '情報セキュリティマネジメント試験',
+  '基本情報技術者試験',
+  '応用情報技術者試験',
+  'ITストラテジスト試験',
+  'システムアーキテクト試験',
+  'プロジェクトマネージャ試験',
+  'ネットワークスペシャリスト試験',
+  'データベーススペシャリスト試験',
+  'エンベデッドシステムスペシャリスト試験',
+  'ITサービスマネージャ試験',
+  'システム監査技術者試験',
+  '情報処理安全確保支援士試験',
+  'AWS Certified Cloud Practitioner',
+  'AWS Certified AI Practitioner',
+  'AWS Certified Solutions Architect – Associate',
+  'AWS Certified Developer – Associate',
+  'AWS Certified CloudOps Engineer – Associate',
+  'AWS Certified Solutions Architect – Professional',
+  'AWS Certified DevOps Engineer – Professional',
+  'AWS Certified Security – Specialty',
+  'Microsoft Certified: Azure Fundamentals',
+  'Microsoft Certified: Azure Administrator Associate',
+  'Microsoft Certified: Azure Solutions Architect Expert',
+  'Cloud Digital Leader',
+  'Associate Cloud Engineer',
+  'Professional Cloud Architect',
+  'Professional Cloud Developer',
+  'Professional Cloud Network Engineer',
+  'Professional Cloud Security Engineer',
+  'Professional Cloud Database Engineer',
+  'Professional Data Engineer',
+  'Professional Machine Learning Engineer',
+  'CCNA',
+  'CCNP',
+  'CCIE',
+  'ORACLE MASTER Bronze DBA 2019',
+  'ORACLE MASTER Silver DBA 2019',
+  'ORACLE MASTER Silver SQL 2019',
+  'ORACLE MASTER Gold DBA 2019',
+  'Salesforce 認定 Platform アドミニストレーター',
+  'Salesforce 認定 Platform アドミニストレーター 上級',
+  'Salesforce 認定 Platform デベロッパー',
+  'Salesforce 認定 Platform デベロッパー 上級',
+  'Salesforce 認定 Platform アプリケーションビルダー',
+  'LinuCレベル1',
+  'LinuCレベル2',
+  'LinuCレベル3',
+  'LinuCシステムアーキテクト',
+  'LPIC-1',
+  'LPIC-2',
+  'LPIC-3',
+  'Oracle Certified Java Programmer, Bronze SE',
+  'Oracle Certified Java Programmer, Silver SE 11',
+  'Oracle Certified Java Programmer, Gold SE 11',
+  'Oracle Certified Java Programmer, Silver SE 17',
+  'Oracle Certified Java Programmer, Gold SE 17',
+  'Python3 エンジニア認定基礎試験',
+  'Python3 エンジニア認定データ分析試験',
+  'PHP技術者認定初級試験',
+  'PHP技術者認定上級試験',
+  'Ruby Association Certified Ruby Programmer Silver',
+  'Ruby Association Certified Ruby Programmer Gold',
+  'HTML5プロフェッショナル認定試験 レベル1',
+  'HTML5プロフェッショナル認定試験 レベル2',
+  'G検定',
+  'E資格',
+  '統計検定4級',
+  '統計検定3級',
+  '統計検定2級',
+  '統計検定準1級',
+  '統計検定1級',
+  'PMP',
+  'Certified ScrumMaster（CSM）',
+];
+
+const COMMON_CERT_OPTIONS = [
+  '日商簿記検定3級',
+  '日商簿記検定2級',
+  '日商簿記検定1級',
+  '宅地建物取引士',
+  'FP技能検定3級',
+  'FP技能検定2級',
+  'FP技能検定1級',
+  'TOEIC Listening & Reading',
+  '社会保険労務士',
+  '行政書士',
+  '公認会計士',
+  '税理士',
+  '中小企業診断士',
+  '介護福祉士',
+  '介護職員初任者研修',
+  '看護師',
+  '登録販売者',
+  '第二種電気工事士',
+  '危険物取扱者乙種第4類',
+  '司法書士',
+  '秘書検定3級',
+  '秘書検定2級',
+  '秘書検定準1級',
+  '秘書検定1級',
+  'MOS Word',
+  'MOS Excel',
+  'MOS PowerPoint',
+  'MOS Word Expert',
+  'MOS Excel Expert',
+];
+
 export default function OnboardFormPage() {
   const router = useRouter();
   const { toast, ToastUI } = useToast();
@@ -184,6 +292,8 @@ export default function OnboardFormPage() {
 
   // 資格
   const [certs, setCerts] = useState<string[]>([]);
+  const [selectedCert, setSelectedCert] = useState('');
+  const [customCert, setCustomCert] = useState('');
 
   // 本人確認書類（File オブジェクト）
   const [docLicenseFront, setDocLicenseFront] = useState<File | null>(null);
@@ -191,14 +301,38 @@ export default function OnboardFormPage() {
   const [docMynumberFront, setDocMynumberFront] = useState<File | null>(null);
   const [docMynumberBack, setDocMynumberBack] = useState<File | null>(null);
   const [docPensionBook, setDocPensionBook] = useState<File | null>(null);
-  const [docHealthCheck, setDocHealthCheck] = useState<File | null>(null);
+  const [docResidentRecord, setDocResidentRecord] = useState<File | null>(null);
+  const [docEmploymentInsurance, setDocEmploymentInsurance] = useState<File | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
 
-  function addCert() {
-    const name = prompt('資格名を入力してください');
-    if (name?.trim()) setCerts([...certs, name.trim()]);
+  function addCert(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      toast('資格名を入力してください');
+      return;
+    }
+    if (certs.includes(trimmed)) {
+      toast('同じ資格はすでに追加されています');
+      return;
+    }
+    setCerts([...certs, trimmed]);
   }
+
+  function addSelectedCert() {
+    if (!selectedCert) {
+      toast('候補から資格を選択してください');
+      return;
+    }
+    addCert(selectedCert);
+    setSelectedCert('');
+  }
+
+  function addCustomCert() {
+    addCert(customCert);
+    setCustomCert('');
+  }
+
   function removeCert(idx: number) {
     setCerts(certs.filter((_, i) => i !== idx));
   }
@@ -243,6 +377,7 @@ export default function OnboardFormPage() {
           departmentId: departments[0]?.id || '',
           birthDate,
           gender: gender === '男性' ? 'male' : gender === '女性' ? 'female' : 'other',
+          bloodType,
           education: education || undefined,
           schoolName: schoolName || undefined,
           email,
@@ -252,8 +387,9 @@ export default function OnboardFormPage() {
           station: station || undefined,
           bankName: bankName || undefined,
           bankBranch: bankBranch || undefined,
-          bankAccountType: bankAccountType === '普通' ? 'ordinary' : bankAccountType === '当座' ? 'current' : undefined,
+          bankAccountType: bankAccountType === '普通' ? 'ordinary' : bankAccountType === '当座' ? 'checking' : undefined,
           bankAccountNumber: bankAccountNumber || undefined,
+          bankAccountHolder: bankAccountHolder || undefined,
         }),
       });
 
@@ -288,7 +424,7 @@ export default function OnboardFormPage() {
         await apiClient(`/employees/${result.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            qualifications: certs.map((name) => ({ name })),
+            qualifications: certs,
           }),
         }).catch(() => {});
       }
@@ -300,7 +436,8 @@ export default function OnboardFormPage() {
         ['mynumber_front', docMynumberFront],
         ['mynumber_back', docMynumberBack],
         ['pension_book', docPensionBook],
-        ['health_check', docHealthCheck],
+        ['resident_record', docResidentRecord],
+        ['employment_insurance_certificate', docEmploymentInsurance],
       ];
       const uploadFailures: string[] = [];
       for (const [type, f] of docs) {
@@ -433,17 +570,23 @@ export default function OnboardFormPage() {
         {/* ── 5. 本人確認書類 ── */}
         <div className="card p-5 mb-3">
           <h2 className="text-sm font-medium mb-1">本人確認書類のアップロード <span className="text-red-600">*</span></h2>
-          <p className="text-xs text-secondary mb-3">以下のいずれかをアップロードしてください。Google Driveに安全に保管されます。</p>
+          <p className="text-xs text-secondary mb-3">
+            顔写真付きの本人確認書類（運転免許証、マイナンバーカード、パスポートなど）
+          </p>
           <div className="grid grid-cols-2 gap-3">
-            <UploadBox id="ob-upload-1" label="運転免許証（表）" value={docLicenseFront} onChange={setDocLicenseFront} />
-            <UploadBox id="ob-upload-2" label="運転免許証（裏）" value={docLicenseBack} onChange={setDocLicenseBack} />
+            <UploadBox id="ob-upload-1" label="本人確認書類（表）" value={docLicenseFront} onChange={setDocLicenseFront} />
+            <UploadBox id="ob-upload-2" label="本人確認書類（裏）" value={docLicenseBack} onChange={setDocLicenseBack} />
           </div>
         </div>
 
         {/* ── 7. マイナンバー ── */}
         <div className="card p-5 mb-3">
-          <h2 className="text-sm font-medium mb-1">マイナンバー <span className="text-red-600">*</span></h2>
-          <p className="text-xs text-secondary mb-3">マイナンバーカードまたは通知カードの写真をアップロードしてください</p>
+          <h2 className="text-sm font-medium mb-1">マイナンバー</h2>
+          <p className="text-xs text-secondary mb-3">
+            マイナンバーカードまたは通知カードの写真をアップロードしてください。
+            <br />
+            なお、本人確認書類としてマイナンバーカードを既にアップロードしている場合は不要です。
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <UploadBox id="ob-upload-3" label="マイナンバーカード（表）" value={docMynumberFront} onChange={setDocMynumberFront} />
             <UploadBox id="ob-upload-4" label="マイナンバーカード（裏）" value={docMynumberBack} onChange={setDocMynumberBack} />
@@ -457,39 +600,91 @@ export default function OnboardFormPage() {
           <div className="w-1/2"><UploadBox id="ob-upload-5" label="年金手帳" value={docPensionBook} onChange={setDocPensionBook} /></div>
         </div>
 
-        {/* ── 9. 健康診断結果 ── */}
+        {/* ── 9. 保有資格 ── */}
         <div className="card p-5 mb-3">
-          <h2 className="text-sm font-medium mb-1">健康診断結果</h2>
-          <p className="text-xs text-secondary mb-3">直近3ヶ月以内の健康診断結果をアップロードしてください</p>
-          <div className="w-1/2"><UploadBox id="ob-upload-6" label="健康診断結果" value={docHealthCheck} onChange={setDocHealthCheck} /></div>
+          <h2 className="text-sm font-medium mb-1">住民票</h2>
+          <p className="text-xs text-secondary mb-3">
+            基本提出をお願いします。手元にない場合は後日提出でも問題ありません。
+          </p>
+          <div className="w-1/2"><UploadBox id="ob-upload-6" label="住民票" value={docResidentRecord} onChange={setDocResidentRecord} /></div>
+        </div>
+
+        <div className="card p-5 mb-3">
+          <h2 className="text-sm font-medium mb-1">雇用保険被保険者証</h2>
+          <p className="text-xs text-secondary mb-3">
+            基本提出をお願いします。手元にない場合は後日提出でも問題ありません。
+          </p>
+          <div className="w-1/2"><UploadBox id="ob-upload-7" label="雇用保険被保険者証" value={docEmploymentInsurance} onChange={setDocEmploymentInsurance} /></div>
         </div>
 
         {/* ── 10. 保有資格 ── */}
         <div className="card p-5 mb-3">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-sm font-medium">保有資格</h2>
-            <button onClick={addCert} className="btn-outline text-xs py-1 px-3">資格追加</button>
+          <div className="mb-4">
+            <h2 className="text-sm font-medium mb-1">保有資格</h2>
+            <p className="text-xs text-secondary">
+              IT・エンジニア系資格を広めに用意しています。候補にない資格は自由入力でも追加できます。
+            </p>
           </div>
+          <div className="rounded-xl border border-border bg-[#FAFAFA] p-4 mb-4 space-y-4">
+            <div>
+              <div className="text-xs font-medium text-primary mb-2">候補から選択</div>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <select
+                  value={selectedCert}
+                  onChange={(e) => setSelectedCert(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary appearance-none bg-white"
+                >
+                  <option value="">資格名を選択してください</option>
+                  <optgroup label="IT・エンジニア系資格">
+                    {IT_CERT_OPTIONS.map((cert) => (
+                      <option key={cert} value={cert}>{cert}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="その他のよくある資格">
+                    {COMMON_CERT_OPTIONS.map((cert) => (
+                      <option key={cert} value={cert}>{cert}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                <button onClick={addSelectedCert} className="btn-outline text-xs py-1 px-3 whitespace-nowrap">追加</button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="h-px bg-border flex-1" />
+              <span className="text-[11px] text-secondary">または</span>
+              <div className="h-px bg-border flex-1" />
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-primary mb-2">自由入力</div>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <input
+                  type="text"
+                  placeholder="例：技術士、ISTQB、ウェブデザイン技能検定"
+                  value={customCert}
+                  onChange={(e) => setCustomCert(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary transition-colors bg-white"
+                />
+                <button onClick={addCustomCert} className="btn-outline text-xs py-1 px-3 whitespace-nowrap">追加</button>
+              </div>
+            </div>
+          </div>
+          <div className="mb-2 text-xs font-medium text-primary">追加済み資格</div>
           {certs.length === 0 ? (
-            <p className="text-sm text-secondary text-center py-3">資格がある場合は「資格追加」から追加してください</p>
+            <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-secondary text-center">
+              まだ資格は追加されていません
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
               {certs.map((cert, idx) => (
-                <div key={idx} className="flex items-center justify-between px-3 py-2 bg-page rounded-lg">
+                <div key={idx} className="inline-flex items-center gap-2 px-3 py-2 bg-page rounded-full border border-border">
                   <span className="text-sm">{cert}</span>
                   <button onClick={() => removeCert(idx)} className="text-xs text-red-500 hover:text-red-700">削除</button>
                 </div>
               ))}
             </div>
           )}
-        </div>
-
-        {/* ── 注意事項 ── */}
-        <div className="bg-page rounded-lg p-5 mb-6 text-sm text-secondary leading-relaxed">
-          <div className="font-medium text-primary mb-1">アップロードした書類について</div>
-          アップロードされた画像はGoogle Driveの入社書類フォルダに自動保存されます。<br />
-          テキスト情報（住所・口座等）は社員マスタに自動で取り込まれます。<br />
-          入社予定社員一覧のチェック項目も自動で完了になります。
         </div>
 
         {/* ── 送信ボタン ── */}

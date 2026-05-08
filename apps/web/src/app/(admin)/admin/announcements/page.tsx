@@ -34,12 +34,29 @@ interface AreaOption {
 }
 
 interface SentNotification {
+  announcementId: string;
   title: string;
   body: string;
   imageUrl?: string | null;
   createdAt: string;
   sentCount: number;
   readCount: number;
+  targetType: TargetType;
+  targetSummary: string;
+}
+
+interface SentRecipient {
+  notificationId: string;
+  employeeId: string;
+  employeeCode: string;
+  name: string;
+  departmentName: string;
+  isRead: boolean;
+  readAt?: string | null;
+}
+
+interface SentNotificationDetail extends SentNotification {
+  recipients: SentRecipient[];
 }
 
 type TargetType = 'all' | 'department' | 'area' | 'individual';
@@ -81,6 +98,8 @@ export default function AnnouncementsPage() {
   /* 送信履歴 */
   const [sentList, setSentList] = useState<SentNotification[]>([]);
   const [loadingSent, setLoadingSent] = useState(false);
+  const [selectedSent, setSelectedSent] = useState<SentNotificationDetail | null>(null);
+  const [loadingSentDetail, setLoadingSentDetail] = useState(false);
 
   /* データ取得 */
   useEffect(() => {
@@ -243,6 +262,18 @@ export default function AnnouncementsPage() {
     setSelectedEmployees(prev =>
       prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id],
     );
+  }
+
+  async function openSentDetail(announcementId: string) {
+    setLoadingSentDetail(true);
+    try {
+      const detail = await apiClient<SentNotificationDetail>(`/notifications/sent/${announcementId}`);
+      setSelectedSent(detail);
+    } catch {
+      toast('送信詳細の取得に失敗しました');
+    } finally {
+      setLoadingSentDetail(false);
+    }
   }
 
   return (
@@ -518,6 +549,7 @@ export default function AnnouncementsPage() {
                   <span className="text-xs text-secondary flex-shrink-0">{fmtDate(item.createdAt)}</span>
                 </div>
                 <p className="text-sm text-secondary mb-2 line-clamp-2">{item.body}</p>
+                <div className="text-xs text-secondary mb-2">送信先: {item.targetSummary}</div>
                 {item.imageUrl && (
                   <img
                     src={`${item.imageUrl}`}
@@ -531,6 +563,12 @@ export default function AnnouncementsPage() {
                   <span className="text-primary">
                     既読率: {item.sentCount > 0 ? Math.round((item.readCount / item.sentCount) * 100) : 0}%
                   </span>
+                  <button
+                    onClick={() => openSentDetail(item.announcementId)}
+                    className="ml-auto text-primary hover:underline"
+                  >
+                    詳細を見る
+                  </button>
                 </div>
               </div>
             ))
@@ -584,6 +622,92 @@ export default function AnnouncementsPage() {
                 はい、送信する
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {selectedSent && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setSelectedSent(null)} />
+          <div className="relative bg-card w-full max-w-3xl rounded-2xl p-6 shadow-xl mx-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <div className="text-lg font-medium text-primary">{selectedSent.title}</div>
+                <div className="text-xs text-secondary mt-1">{fmtDate(selectedSent.createdAt)}</div>
+              </div>
+              <button
+                onClick={() => setSelectedSent(null)}
+                className="text-secondary hover:text-primary text-xl leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+              <div className="rounded-xl border border-border p-3">
+                <div className="text-xs text-secondary mb-1">送信先</div>
+                <div className="text-sm font-medium text-primary">{selectedSent.targetSummary}</div>
+              </div>
+              <div className="rounded-xl border border-border p-3">
+                <div className="text-xs text-secondary mb-1">送信人数</div>
+                <div className="text-sm font-medium text-primary">{selectedSent.sentCount}名</div>
+              </div>
+              <div className="rounded-xl border border-border p-3">
+                <div className="text-xs text-secondary mb-1">既読率</div>
+                <div className="text-sm font-medium text-primary">
+                  {selectedSent.sentCount > 0 ? Math.round((selectedSent.readCount / selectedSent.sentCount) * 100) : 0}%
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border p-4 mb-4">
+              <div className="text-xs text-secondary mb-2">本文</div>
+              <div className="text-sm text-primary whitespace-pre-wrap">{selectedSent.body}</div>
+              {selectedSent.imageUrl && (
+                <img
+                  src={selectedSent.imageUrl}
+                  alt="添付画像"
+                  className="max-h-40 rounded-lg border border-border mt-3"
+                />
+              )}
+            </div>
+
+            <div className="rounded-xl border border-border overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-page text-sm font-medium">既読状況</div>
+              <div className="max-h-[360px] overflow-y-auto">
+                {selectedSent.recipients.map((recipient) => (
+                  <div
+                    key={recipient.notificationId}
+                    className="px-4 py-3 border-b border-border/20 last:border-b-0 flex items-center gap-3"
+                  >
+                    <div className={`w-2.5 h-2.5 rounded-full ${recipient.isRead ? 'bg-status-green-text' : 'bg-status-amber-text'}`} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-primary">{recipient.name}</div>
+                      <div className="text-xs text-secondary">
+                        {recipient.employeeCode}
+                        {recipient.departmentName ? ` / ${recipient.departmentName}` : ''}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-xs font-medium ${recipient.isRead ? 'text-status-green-text' : 'text-status-amber-text'}`}>
+                        {recipient.isRead ? '既読' : '未読'}
+                      </div>
+                      <div className="text-xs text-secondary">
+                        {recipient.readAt ? fmtDate(recipient.readAt) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loadingSentDetail && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center pointer-events-none">
+          <div className="rounded-xl bg-card border border-border px-4 py-3 text-sm text-secondary shadow-lg">
+            送信詳細を読み込み中...
           </div>
         </div>
       )}

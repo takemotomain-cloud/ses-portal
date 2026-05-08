@@ -48,7 +48,9 @@ import { GoogleDriveModule } from './modules/google-drive/google-drive.module';
 import { PdfModule } from './modules/pdf/pdf.module';
 import { NoticesModule } from './modules/notices/notices.module';
 import { OnboardingDocumentsModule } from './modules/onboarding-documents/onboarding-documents.module';
+import { OnboardingCheckStatusesModule } from './modules/onboarding-check-statuses/onboarding-check-statuses.module';
 import { AgentsModule } from './modules/agents/agents.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 
 @Module({
   imports: [
@@ -92,7 +94,9 @@ import { AgentsModule } from './modules/agents/agents.module';
     LeaveOfAbsenceModule,
     NoticesModule,
     OnboardingDocumentsModule,
+    OnboardingCheckStatusesModule,
     AgentsModule,
+    ApprovalsModule,
   ],
   controllers: [HealthController],
 })

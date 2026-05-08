@@ -7,8 +7,17 @@
  * 社員はマイページのホーム画面で未読通知を確認する。
  */
 
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { Injectable, BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+
+type AnnouncementTargetType = 'all' | 'department' | 'area' | 'individual';
+
+type AnnouncementMetadata = {
+  announcementId: string;
+  targetType: AnnouncementTargetType;
+  targetSummary: string;
+};
 
 @Injectable()
 export class NotificationsService {
@@ -192,7 +201,7 @@ export class NotificationsService {
   async sendBulk(data: {
     title: string;
     body: string;
-    targetType: 'all' | 'department' | 'area' | 'individual';
+    targetType: AnnouncementTargetType;
     targetIds?: string[];
     targetArea?: string;
     imageUrl?: string;
@@ -202,6 +211,7 @@ export class NotificationsService {
     }
 
     let employeeIds: string[] = [];
+    let targetSummary = '';
 
     switch (data.targetType) {
       case 'all': {
@@ -210,6 +220,7 @@ export class NotificationsService {
           select: { id: true },
         });
         employeeIds = employees.map(e => e.id);
+        targetSummary = '全社員';
         break;
       }
 
@@ -217,6 +228,11 @@ export class NotificationsService {
         if (!data.targetIds?.length) {
           throw new BadRequestException('部署を選択してください');
         }
+        const departments = await this.db.department.findMany({
+          where: { id: { in: data.targetIds } },
+          select: { name: true },
+          orderBy: { sortOrder: 'asc' },
+        });
         const employees = await this.db.employee.findMany({
           where: {
             deletedAt: null,
@@ -226,6 +242,9 @@ export class NotificationsService {
           select: { id: true },
         });
         employeeIds = employees.map(e => e.id);
+        targetSummary = departments.length > 0
+          ? `部署: ${departments.map(d => d.name).join('、')}`
+          : '部署指定';
         break;
       }
 
@@ -243,6 +262,12 @@ export class NotificationsService {
           throw new BadRequestException('対象エリアに配属中の社員がいません');
         }
         employeeIds = assignments.map(a => a.employeeId);
+        const areaLabels: Record<string, string> = {
+          tokyo: '東京エリア',
+          osaka: '大阪エリア',
+          nagoya: '名古屋エリア',
+        };
+        targetSummary = `エリア: ${areaLabels[data.targetArea] || data.targetArea}`;
         break;
       }
 
@@ -251,6 +276,16 @@ export class NotificationsService {
           throw new BadRequestException('送信先の社員を選択してください');
         }
         employeeIds = data.targetIds;
+        const selectedEmployees = await this.db.employee.findMany({
+          where: { id: { in: data.targetIds } },
+          select: { lastName: true, firstName: true },
+          take: 3,
+          orderBy: { employeeCode: 'asc' },
+        });
+        const names = selectedEmployees.map(e => `${e.lastName} ${e.firstName}`);
+        targetSummary = names.length > 0
+          ? `個別: ${names.join('、')}${employeeIds.length > 3 ? ` ほか${employeeIds.length - 3}名` : ''}`
+          : '個別選択';
         break;
       }
 
@@ -262,6 +297,13 @@ export class NotificationsService {
       throw new BadRequestException('送信対象の社員がいません');
     }
 
+    const announcementId = randomUUID();
+    const metadata: AnnouncementMetadata = {
+      announcementId,
+      targetType: data.targetType,
+      targetSummary,
+    };
+
     // 一括作成
     const result = await this.db.notification.createMany({
       data: employeeIds.map(employeeId => ({
@@ -269,13 +311,14 @@ export class NotificationsService {
         title: data.title.trim(),
         body: data.body.trim(),
         category: 'announcement',
+        metadata,
         ...(data.imageUrl ? { imageUrl: data.imageUrl } : {}),
       })),
     });
 
     this.logger.log(`お知らせを一括送信: "${data.title}" → ${result.count}名`);
 
-    return { sentCount: result.count };
+    return { sentCount: result.count, announcementId };
   }
 
   /**
@@ -288,37 +331,116 @@ export class NotificationsService {
     const notifications = await this.db.notification.findMany({
       where: { category: 'announcement' },
       select: {
+        id: true,
         title: true,
         body: true,
         imageUrl: true,
+        metadata: true,
         createdAt: true,
+        isRead: true,
       },
       orderBy: { createdAt: 'desc' },
-      distinct: ['title', 'createdAt'],
-      take: 50,
+      take: 500,
     });
 
-    // 各お知らせの送信人数・既読数を集計
-    const results = await Promise.all(
-      notifications.map(async (n) => {
-        const [total, readCount] = await Promise.all([
-          this.db.notification.count({
-            where: { title: n.title, createdAt: n.createdAt, category: 'announcement' },
-          }),
-          this.db.notification.count({
-            where: { title: n.title, createdAt: n.createdAt, category: 'announcement', isRead: true },
-          }),
-        ]);
-        return {
-          title: n.title,
-          body: n.body,
-          createdAt: n.createdAt,
-          sentCount: total,
-          readCount,
-        };
-      }),
-    );
+    const groups = new Map<string, {
+      announcementId: string;
+      title: string;
+      body: string;
+      imageUrl: string | null;
+      createdAt: Date;
+      sentCount: number;
+      readCount: number;
+      targetType: AnnouncementTargetType;
+      targetSummary: string;
+    }>();
 
-    return results;
+    for (const notification of notifications) {
+      const metadata = (notification.metadata ?? {}) as Partial<AnnouncementMetadata>;
+      const announcementId = metadata.announcementId || `${notification.title}:${notification.createdAt.toISOString()}`;
+      const group = groups.get(announcementId);
+      if (!group) {
+        groups.set(announcementId, {
+          announcementId,
+          title: notification.title,
+          body: notification.body,
+          imageUrl: notification.imageUrl ?? null,
+          createdAt: notification.createdAt,
+          sentCount: 1,
+          readCount: notification.isRead ? 1 : 0,
+          targetType: metadata.targetType || 'all',
+          targetSummary: metadata.targetSummary || '送信先情報なし',
+        });
+      } else {
+        group.sentCount += 1;
+        if (notification.isRead) group.readCount += 1;
+      }
+    }
+
+    return Array.from(groups.values()).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 50);
+  }
+
+  async getSentNotificationDetail(announcementId: string) {
+    const notifications = await this.db.notification.findMany({
+      where: { category: 'announcement' },
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        imageUrl: true,
+        metadata: true,
+        isRead: true,
+        readAt: true,
+        createdAt: true,
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            lastName: true,
+            firstName: true,
+            department: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: [
+        { isRead: 'asc' },
+        { employee: { employeeCode: 'asc' } },
+      ],
+      take: 1000,
+    });
+
+    const matched = notifications.filter((notification) => {
+      const metadata = (notification.metadata ?? {}) as Partial<AnnouncementMetadata>;
+      const fallbackId = `${notification.title}:${notification.createdAt.toISOString()}`;
+      return (metadata.announcementId || fallbackId) === announcementId;
+    });
+
+    if (matched.length === 0) {
+      throw new NotFoundException('送信履歴が見つかりません');
+    }
+
+    const first = matched[0];
+    const metadata = (first.metadata ?? {}) as Partial<AnnouncementMetadata>;
+
+    return {
+      announcementId,
+      title: first.title,
+      body: first.body,
+      imageUrl: first.imageUrl ?? null,
+      createdAt: first.createdAt,
+      sentCount: matched.length,
+      readCount: matched.filter(n => n.isRead).length,
+      targetType: metadata.targetType || 'all',
+      targetSummary: metadata.targetSummary || '送信先情報なし',
+      recipients: matched.map(notification => ({
+        notificationId: notification.id,
+        employeeId: notification.employee.id,
+        employeeCode: notification.employee.employeeCode,
+        name: `${notification.employee.lastName} ${notification.employee.firstName}`,
+        departmentName: notification.employee.department?.name || '',
+        isRead: notification.isRead,
+        readAt: notification.readAt,
+      })),
+    };
   }
 }

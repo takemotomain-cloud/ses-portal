@@ -1201,6 +1201,17 @@ export class AttendanceService {
       distinct: ['employeeId'],
     });
     allAttendances.forEach(a => allEmployeeIds.add(a.employeeId));
+
+    const attendanceInputSet = new Set(allAttendances.map((a) => a.employeeId));
+
+    const expenseRequests = await this.db.expenseRequest.findMany({
+      where: { targetMonth: ym },
+      select: { employeeId: true },
+      distinct: ['employeeId'],
+    });
+    const transportInputSet = new Set(expenseRequests.map((e) => e.employeeId));
+    expenseRequests.forEach((e) => allEmployeeIds.add(e.employeeId));
+
     uploads.forEach(u => allEmployeeIds.add(u.employeeId));
 
     // アクティブな案件の現場勤怠要否を取得
@@ -1222,6 +1233,8 @@ export class AttendanceService {
       const upload = uploadMap.get(eid);
       const clientAttendanceRequired = assignmentMap.get(eid) ?? true;
       result[eid] = {
+        attendanceInputCompleted: attendanceInputSet.has(eid),
+        transportInputCompleted: transportInputSet.has(eid),
         attendanceConfirmed: !unconfirmedEmployees.has(eid),
         clientConfirmed: upload?.confirmed ?? false,
         clientImported: upload?.imported ?? false,

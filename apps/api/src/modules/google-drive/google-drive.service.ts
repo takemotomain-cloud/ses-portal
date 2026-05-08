@@ -29,6 +29,7 @@ export class GoogleDriveService implements OnModuleInit {
   private drive!: drive_v3.Drive;
   private sheets!: sheets_v4.Sheets;
   private rootFolderId: string | null = null;
+  private rootFolderPath: string | null = null;
   private enabled = false;
   /** ensureFolderPath のキャッシュ（同一プロセス内で folder ID を再検索しない） */
   private folderPathCache = new Map<string, string>();
@@ -58,6 +59,8 @@ export class GoogleDriveService implements OnModuleInit {
         refresh_token: token.refreshToken,
         expiry_date: token.expiresAt.getTime(),
       });
+      this.rootFolderId = token.rootFolderId || null;
+      this.rootFolderPath = token.rootFolderPath || 'SES Portal';
       this.initClients();
       this.logger.log(`Google Drive 連携済み（${token.email}）`);
     } else {
@@ -109,6 +112,7 @@ export class GoogleDriveService implements OnModuleInit {
         refreshToken: tokens.refresh_token!,
         expiresAt: new Date(tokens.expiry_date!),
         email,
+        rootFolderPath: 'SES Portal',
       },
       update: {
         accessToken: tokens.access_token!,
@@ -119,6 +123,8 @@ export class GoogleDriveService implements OnModuleInit {
     });
 
     this.initClients();
+    this.rootFolderId = null;
+    this.rootFolderPath = 'SES Portal';
     this.logger.log(`Google Drive 連携完了: ${email}`);
 
     return { email };
@@ -131,16 +137,51 @@ export class GoogleDriveService implements OnModuleInit {
     });
     this.enabled = false;
     this.rootFolderId = null;
+    this.rootFolderPath = null;
+    this.folderPathCache.clear();
     this.logger.log('Google Drive 連携を解除しました');
   }
 
   /** 連携状態を取得 */
-  async getStatus(): Promise<{ connected: boolean; email?: string }> {
+  async getStatus(): Promise<{ connected: boolean; email?: string; rootFolderPath?: string }> {
     const token = await this.db.integrationToken.findUnique({
       where: { provider: 'google_drive' },
     });
     if (!token) return { connected: false };
-    return { connected: true, email: token.email || undefined };
+    return {
+      connected: true,
+      email: token.email || undefined,
+      rootFolderPath: token.rootFolderPath || 'SES Portal',
+    };
+  }
+
+  async setRootFolderPath(pathValue: string): Promise<{ rootFolderPath: string }> {
+    const normalized = pathValue
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .join('/');
+
+    if (!normalized) {
+      throw new Error('保存ルートフォルダを入力してください');
+    }
+    if (!this.enabled) {
+      throw new Error('Google Drive が連携されていません');
+    }
+
+    const folderId = await this.ensureFolderPathFromDriveRoot(normalized.split('/'));
+    await this.db.integrationToken.update({
+      where: { provider: 'google_drive' },
+      data: {
+        rootFolderId: folderId,
+        rootFolderPath: normalized,
+      },
+    });
+
+    this.rootFolderId = folderId;
+    this.rootFolderPath = normalized;
+    this.folderPathCache.clear();
+    return { rootFolderPath: normalized };
   }
 
   /** APIコール前にトークンを自動更新 */
@@ -205,8 +246,23 @@ export class GoogleDriveService implements OnModuleInit {
    */
   private async getRootFolderId(): Promise<string> {
     if (this.rootFolderId) return this.rootFolderId;
-    this.rootFolderId = await this.ensureFolder(null, 'SES Portal');
+    const segments = (this.rootFolderPath || 'SES Portal')
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    this.rootFolderId = await this.ensureFolderPathFromDriveRoot(segments);
     return this.rootFolderId;
+  }
+
+  private async ensureFolderPathFromDriveRoot(segments: string[]): Promise<string> {
+    let parentId: string | null = null;
+    for (const seg of segments) {
+      parentId = await this.ensureFolder(parentId, seg);
+    }
+    if (!parentId) {
+      throw new Error('保存ルートフォルダを作成できませんでした');
+    }
+    return parentId;
   }
 
   /**

@@ -82,6 +82,13 @@ export class SettingsController {
     return this.googleDrive.getStatus();
   }
 
+  @Post('google-drive/root-folder')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Google Drive保存ルートフォルダを設定' })
+  async googleDriveRootFolder(@Body() body: { rootFolderPath: string }) {
+    return this.googleDrive.setRootFolderPath(body.rootFolderPath);
+  }
+
   @Get('google-drive/connect')
   @Roles('admin')
   @ApiOperation({ summary: 'Google Drive OAuth開始（認証URLを返す）' })

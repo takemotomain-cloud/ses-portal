@@ -22,6 +22,7 @@ function createMockDb() {
     },
     employee: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
     },
     department: {
       findMany: jest.fn(),
@@ -125,7 +126,12 @@ describe('NotificationsService', () => {
       expect(result.sentCount).toBe(3);
       expect(db.notification.createMany).toHaveBeenCalledWith({
         data: expect.arrayContaining([
-          expect.objectContaining({ employeeId: 'emp-1', title: 'テスト通知', category: 'announcement' }),
+          expect.objectContaining({
+            employeeId: 'emp-1',
+            title: 'テスト通知',
+            category: 'announcement',
+            metadata: expect.objectContaining({ targetType: 'all', targetSummary: '全社員' }),
+          }),
           expect.objectContaining({ employeeId: 'emp-2' }),
           expect.objectContaining({ employeeId: 'emp-3' }),
         ]),
@@ -155,6 +161,7 @@ describe('NotificationsService', () => {
     });
 
     it('部署指定で送信する', async () => {
+      db.department.findMany.mockResolvedValue([{ name: '開発部' }]);
       db.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
       db.notification.createMany.mockResolvedValue({ count: 1 });
 
@@ -192,6 +199,10 @@ describe('NotificationsService', () => {
     });
 
     it('個別選択で送信する', async () => {
+      db.employee.findMany.mockResolvedValue([
+        { lastName: '田中', firstName: '太郎' },
+        { lastName: '佐藤', firstName: '花子' },
+      ]);
       db.notification.createMany.mockResolvedValue({ count: 2 });
 
       const result = await service.sendBulk({
@@ -240,6 +251,44 @@ describe('NotificationsService', () => {
       await expect(
         service.sendBulk({ title: 'タイトル', body: '本文', targetType: 'all' }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  /* ============================
+   * getSentNotifications
+   * ============================ */
+  describe('getSentNotifications', () => {
+    it('announcementId ごとに送信履歴をまとめる', async () => {
+      db.notification.findMany.mockResolvedValue([
+        {
+          id: 'n1',
+          title: 'メンテ',
+          body: '本文',
+          imageUrl: null,
+          metadata: { announcementId: 'a-1', targetType: 'all', targetSummary: '全社員' },
+          createdAt: new Date('2026-05-08T00:00:00Z'),
+          isRead: false,
+        },
+        {
+          id: 'n2',
+          title: 'メンテ',
+          body: '本文',
+          imageUrl: null,
+          metadata: { announcementId: 'a-1', targetType: 'all', targetSummary: '全社員' },
+          createdAt: new Date('2026-05-08T00:00:00Z'),
+          isRead: true,
+        },
+      ]);
+
+      const result = await service.getSentNotifications();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual(expect.objectContaining({
+        announcementId: 'a-1',
+        sentCount: 2,
+        readCount: 1,
+        targetSummary: '全社員',
+      }));
     });
   });
 

@@ -11,7 +11,6 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 
@@ -52,6 +51,27 @@ interface CertificateInfo {
   issuedAt: string | null;
 }
 
+interface DocumentIssuanceInfo {
+  id: string;
+  documentType: string;
+  fileName: string;
+  driveViewLink: string | null;
+  issuedAt: string;
+  workflowStatus?: 'issued' | 'sent' | 'waiting_ack' | 'completed';
+  deliveryMethod?: string | null;
+  deliveredAt?: string | null;
+  acknowledgedAt?: string | null;
+  workflowNote?: string | null;
+}
+
+interface OnboardingDocumentInfo {
+  id: string;
+  documentType: string;
+  fileName: string;
+  driveViewLink: string | null;
+  uploadedAt: string;
+}
+
 interface AssignmentInfo {
   id: string;
   employeeId: string;
@@ -75,6 +95,7 @@ interface EmployeeDetail {
   firstNameKana: string | null;
   birthDate: string | null;
   gender: string | null;
+  bloodType: string | null;
   email: string;
   phone: string | null;
   postalCode: string | null;
@@ -147,6 +168,29 @@ const certTypeLabel: Record<string, string> = {
   offer: '内定通知書',
 };
 
+const issuanceTypeLabel: Record<string, string> = {
+  offer: '内定通知書',
+  notice_fixed: '労働条件通知書（有期）',
+  notice_open: '労働条件通知書（無期）',
+};
+
+const issuanceWorkflowLabel: Record<string, { label: string; cls: string }> = {
+  issued: { label: '発行済み', cls: 'badge-wait' },
+  sent: { label: '送付済み', cls: 'badge-info' },
+  waiting_ack: { label: '承諾待ち', cls: 'badge-warn' },
+  completed: { label: '完了', cls: 'badge-ok' },
+};
+
+const onboardingDocumentLabel: Record<string, string> = {
+  license_front: '本人確認書類（表）',
+  license_back: '本人確認書類（裏）',
+  mynumber_front: 'マイナンバー（表）',
+  mynumber_back: 'マイナンバー（裏）',
+  pension_book: '年金手帳',
+  resident_record: '住民票',
+  employment_insurance_certificate: '雇用保険被保険者証',
+};
+
 const certStatusLabel: Record<string, { label: string; cls: string }> = {
   pending: { label: '申請中', cls: 'badge-warn' },
   issued: { label: '発行済', cls: 'badge-ok' },
@@ -217,7 +261,6 @@ export default function EmployeeDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
-  const { toast, ToastUI } = useToast();
   const { user: currentUser } = useAuth();
   // E: 銀行口座・マイナンバーの閲覧は admin + manager のみ
   const canViewPii = currentUser?.role === 'admin' || currentUser?.role === 'manager';
@@ -225,6 +268,8 @@ export default function EmployeeDetailPage() {
   const [detail, setDetail] = useState<EmployeeDetail | null>(null);
   const [currentAssignment, setCurrentAssignment] = useState<AssignmentInfo | null>(null);
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentInfo[]>([]);
+  const [documentIssuances, setDocumentIssuances] = useState<DocumentIssuanceInfo[]>([]);
+  const [onboardingDocuments, setOnboardingDocuments] = useState<OnboardingDocumentInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -233,13 +278,17 @@ export default function EmployeeDetailPage() {
     Promise.all([
       apiClient<EmployeeDetail>(`/employees/${id}`),
       apiClient<{ data: AssignmentInfo[] }>(`/assignments?limit=100`).catch(() => ({ data: [] })),
+      apiClient<DocumentIssuanceInfo[]>(`/notices/history/${id}`).catch(() => []),
+      apiClient<OnboardingDocumentInfo[]>(`/onboarding-documents/${id}`).catch(() => []),
     ])
-      .then(([emp, assignRes]) => {
+      .then(([emp, assignRes, issuanceRes, onboardingRes]) => {
         setDetail(emp);
         const empAssignments = assignRes.data.filter((a: AssignmentInfo) => a.employeeId === id);
         const active = empAssignments.find((a: AssignmentInfo) => a.status === 'active') || null;
         setCurrentAssignment(active);
         setAssignmentHistory(empAssignments);
+        setDocumentIssuances(issuanceRes);
+        setOnboardingDocuments(onboardingRes);
       })
       .catch((err) => {
         console.error('Failed to fetch employee detail:', err);
@@ -350,12 +399,23 @@ export default function EmployeeDetailPage() {
           <InfoRow label="生年月日" value={fmtDate(d.birthDate)} />
           <InfoRow label="年齢" value={calcAge(d.birthDate)} />
           <InfoRow label="性別" value={d.gender ? (genderLabel[d.gender] || d.gender) : null} />
+          <InfoRow label="血液型" value={d.bloodType} />
           <InfoRow label="最終学歴" value={d.education} />
           <InfoRow label="学校名" value={d.schoolName} />
           <InfoRow label="入社日" value={fmtDate(d.hireDate)} />
           <InfoRow label="勤続年数" value={calcTenure(d.hireDate)} />
           <InfoRow label="保有資格" value={(() => {
-            const quals: string[] = Array.isArray(d.qualifications) ? d.qualifications : [];
+            const quals = Array.isArray(d.qualifications)
+              ? d.qualifications
+                  .map((q) => {
+                    if (typeof q === 'string') return q;
+                    if (q && typeof q === 'object' && 'name' in q && typeof q.name === 'string') {
+                      return q.name;
+                    }
+                    return null;
+                  })
+                  .filter((q): q is string => Boolean(q))
+              : [];
             if (quals.length === 0) return '--';
             return (
               <div className="flex flex-wrap gap-1 justify-end">
@@ -532,27 +592,123 @@ export default function EmployeeDetailPage() {
       {/* 発行済み通知書・書類 */}
       <div className="card p-5 mb-5">
         <div className="text-2xs text-secondary uppercase tracking-widest mb-3">発行済み通知書・書類</div>
-        {!d.certificates || d.certificates.length === 0 ? (
-          <div className="text-sm text-secondary py-2">発行済みの通知書はありません</div>
-        ) : (
-          <div className="space-y-2">
-            {d.certificates.map(c => {
-              const st = certStatusLabel[c.status] || { label: c.status, cls: 'badge-wait' };
-              return (
-                <div key={c.id} className="flex items-center justify-between py-2 border-b border-border/15 last:border-b-0">
-                  <div>
-                    <span className="text-sm font-medium">{certTypeLabel[c.certType] || c.certType}</span>
-                    {c.issuedAt && <span className="text-xs text-secondary ml-2">{fmtDate(c.issuedAt)}</span>}
+        <div className="space-y-5">
+          <div>
+            <div className="text-sm font-medium mb-2">通知書発行履歴</div>
+            {documentIssuances.length === 0 ? (
+              <div className="text-sm text-secondary py-2">通知書の発行履歴はありません</div>
+            ) : (
+              <div className="space-y-2">
+                {documentIssuances.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between gap-3 py-2 border-b border-border/15 last:border-b-0"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-sm font-medium">
+                          {issuanceTypeLabel[doc.documentType] || doc.documentType}
+                        </div>
+                        {doc.workflowStatus && (
+                          <span className={`badge ${issuanceWorkflowLabel[doc.workflowStatus].cls} text-2xs`}>
+                            {issuanceWorkflowLabel[doc.workflowStatus].label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-secondary">
+                        {fmtDate(doc.issuedAt)} / {doc.fileName}
+                      </div>
+                      {(doc.deliveredAt || doc.acknowledgedAt || doc.workflowNote) && (
+                        <div className="text-xs text-secondary mt-1 space-y-0.5">
+                          {doc.deliveredAt && <div>送付日: {fmtDate(doc.deliveredAt)}</div>}
+                          {doc.acknowledgedAt && <div>承諾日: {fmtDate(doc.acknowledgedAt)}</div>}
+                          {doc.workflowNote && <div>メモ: {doc.workflowNote}</div>}
+                        </div>
+                      )}
+                    </div>
+                    {doc.driveViewLink ? (
+                      <a
+                        href={doc.driveViewLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline text-xs py-1.5 px-3"
+                      >
+                        Driveで開く
+                      </a>
+                    ) : (
+                      <span className="badge badge-wait">Drive未連携</span>
+                    )}
                   </div>
-                  <span className={`badge ${st.cls} text-2xs`}>{st.label}</span>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <ToastUI />
+          <div>
+            <div className="text-sm font-medium mb-2">入社書類アップロード履歴</div>
+            {onboardingDocuments.length === 0 ? (
+              <div className="text-sm text-secondary py-2">入社書類のアップロード履歴はありません</div>
+            ) : (
+              <div className="space-y-2">
+                {onboardingDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between gap-3 py-2 border-b border-border/15 last:border-b-0"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">
+                        {onboardingDocumentLabel[doc.documentType] || doc.documentType}
+                      </div>
+                      <div className="text-xs text-secondary">
+                        {fmtDate(doc.uploadedAt)} / {doc.fileName}
+                      </div>
+                    </div>
+                    {doc.driveViewLink ? (
+                      <a
+                        href={doc.driveViewLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline text-xs py-1.5 px-3"
+                      >
+                        Driveで開く
+                      </a>
+                    ) : (
+                      <span className="badge badge-wait">Drive未連携</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {d.certificates && d.certificates.length > 0 && (
+            <div>
+              <div className="text-sm font-medium mb-2">各種証明書</div>
+              <div className="space-y-2">
+                {d.certificates.map((c) => {
+                  const st = certStatusLabel[c.status] || { label: c.status, cls: 'badge-wait' };
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between py-2 border-b border-border/15 last:border-b-0"
+                    >
+                      <div>
+                        <span className="text-sm font-medium">
+                          {certTypeLabel[c.certType] || c.certType}
+                        </span>
+                        {c.issuedAt && (
+                          <span className="text-xs text-secondary ml-2">{fmtDate(c.issuedAt)}</span>
+                        )}
+                      </div>
+                      <span className={`badge ${st.cls} text-2xs`}>{st.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

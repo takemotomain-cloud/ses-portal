@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/toast';
 import { apiClient } from '@/lib/api-client';
@@ -100,11 +100,37 @@ function SectionCard({ title, children }: { title: string; children: React.React
   );
 }
 
+type RecruitSource = {
+  id: string;
+  name: string;
+};
+
+type RecruitJobPosting = {
+  id: string;
+  name: string;
+};
+
+type RecruitInterviewer = {
+  id: string;
+  name: string;
+};
+
 /* ---------- メインコンポーネント ---------- */
 
 export default function RecruitCandidateNewPage() {
   const router = useRouter();
   const { toast, ToastUI } = useToast();
+  const [sourceOptions, setSourceOptions] = useState<string[]>([
+    'テックエージェント',
+    'ITキャリア',
+    'エンジニアパートナーズ',
+    'Green',
+    'Wantedly',
+    '社員紹介',
+    '自社HP',
+  ]);
+  const [jobOptions, setJobOptions] = useState<string[]>(['SESエンジニア', 'インフラエンジニア']);
+  const [interviewerOptions, setInterviewerOptions] = useState<string[]>(['--']);
 
   /* --- 応募情報 --- */
   const [applyDate, setApplyDate] = useState('');
@@ -138,6 +164,43 @@ export default function RecruitCandidateNewPage() {
   const [remarks, setRemarks] = useState('');
 
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [sources, jobs, interviewers] = await Promise.all([
+          apiClient<RecruitSource[]>('/candidates/sources').catch(() => [] as RecruitSource[]),
+          apiClient<RecruitJobPosting[]>('/candidates/job-postings').catch(() => [] as RecruitJobPosting[]),
+          apiClient<RecruitInterviewer[]>('/candidates/interviewers').catch(() => [] as RecruitInterviewer[]),
+        ]);
+        if (!alive) return;
+
+        const nextSources = sources.map((item) => item.name).filter(Boolean);
+        const nextJobs = jobs.map((item) => item.name).filter(Boolean);
+        const nextInterviewers = interviewers.map((item) => item.name).filter(Boolean);
+
+        if (nextSources.length > 0) {
+          setSourceOptions(nextSources);
+          setApplySource((current) => (nextSources.includes(current) ? current : nextSources[0]));
+        }
+        if (nextJobs.length > 0) {
+          setJobOptions(nextJobs);
+          setApplyPosition((current) => (nextJobs.includes(current) ? current : nextJobs[0]));
+        }
+        if (nextInterviewers.length > 0) {
+          const withPlaceholder = ['--', ...nextInterviewers];
+          setInterviewerOptions(withPlaceholder);
+          setInterviewer((current) => (withPlaceholder.includes(current) ? current : '--'));
+        }
+      } catch {
+        // フォールバック値のまま使う
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const handleSubmit = async () => {
     if (!applyDate || !lastName || !firstName || !applySource) {
@@ -212,15 +275,7 @@ export default function RecruitCandidateNewPage() {
               <FormSelect
                 value={applySource}
                 onChange={setApplySource}
-                options={[
-                  'テックエージェント',
-                  'ITキャリア',
-                  'エンジニアパートナーズ',
-                  'Green',
-                  'Wantedly',
-                  '社員紹介',
-                  '自社HP',
-                ]}
+                options={sourceOptions}
               />
             </div>
           </div>
@@ -229,7 +284,7 @@ export default function RecruitCandidateNewPage() {
             <FormSelect
               value={applyPosition}
               onChange={setApplyPosition}
-              options={['SESエンジニア', 'インフラエンジニア']}
+              options={jobOptions}
             />
           </div>
         </SectionCard>
@@ -324,7 +379,7 @@ export default function RecruitCandidateNewPage() {
               <FormSelect
                 value={interviewer}
                 onChange={setInterviewer}
-                options={['--']}
+                options={interviewerOptions}
               />
             </div>
             <div>
