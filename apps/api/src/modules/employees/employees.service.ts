@@ -36,6 +36,12 @@ export class EmployeesService {
     private readonly auditService: AuditService,
   ) {}
 
+  private normalizeBloodType(value?: string | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+
   /**
    * 社員一覧を取得
    *
@@ -304,6 +310,7 @@ export class EmployeesService {
     employmentType?: string;
     contractType?: string;
     birthDate?: string;
+    bloodType?: string;
     education?: string;
     schoolName?: string;
     email: string;
@@ -324,6 +331,7 @@ export class EmployeesService {
     bankBranch?: string;
     bankAccountType?: string;
     bankAccountNumber?: string;
+    bankAccountHolder?: string;
   }, actorUserId?: string) {
     // 重複チェック
     const existingEmail = await this.db.employee.findFirst({
@@ -389,6 +397,7 @@ export class EmployeesService {
           contractType: data.contractType || 'fixed_term',
           birthDate: data.birthDate ? new Date(data.birthDate) : new Date('2000-01-01'),
           gender: data.gender || 'other',
+          bloodType: this.normalizeBloodType(data.bloodType),
           email: data.email,
           phone: data.phone || null,
           postalCode: data.postalCode || null,
@@ -413,6 +422,7 @@ export class EmployeesService {
           bankBranch: data.bankBranch || null,
           bankAccountType: data.bankAccountType || null,
           bankAccountNumber: data.bankAccountNumber || null,
+          bankAccountHolder: data.bankAccountHolder || null,
         },
       });
 
@@ -497,6 +507,7 @@ export class EmployeesService {
     address?: string;
     birthDate?: string;
     gender?: string;
+    bloodType?: string;
     baseSalary?: number;
     rewardRate?: number;
     contractHours?: number | null;
@@ -515,6 +526,7 @@ export class EmployeesService {
     bankBranch?: string;
     bankAccountType?: string;
     bankAccountNumber?: string;
+    bankAccountHolder?: string;
     station?: string;
     qualifications?: any;
     hasBonus?: boolean;
@@ -594,6 +606,7 @@ export class EmployeesService {
     if (data.address !== undefined) updateData.address = data.address;
     if (data.birthDate !== undefined) updateData.birthDate = new Date(data.birthDate);
     if (data.gender !== undefined) updateData.gender = data.gender;
+    if (data.bloodType !== undefined) updateData.bloodType = this.normalizeBloodType(data.bloodType);
     if (data.baseSalary !== undefined) updateData.baseSalary = data.baseSalary;
     if ((data as any).fixedOvertimePay !== undefined) updateData.fixedOvertimePay = (data as any).fixedOvertimePay;
     if (data.rewardRate !== undefined) updateData.rewardRate = data.rewardRate;
@@ -616,6 +629,7 @@ export class EmployeesService {
     if (data.bankBranch !== undefined) updateData.bankBranch = data.bankBranch;
     if (data.bankAccountType !== undefined) updateData.bankAccountType = data.bankAccountType;
     if (data.bankAccountNumber !== undefined) updateData.bankAccountNumber = data.bankAccountNumber;
+    if (data.bankAccountHolder !== undefined) updateData.bankAccountHolder = data.bankAccountHolder;
     if (data.station !== undefined) updateData.station = data.station;
     if (data.qualifications !== undefined) updateData.qualifications = data.qualifications;
     if (data.hasBonus !== undefined) updateData.hasBonus = data.hasBonus;

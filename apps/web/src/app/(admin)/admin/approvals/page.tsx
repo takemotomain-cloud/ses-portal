@@ -167,7 +167,7 @@ export default function AdminApprovalsPage() {
   const fetchData = useCallback(async () => {
     try {
       const currentYear = new Date().getFullYear();
-      const [leaves, expenses, changes, corrections, delayCerts, loas, yearends] = await Promise.all([
+      const [leaves, expenses, changes, corrections, delayCerts, loas, yearends, doneHistory] = await Promise.all([
         apiClient<LeaveItem[]>('/leave/pending'),
         apiClient<ExpenseItem[]>('/expense/pending'),
         apiClient<ChangeItem[]>('/profile/change-requests/pending'),
@@ -175,6 +175,7 @@ export default function AdminApprovalsPage() {
         apiClient<DelayCertItem[]>('/delay-certificates/pending'),
         apiClient<LoaItem[]>('/leave-of-absence/pending'),
         apiClient<YearendItem[]>(`/yearend/pending/${currentYear}`),
+        apiClient<DoneItem[]>('/approvals/history?limit=100').catch(() => []),
       ]);
       setLeaveItems(leaves);
       setExpenseItems(expenses);
@@ -183,6 +184,7 @@ export default function AdminApprovalsPage() {
       setDelayCertItems(delayCerts);
       setLoaItems(loas);
       setYearendItems(yearends);
+      setDone(doneHistory);
     } catch (e: any) {
       console.error('Failed to fetch approvals:', e);
     } finally {

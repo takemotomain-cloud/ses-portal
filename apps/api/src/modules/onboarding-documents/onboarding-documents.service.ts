@@ -6,7 +6,8 @@
  *   SES Portal/本人書類/{社員コード or ID先頭8桁}_{氏名}/{categoryFolder}/
  *
  * 対象 documentType:
- *   license_front / license_back / mynumber_front / mynumber_back / pension_book / health_check
+ *   license_front / license_back / mynumber_front / mynumber_back /
+ *   pension_book / resident_record / employment_insurance_certificate
  */
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -20,17 +21,19 @@ export const ONBOARDING_DOCUMENT_TYPES = [
   'mynumber_front',
   'mynumber_back',
   'pension_book',
-  'health_check',
+  'resident_record',
+  'employment_insurance_certificate',
 ] as const;
 export type OnboardingDocumentType = (typeof ONBOARDING_DOCUMENT_TYPES)[number];
 
 const CATEGORY_FOLDER: Record<OnboardingDocumentType, string> = {
-  license_front: '運転免許証',
-  license_back: '運転免許証',
+  license_front: '本人確認書類',
+  license_back: '本人確認書類',
   mynumber_front: 'マイナンバーカード',
   mynumber_back: 'マイナンバーカード',
   pension_book: '年金手帳',
-  health_check: '健康診断結果',
+  resident_record: '住民票',
+  employment_insurance_certificate: '雇用保険被保険者証',
 };
 
 @Injectable()

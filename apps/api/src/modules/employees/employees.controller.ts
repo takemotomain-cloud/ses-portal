@@ -150,6 +150,7 @@ export class EmployeesController {
     contractType?: string;
     birthDate?: string;
     gender?: string;
+    bloodType?: string;
     education?: string;
     schoolName?: string;
     email: string;
@@ -169,6 +170,7 @@ export class EmployeesController {
     bankBranch?: string;
     bankAccountType?: string;
     bankAccountNumber?: string;
+    bankAccountHolder?: string;
   }) {
     return this.employeesService.create(body, user.userId);
   }
@@ -200,6 +202,7 @@ export class EmployeesController {
       address?: string;
       birthDate?: string;
       gender?: string;
+      bloodType?: string;
       salaryGradeId?: string | null;
       baseSalary?: number;
       rewardRate?: number;
@@ -219,6 +222,7 @@ export class EmployeesController {
       bankBranch?: string;
       bankAccountType?: string;
       bankAccountNumber?: string;
+      bankAccountHolder?: string;
       station?: string;
       qualifications?: any;
       hasBonus?: boolean;

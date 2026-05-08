@@ -115,6 +115,14 @@ export class NotificationsController {
     return this.notificationsService.getSentNotifications();
   }
 
+  @Get('sent/:announcementId')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '送信済みお知らせ詳細（管理者）' })
+  async getSentNotificationDetail(@Param('announcementId') announcementId: string) {
+    return this.notificationsService.getSentNotificationDetail(announcementId);
+  }
+
   @Get('targets')
   @UseGuards(RolesGuard)
   @Roles('admin')

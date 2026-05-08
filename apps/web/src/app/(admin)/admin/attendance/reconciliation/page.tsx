@@ -38,6 +38,17 @@ interface BulkUploadResult {
   manualEmployeeId: string;
 }
 
+interface ExistingUpload {
+  id: string;
+  yearMonth: string;
+  status: string;
+  fileName: string | null;
+  createdAt: string;
+  employeeId: string;
+  employee: { lastName: string; firstName: string; employeeCode: string };
+  client: { name: string } | null;
+}
+
 type Step = 'upload' | 'parsing' | 'confirm' | 'importing';
 
 export default function ReconciliationPage() {
@@ -52,6 +63,7 @@ export default function ReconciliationPage() {
   const [parseProgress, setParseProgress] = useState({ current: 0, total: 0 });
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [activeEmployees, setActiveEmployees] = useState<ActiveEmployee[]>([]);
+  const [existingUploads, setExistingUploads] = useState<ExistingUpload[]>([]);
 
   // 対象月（デフォルト: 先月）
   const now = new Date();
@@ -171,6 +183,12 @@ export default function ReconciliationPage() {
       .catch(() => {});
   }, [step, yearMonth]);
 
+  useEffect(() => {
+    apiClient<ExistingUpload[]>(`/attendance/reconciliation/uploads?yearMonth=${yearMonth}`)
+      .then((items) => setExistingUploads(Array.isArray(items) ? items : []))
+      .catch(() => setExistingUploads([]));
+  }, [yearMonth]);
+
   // チェックボックス切り替え
   const toggleCheck = useCallback((index: number) => {
     setUploadResults(prev => prev.map((r, i) => i === index ? { ...r, checked: !r.checked } : r));
@@ -197,6 +215,16 @@ export default function ReconciliationPage() {
     if (unselected.length > 0) {
       toast(`社員を選択してください: ${unselected.map(r => r.fileName).join(', ')}`);
       return;
+    }
+
+    const duplicateTargets = selected.filter((r) =>
+      existingUploads.some((u) => u.employeeId === r.manualEmployeeId),
+    );
+    if (duplicateTargets.length > 0) {
+      const ok = window.confirm(
+        `すでに ${yearMonth} の取込履歴がある社員が含まれます。\n上書き前提で続行しますか？\n\n${duplicateTargets.map((r) => r.fileName).join('\n')}`,
+      );
+      if (!ok) return;
     }
 
     setStep('importing');
@@ -230,7 +258,7 @@ export default function ReconciliationPage() {
       toast(err.message || '取込に失敗しました');
       setStep('confirm');
     }
-  }, [uploadResults, toast, router]);
+  }, [uploadResults, toast, router, existingUploads, yearMonth]);
 
   const checkedCount = uploadResults.filter(r => r.checked).length;
   const allChecked = uploadResults.filter(r => !r.error).length > 0
@@ -275,6 +303,40 @@ export default function ReconciliationPage() {
       {/* Step 1: アップロード */}
       {(step === 'upload' || step === 'parsing') && (
         <div className="space-y-5">
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="text-lg font-medium">今月の取込状況</h2>
+              <span className="text-sm text-secondary">{existingUploads.length}件</span>
+            </div>
+            {existingUploads.length === 0 ? (
+              <div className="text-sm text-secondary">この月の取込履歴はまだありません</div>
+            ) : (
+              <div className="space-y-2">
+                {existingUploads.slice(0, 5).map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-3 bg-[#FAFAFA] rounded-lg px-3 py-2 flex-wrap">
+                    <div>
+                      <div className="text-sm font-medium">
+                        {item.employee.lastName} {item.employee.firstName}
+                        <span className="text-secondary ml-2">{item.employee.employeeCode}</span>
+                      </div>
+                      <div className="text-xs text-secondary mt-0.5">
+                        {item.client?.name || '取引先未設定'} / {item.fileName || 'ファイル名なし'}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`badge ${item.status === 'confirmed' ? 'badge-ok' : item.status === 'reconciled' ? 'badge-info' : 'badge-warn'}`}>
+                        {item.status === 'confirmed' ? '取込確定済' : item.status === 'reconciled' ? '突合済' : item.status}
+                      </span>
+                      <span className="text-secondary">
+                        {new Date(item.createdAt).toLocaleDateString('ja-JP')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="card p-5 space-y-5">
             <h2 className="text-lg font-medium">現場勤怠表のアップロード</h2>
 
@@ -413,6 +475,9 @@ export default function ReconciliationPage() {
               <tbody>
                 {uploadResults.map((r, i) => {
                   const isError = !!r.error;
+                  const duplicateUpload = r.manualEmployeeId
+                    ? existingUploads.find((u) => u.employeeId === r.manualEmployeeId)
+                    : null;
                   return (
                     <tr
                       key={i}
@@ -453,12 +518,19 @@ export default function ReconciliationPage() {
                       </td>
                       <td className="px-3 py-2.5 text-sm">
                         {r.filePath && !isError ? (
-                          <button
-                            onClick={() => setPreviewIndex(i)}
-                            className="hover:underline text-left"
-                          >
-                            {r.fileName}
-                          </button>
+                          <div className="space-y-1">
+                            <button
+                              onClick={() => setPreviewIndex(i)}
+                              className="hover:underline text-left"
+                            >
+                              {r.fileName}
+                            </button>
+                            {duplicateUpload && (
+                              <div className="text-xs text-amber-700">
+                                既存取込あり: {duplicateUpload.employee.lastName} {duplicateUpload.employee.firstName} / {duplicateUpload.fileName || 'ファイル名なし'}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span>{r.fileName}</span>
                         )}

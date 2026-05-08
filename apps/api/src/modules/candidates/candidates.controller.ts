@@ -114,6 +114,108 @@ export class CandidatesController {
     return this.candidatesService.deleteSource(id);
   }
 
+  // ---- 採用ステータスマスタ ----
+  @Get('statuses')
+  @Roles('admin', 'manager', 'member')
+  @ApiOperation({ summary: '採用ステータス一覧' })
+  async getStatuses() {
+    return this.candidatesService.getStatuses();
+  }
+
+  @Post('statuses')
+  @Roles('admin')
+  @ApiOperation({ summary: '採用ステータス追加' })
+  async createStatus(
+    @Body() body: { name: string; flagLabel?: string; flagType?: string },
+  ) {
+    return this.candidatesService.createStatus(body);
+  }
+
+  @Patch('statuses/:id')
+  @Roles('admin')
+  @ApiOperation({ summary: '採用ステータス更新' })
+  async updateStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name?: string; flagLabel?: string; flagType?: string },
+  ) {
+    return this.candidatesService.updateStatus(id, body);
+  }
+
+  @Delete('statuses/:id')
+  @Roles('admin')
+  @ApiOperation({ summary: '採用ステータス削除' })
+  async deleteStatus(@Param('id', ParseUUIDPipe) id: string) {
+    return this.candidatesService.deleteStatus(id);
+  }
+
+  // ---- 募集求人マスタ ----
+  @Get('job-postings')
+  @Roles('admin', 'manager', 'member')
+  @ApiOperation({ summary: '募集求人一覧' })
+  async getJobPostings() {
+    return this.candidatesService.getJobPostings();
+  }
+
+  @Post('job-postings')
+  @Roles('admin')
+  @ApiOperation({ summary: '募集求人追加' })
+  async createJobPosting(
+    @Body() body: { name: string; description?: string },
+  ) {
+    return this.candidatesService.createJobPosting(body);
+  }
+
+  @Patch('job-postings/:id')
+  @Roles('admin')
+  @ApiOperation({ summary: '募集求人更新' })
+  async updateJobPosting(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name?: string; description?: string },
+  ) {
+    return this.candidatesService.updateJobPosting(id, body);
+  }
+
+  @Delete('job-postings/:id')
+  @Roles('admin')
+  @ApiOperation({ summary: '募集求人削除' })
+  async deleteJobPosting(@Param('id', ParseUUIDPipe) id: string) {
+    return this.candidatesService.deleteJobPosting(id);
+  }
+
+  // ---- 面接官マスタ ----
+  @Get('interviewers')
+  @Roles('admin', 'manager', 'member')
+  @ApiOperation({ summary: '面接官一覧' })
+  async getInterviewers() {
+    return this.candidatesService.getInterviewers();
+  }
+
+  @Post('interviewers')
+  @Roles('admin')
+  @ApiOperation({ summary: '面接官追加' })
+  async createInterviewer(
+    @Body() body: { name: string; email?: string; roleLabel?: string; memo?: string },
+  ) {
+    return this.candidatesService.createInterviewer(body);
+  }
+
+  @Patch('interviewers/:id')
+  @Roles('admin')
+  @ApiOperation({ summary: '面接官更新' })
+  async updateInterviewer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name?: string; email?: string; roleLabel?: string; memo?: string },
+  ) {
+    return this.candidatesService.updateInterviewer(id, body);
+  }
+
+  @Delete('interviewers/:id')
+  @Roles('admin')
+  @ApiOperation({ summary: '面接官削除' })
+  async deleteInterviewer(@Param('id', ParseUUIDPipe) id: string) {
+    return this.candidatesService.deleteInterviewer(id);
+  }
+
   // ---- 採用予算 ----
   @Get('budgets')
   @Roles('admin', 'manager', 'member')

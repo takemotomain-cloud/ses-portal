@@ -5,9 +5,9 @@
  * 発行時に PDF 生成 → Drive 保存 → DocumentIssuance に履歴を残す。
  */
 
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { NoticesService } from './notices.service';
+import { NoticeWorkflowUpdateInput, NoticesService } from './notices.service';
 import { OfferData, LaborFixedData, LaborOpenData } from './notice-pdf.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -59,5 +59,15 @@ export class NoticesController {
   @ApiOperation({ summary: '社員の通知書発行履歴を取得' })
   async listHistory(@Param('employeeId') employeeId: string) {
     return this.notices.listByEmployee(employeeId);
+  }
+
+  @Patch(':issuanceId/workflow')
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '通知書の送付・承諾ステータスを更新' })
+  async updateWorkflow(
+    @Param('issuanceId') issuanceId: string,
+    @Body() body: NoticeWorkflowUpdateInput,
+  ) {
+    return this.notices.updateWorkflow(issuanceId, body);
   }
 }

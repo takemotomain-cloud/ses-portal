@@ -5,17 +5,29 @@
  * Drive 未連携時は PDF生成 + DB履歴のみ（drive_file_id は null）。
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { NoticePdfService, OfferData, LaborFixedData, LaborOpenData } from './notice-pdf.service';
 
 type DocType = 'offer' | 'notice_fixed' | 'notice_open';
+type WorkflowStatus = 'issued' | 'sent' | 'waiting_ack' | 'completed';
 const CATEGORY_FOLDER: Record<DocType, string> = {
   offer: '内定通知書',
   notice_fixed: '労働条件通知書（有期）',
   notice_open: '労働条件通知書（無期）',
 };
+
+const allowedWorkflowStatuses: WorkflowStatus[] = ['issued', 'sent', 'waiting_ack', 'completed'];
+const allowedDeliveryMethods = ['drive', 'email', 'paper', 'post', 'other'] as const;
+
+export interface NoticeWorkflowUpdateInput {
+  workflowStatus: WorkflowStatus;
+  deliveryMethod?: string | null;
+  deliveredAt?: string | null;
+  acknowledgedAt?: string | null;
+  workflowNote?: string | null;
+}
 
 @Injectable()
 export class NoticesService {
@@ -107,6 +119,7 @@ export class NoticesService {
         employeeId: emp.id,
         documentType: args.docType,
         targetDate: now,
+        workflowStatus: 'issued',
         fileName,
         driveFileId,
         driveViewLink,
@@ -130,6 +143,50 @@ export class NoticesService {
     return this.db.documentIssuance.findMany({
       where: { employeeId },
       orderBy: { issuedAt: 'desc' },
+    });
+  }
+
+  async updateWorkflow(issuanceId: string, input: NoticeWorkflowUpdateInput) {
+    const issuance = await this.db.documentIssuance.findUnique({
+      where: { id: issuanceId },
+      select: { id: true },
+    });
+    if (!issuance) throw new NotFoundException('通知書履歴が見つかりません');
+
+    if (!allowedWorkflowStatuses.includes(input.workflowStatus)) {
+      throw new BadRequestException('不正な進捗ステータスです');
+    }
+    if (
+      input.deliveryMethod &&
+      !allowedDeliveryMethods.includes(input.deliveryMethod as (typeof allowedDeliveryMethods)[number])
+    ) {
+      throw new BadRequestException('不正な送付方法です');
+    }
+
+    const deliveredAt =
+      input.deliveredAt
+        ? new Date(input.deliveredAt)
+        : input.workflowStatus === 'sent' ||
+            input.workflowStatus === 'waiting_ack' ||
+            input.workflowStatus === 'completed'
+          ? new Date()
+          : null;
+    const acknowledgedAt =
+      input.acknowledgedAt
+        ? new Date(input.acknowledgedAt)
+        : input.workflowStatus === 'completed'
+          ? new Date()
+          : null;
+
+    return this.db.documentIssuance.update({
+      where: { id: issuanceId },
+      data: {
+        workflowStatus: input.workflowStatus,
+        deliveryMethod: input.deliveryMethod || null,
+        deliveredAt,
+        acknowledgedAt,
+        workflowNote: input.workflowNote?.trim() || null,
+      },
     });
   }
 }

@@ -147,6 +147,113 @@ export class CandidatesService {
     return this.db.recruitSource.update({ where: { id }, data: { isActive: false } });
   }
 
+  // ---- 採用ステータスマスタ ----
+  async getStatuses() {
+    return this.db.recruitStatus.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createStatus(data: { name: string; flagLabel?: string; flagType?: string }) {
+    const maxOrder = await this.db.recruitStatus.aggregate({ _max: { sortOrder: true } });
+    return this.db.recruitStatus.create({
+      data: {
+        code: data.name.trim(),
+        name: data.name.trim(),
+        flagLabel: data.flagLabel?.trim() || null,
+        flagType: data.flagType?.trim() || null,
+        sortOrder: (maxOrder._max.sortOrder || 0) + 1,
+      },
+    });
+  }
+
+  async updateStatus(id: string, data: { name?: string; flagLabel?: string; flagType?: string }) {
+    const nextName = data.name?.trim();
+    return this.db.recruitStatus.update({
+      where: { id },
+      data: {
+        ...(nextName ? { code: nextName, name: nextName } : {}),
+        ...(data.flagLabel !== undefined ? { flagLabel: data.flagLabel?.trim() || null } : {}),
+        ...(data.flagType !== undefined ? { flagType: data.flagType?.trim() || null } : {}),
+      },
+    });
+  }
+
+  async deleteStatus(id: string) {
+    return this.db.recruitStatus.update({ where: { id }, data: { isActive: false } });
+  }
+
+  // ---- 募集求人マスタ ----
+  async getJobPostings() {
+    return this.db.recruitJobPosting.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createJobPosting(data: { name: string; description?: string }) {
+    const maxOrder = await this.db.recruitJobPosting.aggregate({ _max: { sortOrder: true } });
+    return this.db.recruitJobPosting.create({
+      data: {
+        name: data.name.trim(),
+        description: data.description?.trim() || null,
+        sortOrder: (maxOrder._max.sortOrder || 0) + 1,
+      },
+    });
+  }
+
+  async updateJobPosting(id: string, data: { name?: string; description?: string }) {
+    return this.db.recruitJobPosting.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+        ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
+      },
+    });
+  }
+
+  async deleteJobPosting(id: string) {
+    return this.db.recruitJobPosting.update({ where: { id }, data: { isActive: false } });
+  }
+
+  // ---- 面接官マスタ ----
+  async getInterviewers() {
+    return this.db.recruitInterviewer.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createInterviewer(data: { name: string; email?: string; roleLabel?: string; memo?: string }) {
+    const maxOrder = await this.db.recruitInterviewer.aggregate({ _max: { sortOrder: true } });
+    return this.db.recruitInterviewer.create({
+      data: {
+        name: data.name.trim(),
+        email: data.email?.trim() || null,
+        roleLabel: data.roleLabel?.trim() || null,
+        memo: data.memo?.trim() || null,
+        sortOrder: (maxOrder._max.sortOrder || 0) + 1,
+      },
+    });
+  }
+
+  async updateInterviewer(id: string, data: { name?: string; email?: string; roleLabel?: string; memo?: string }) {
+    return this.db.recruitInterviewer.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+        ...(data.email !== undefined ? { email: data.email?.trim() || null } : {}),
+        ...(data.roleLabel !== undefined ? { roleLabel: data.roleLabel?.trim() || null } : {}),
+        ...(data.memo !== undefined ? { memo: data.memo?.trim() || null } : {}),
+      },
+    });
+  }
+
+  async deleteInterviewer(id: string) {
+    return this.db.recruitInterviewer.update({ where: { id }, data: { isActive: false } });
+  }
+
   // ---- 採用予算 ----
   async getBudgets(fiscalYear: number) {
     return this.db.recruitBudget.findMany({

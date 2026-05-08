@@ -66,6 +66,7 @@ model Employee {
   firstNameKana     String    @map("first_name_kana") @db.VarChar(50)
   birthDate         DateTime  @map("birth_date") @db.Date
   gender            String    @db.VarChar(10)
+  bloodType         String?   @map("blood_type") @db.VarChar(10)
   hireDate          DateTime  @map("hire_date") @db.Date
   resignDate        DateTime? @map("resign_date") @db.Date
   employmentType    String    @map("employment_type") @db.VarChar(20)
@@ -1108,6 +1109,55 @@ model RecruitSource {
 }
 
 // ----------------------------------------
+// 採用ステータスマスタ
+// ----------------------------------------
+model RecruitStatus {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique @db.VarChar(50)
+  name      String   @db.VarChar(100)
+  flagLabel String?  @map("flag_label") @db.VarChar(50)
+  flagType  String?  @map("flag_type") @db.VarChar(20) /// info | warn | ok | danger | wait
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("recruit_statuses")
+}
+
+// ----------------------------------------
+// 募集求人マスタ
+// ----------------------------------------
+model RecruitJobPosting {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(200)
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("recruit_job_postings")
+}
+
+// ----------------------------------------
+// 面接官マスタ
+// ----------------------------------------
+model RecruitInterviewer {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  email     String?  @db.VarChar(255)
+  roleLabel String?  @map("role_label") @db.VarChar(50)
+  memo      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("recruit_interviewers")
+}
+
+// ----------------------------------------
 // 採用予算
 // ----------------------------------------
 model RecruitBudget {
@@ -1324,6 +1374,8 @@ model IntegrationToken {
   refreshToken String   @map("refresh_token")
   expiresAt    DateTime @map("expires_at") @db.Timestamptz
   email        String?  @db.VarChar(255)
+  rootFolderId String?  @map("root_folder_id") @db.VarChar(128)
+  rootFolderPath String? @map("root_folder_path") @db.VarChar(500)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -1339,6 +1391,11 @@ model DocumentIssuance {
   documentType  String   @map("document_type") @db.VarChar(32) // 'payslip' | 'offer' | 'notice_fixed' | 'notice_open'
   targetDate    DateTime @map("target_date") @db.Date
   issuedAt      DateTime @default(now()) @map("issued_at") @db.Timestamptz
+  workflowStatus String  @default("issued") @map("workflow_status") @db.VarChar(32)
+  deliveryMethod String? @map("delivery_method") @db.VarChar(32)
+  deliveredAt    DateTime? @map("delivered_at") @db.Date
+  acknowledgedAt DateTime? @map("acknowledged_at") @db.Date
+  workflowNote   String? @map("workflow_note")
   fileName      String   @map("file_name") @db.VarChar(255)
   driveFileId   String?  @map("drive_file_id") @db.VarChar(128)
   driveViewLink String?  @map("drive_view_link") @db.VarChar(512)
@@ -1373,4 +1430,22 @@ model OnboardingDocument {
   @@index([documentType])
   @@index([uploadedAt(sort: Desc)])
   @@map("onboarding_documents")
+}
+
+/// 入社予定社員フローの確認記録（紙受領・メール受領などの手動完了）
+model OnboardingCheckStatus {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId   String   @map("employee_id") @db.Uuid
+  itemKey      String   @map("item_key") @db.VarChar(50)
+  status       String   @default("done") @db.VarChar(20)
+  method       String?  @db.VarChar(30)
+  confirmedAt  DateTime? @map("confirmed_at") @db.Date
+  memo         String?
+  confirmedBy  String?  @map("confirmed_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([employeeId, itemKey])
+  @@index([employeeId])
+  @@map("onboarding_check_statuses")
 }

@@ -25,6 +25,7 @@ interface EmployeeDetail {
   firstNameKana: string | null;
   birthDate: string | null;
   gender: string | null;
+  bloodType: string | null;
   email: string;
   phone: string | null;
   postalCode: string | null;
@@ -118,6 +119,7 @@ interface EditForm {
   bankBranch: string;
   bankAccountType: string;
   bankAccountNumber: string;
+  bankAccountHolder: string;
   station: string;
   driveUrl: string;
 }
@@ -277,6 +279,7 @@ export default function EmployeeEditPage() {
     bankBranch: '',
     bankAccountType: '普通',
     bankAccountNumber: '',
+    bankAccountHolder: '',
     station: '',
     driveUrl: '',
   });
@@ -361,7 +364,7 @@ export default function EmployeeEditPage() {
           address: d.address || '',
           birthDate: fmtDateForDisplay(d.birthDate),
           gender: d.gender ? (genderLabel[d.gender] || '男性') : '男性',
-          bloodType: 'A型',
+          bloodType: d.bloodType || 'A型',
           emergencyName: d.emergencyContacts?.[0]?.name || '',
           emergencyRelationship: d.emergencyContacts?.[0]?.relationship || '父',
           emergencyPhone: d.emergencyContacts?.[0]?.phone || '',
@@ -383,6 +386,7 @@ export default function EmployeeEditPage() {
           bankBranch: d.bankBranch || '',
           bankAccountType: accountTypeLabel[d.bankAccountType || ''] || '普通',
           bankAccountNumber: d.bankAccountNumber || '',
+          bankAccountHolder: d.bankAccountHolder || '',
           station: d.station || '',
           driveUrl: '',
         });
@@ -539,6 +543,7 @@ export default function EmployeeEditPage() {
         phone: form.phone,
         address: form.address,
         gender: genderReverse[form.gender] || form.gender,
+        bloodType: form.bloodType,
         salaryGradeId: form.salaryGradeId || null,
         rewardRate: form.rewardRate ? Number(String(form.rewardRate).replace(/%/g, '')) : undefined,
         rateHealthInsurance: form.rateHealthInsurance ? Number(form.rateHealthInsurance) / 100 : null,
@@ -561,6 +566,7 @@ export default function EmployeeEditPage() {
         payload.bankBranch = form.bankBranch;
         payload.bankAccountType = accountTypeReverse[form.bankAccountType] || form.bankAccountType;
         payload.bankAccountNumber = form.bankAccountNumber;
+        payload.bankAccountHolder = form.bankAccountHolder;
       }
 
       // 部署IDは元の値を使用（部署セレクトはUUIDマッピングがないため）

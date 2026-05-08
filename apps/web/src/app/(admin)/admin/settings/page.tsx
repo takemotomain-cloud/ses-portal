@@ -208,13 +208,15 @@ export default function AdminSettingsPage() {
   /* ---------- Google Drive 連携 ---------- */
   const [gdConnected, setGdConnected] = useState(false);
   const [gdEmail, setGdEmail] = useState('');
+  const [gdRootFolderPath, setGdRootFolderPath] = useState('SES Portal');
   const [gdLoading, setGdLoading] = useState(false);
 
   const fetchGdStatus = useCallback(async () => {
     try {
-      const data = await apiClient<{ connected: boolean; email?: string }>('/settings/google-drive/status');
+      const data = await apiClient<{ connected: boolean; email?: string; rootFolderPath?: string }>('/settings/google-drive/status');
       setGdConnected(data.connected);
       setGdEmail(data.email || '');
+      setGdRootFolderPath(data.rootFolderPath || 'SES Portal');
     } catch {
       /* ignore */
     }
@@ -247,9 +249,26 @@ export default function AdminSettingsPage() {
       await apiClient('/settings/google-drive/disconnect', { method: 'POST' });
       setGdConnected(false);
       setGdEmail('');
+      setGdRootFolderPath('SES Portal');
       toast('Google Drive 連携を解除しました');
     } catch (err: any) {
       toast(err?.message || '連携解除に失敗しました');
+    } finally {
+      setGdLoading(false);
+    }
+  };
+
+  const handleSaveGdRootFolder = async () => {
+    setGdLoading(true);
+    try {
+      const data = await apiClient<{ rootFolderPath: string }>('/settings/google-drive/root-folder', {
+        method: 'POST',
+        body: JSON.stringify({ rootFolderPath: gdRootFolderPath }),
+      });
+      setGdRootFolderPath(data.rootFolderPath);
+      toast('Google Drive の保存ルートを保存しました');
+    } catch (err: any) {
+      toast(err?.message || '保存ルートの保存に失敗しました');
     } finally {
       setGdLoading(false);
     }
@@ -961,7 +980,7 @@ export default function AdminSettingsPage() {
         <div className="card p-5 max-w-[720px]">
           <div className="text-md font-medium mb-1">Google Drive 連携</div>
           <div className="text-xs text-secondary mb-4">
-            Google Drive と連携すると、勤怠確定時にスプレッドシートが自動でDriveに保存されます。
+            Google Drive と連携すると、勤怠確定時のスプレッドシートや、通知書・入社書類が自動でDriveに保存されます。
           </div>
 
           {gdConnected ? (
@@ -969,6 +988,38 @@ export default function AdminSettingsPage() {
               <div className="flex items-center gap-2">
                 <span className="badge badge-ok">連携中</span>
                 <span className="text-sm">{gdEmail}</span>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-secondary block">保存ルートフォルダ</label>
+                <div className="flex gap-2 flex-wrap">
+                  <input
+                    value={gdRootFolderPath}
+                    onChange={(e) => setGdRootFolderPath(e.target.value)}
+                    placeholder="例: SES Portal"
+                    className="input w-full max-w-md"
+                  />
+                  <button
+                    onClick={handleSaveGdRootFolder}
+                    disabled={gdLoading}
+                    className="btn-primary text-sm py-2 px-4 disabled:opacity-50"
+                  >
+                    {gdLoading ? '保存中...' : '保存'}
+                  </button>
+                </div>
+                <div className="text-xs text-secondary">
+                  `/` 区切りで指定できます。存在しないフォルダは自動作成します。
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-page px-4 py-3 text-sm">
+                <div className="font-medium mb-2">保存先のルール</div>
+                <div className="text-secondary leading-6">
+                  <div>ルートフォルダ: <span className="text-primary font-medium">{gdRootFolderPath || 'SES Portal'}</span></div>
+                  <div>入社書類: <span className="font-medium">{gdRootFolderPath || 'SES Portal'} / 年度入社社員 / 入社月 / 社員番号_氏名 / 書類種別</span></div>
+                  <div>通知書: <span className="font-medium">{gdRootFolderPath || 'SES Portal'} / 年度 / 発行月 / 通知書種別</span></div>
+                </div>
+                <div className="text-xs text-secondary mt-2">
+                  保存ルートだけ管理画面で変更できます。配下の年度・月・書類種別フォルダは自動で整理されます。
+                </div>
               </div>
               <button
                 onClick={handleGdDisconnect}
