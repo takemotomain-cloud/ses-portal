@@ -77,6 +77,16 @@ export class CandidatesController {
     return this.candidatesService.findAll();
   }
 
+  @Patch(':id/status')
+  @Roles('admin', 'manager', 'member')
+  @ApiOperation({ summary: '候補者ステータス更新' })
+  async updateCandidateStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { status: string },
+  ) {
+    return this.candidatesService.updateCandidateStatus(id, body);
+  }
+
   // ---- 採用分析 ----
   @Get('analytics')
   @Roles('admin', 'manager', 'member')
