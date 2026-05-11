@@ -10,10 +10,13 @@ type Candidate = {
   name: string;
   kana: string;
   applyDate: string;
+  statusCode: string;
   status: string;
+  statusFlagType: string;
   position: string;
   source: string;
   sourceName: string;
+  sourceCategory: string;
   firstInterview: string;
   firstInterviewer: string;
   firstConfirm: string;
@@ -26,6 +29,20 @@ type Candidate = {
   desiredLocation: string;
   desiredMonth: string;
   history: { status: string; date: string; memo: string }[];
+};
+
+type RecruitStatus = {
+  id: string;
+  code: string;
+  name: string;
+  flagLabel: string | null;
+  flagType: string | null;
+};
+
+type RecruitSource = {
+  id: string;
+  name: string;
+  category: string;
 };
 
 type ApiCandidate = {
@@ -74,25 +91,41 @@ function calcAge(birthDate: string | null): string {
   return `${age}歳`;
 }
 
-function mapStatusLabel(status: string): string {
-  if (status === 'new') return '書類選考';
-  return status;
+function legacyStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    new: '応募',
+    screening: '書類選考',
+    first_interview: '一次面接設定',
+    final_interview: '最終面接設定',
+    offer: '内定打診中',
+    accepted: '内定承諾',
+  };
+  return labels[status] || status;
 }
 
-function mapCandidate(c: ApiCandidate): Candidate {
+function mapCandidate(
+  c: ApiCandidate,
+  statusMap: Map<string, RecruitStatus>,
+  sourceMap: Map<string, RecruitSource>,
+): Candidate {
   const interviewParts: string[] = [];
   if (c.interviewDate) interviewParts.push(formatDate(c.interviewDate));
   if (c.interviewTime) interviewParts.push(c.interviewTime);
+  const status = statusMap.get(c.status);
+  const source = sourceMap.get(c.source);
 
   return {
     id: c.id,
     name: `${c.lastName} ${c.firstName}`,
     kana: `${c.lastNameKana || ''} ${c.firstNameKana || ''}`.trim(),
     applyDate: formatDate(c.applicationDate),
-    status: mapStatusLabel(c.status),
+    statusCode: c.status,
+    status: status?.name || legacyStatusLabel(c.status),
+    statusFlagType: status?.flagType || 'wait',
     position: c.jobPosting || '',
     source: c.source,
-    sourceName: c.source,
+    sourceName: source?.name || c.source,
+    sourceCategory: source?.category || 'other',
     firstInterview: interviewParts.join(' '),
     firstInterviewer: c.interviewer || '',
     firstConfirm: c.confirmStatus || '',
@@ -108,28 +141,27 @@ function mapCandidate(c: ApiCandidate): Candidate {
   };
 }
 
-const statusBadge: Record<string, string> = {
-  '一次面接待ち': 'badge-warn',
-  '最終面接待ち': 'badge-warn',
-  '書類選考': 'badge-info',
-  '内定承諾': 'badge-ok',
-  '不採用': 'badge-danger',
-  '内定出し': 'badge-warn',
+const statusBadgeByType: Record<string, string> = {
+  info: 'badge-info',
+  warn: 'badge-warn',
+  ok: 'badge-ok',
+  danger: 'badge-danger',
+  wait: 'badge-wait',
 };
 
 const sourceBadge: Record<string, string> = {
-  'エージェント': 'badge-info',
-  '媒体': 'badge-warn',
-  'リファラル': 'badge-ok',
+  agent: 'badge-info',
+  media: 'badge-warn',
+  referral: 'badge-ok',
+  other: 'badge-wait',
 };
-
-const statuses = ['一次面接待ち', '最終面接待ち', '書類選考', '内定承諾', '不採用', '内定出し'];
-const sources = ['エージェント', '媒体', 'リファラル'];
 
 export default function RecruitCandidatesPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [statuses, setStatuses] = useState<RecruitStatus[]>([]);
+  const [sources, setSources] = useState<RecruitSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -139,8 +171,16 @@ export default function RecruitCandidatesPage() {
   const fetchCandidates = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiClient<ApiCandidate[]>('/candidates');
-      setCandidates(data.map(mapCandidate));
+      const [data, statusData, sourceData] = await Promise.all([
+        apiClient<ApiCandidate[]>('/candidates'),
+        apiClient<RecruitStatus[]>('/candidates/statuses'),
+        apiClient<RecruitSource[]>('/candidates/sources'),
+      ]);
+      const statusMap = new Map(statusData.map((status) => [status.code, status]));
+      const sourceMap = new Map(sourceData.map((source) => [source.name, source]));
+      setStatuses(statusData);
+      setSources(sourceData);
+      setCandidates(data.map((candidate) => mapCandidate(candidate, statusMap, sourceMap)));
     } catch {
       toast('候補者データの取得に失敗しました');
     } finally {
@@ -155,7 +195,7 @@ export default function RecruitCandidatesPage() {
   const filtered = useMemo(() => {
     return candidates.filter((c) => {
       if (search && !c.name.includes(search) && !c.kana.includes(search)) return false;
-      if (statusFilter && c.status !== statusFilter) return false;
+      if (statusFilter && c.statusCode !== statusFilter) return false;
       if (sourceFilter && c.source !== sourceFilter) return false;
       return true;
     });
@@ -208,7 +248,7 @@ export default function RecruitCandidatesPage() {
         >
           <option value="">ステータス: すべて</option>
           {statuses.map((s) => (
-            <option key={s} value={s}>{s}</option>
+            <option key={s.code} value={s.code}>{s.name}</option>
           ))}
         </select>
         <select
@@ -218,7 +258,7 @@ export default function RecruitCandidatesPage() {
         >
           <option value="">経路: すべて</option>
           {sources.map((s) => (
-            <option key={s} value={s}>{s}</option>
+            <option key={s.id} value={s.name}>{s.name}</option>
           ))}
         </select>
         <span className="text-sm text-secondary self-center">全{filtered.length}件</span>
@@ -255,12 +295,12 @@ export default function RecruitCandidatesPage() {
                   className="border-b border-border/20 hover:bg-[#FAFAF8] cursor-pointer"
                 >
                   <td className="px-4 py-2.5 text-sm text-secondary">{c.applyDate}</td>
-                  <td className="px-4 py-2.5"><span className={`badge ${statusBadge[c.status]}`}>{c.status}</span></td>
+                  <td className="px-4 py-2.5"><span className={`badge ${statusBadgeByType[c.statusFlagType] || 'badge-wait'}`}>{c.status}</span></td>
                   <td className="px-4 py-2.5"><div className="text-base font-medium">{c.name}</div><div className="text-sm text-secondary mt-0.5">{c.kana}</div></td>
                   <td className="px-4 py-2.5 text-sm">{c.position}</td>
                   <td className="px-4 py-2.5 text-sm text-secondary">{c.firstInterview || <span className="text-secondary italic">—</span>}{c.firstConfirm && <> <span className={`badge ${c.firstConfirm === '確認済' ? 'badge-ok' : 'badge-wait'}`}>{c.firstConfirm}</span></>}</td>
                   <td className="px-4 py-2.5 text-sm text-secondary">{c.finalInterview || <span className="text-secondary italic">—</span>}</td>
-                  <td className="px-4 py-2.5"><span className={`badge ${sourceBadge[c.source]}`}>{c.source}</span></td>
+                  <td className="px-4 py-2.5"><span className={`badge ${sourceBadge[c.sourceCategory] || 'badge-wait'}`}>{c.sourceName}</span></td>
                   <td className="px-4 py-2.5">
                     <button
                       className="btn-outline text-xs py-1 px-3"
@@ -314,7 +354,7 @@ export default function RecruitCandidatesPage() {
                   <div key={label as string} className="flex justify-between py-[5px] border-b border-border/20 text-base gap-3">
                     <span className="text-secondary whitespace-nowrap">{label}</span>
                     {label === 'ステータス' ? (
-                      <span className={`badge ${statusBadge[selectedCandidate.status] || 'badge-wait'}`}>{selectedCandidate.status}</span>
+                      <span className={`badge ${statusBadgeByType[selectedCandidate.statusFlagType] || 'badge-wait'}`}>{selectedCandidate.status}</span>
                     ) : (
                       <span className="text-right">{value}</span>
                     )}
@@ -387,20 +427,36 @@ export default function RecruitCandidatesPage() {
             {/* Panel Actions */}
             <div className="flex gap-2 p-5 border-t border-border/30">
               <button onClick={() => router.push('/admin/recruit-candidates/new')} className="btn-outline flex-1 text-sm py-2">編集</button>
-              <button onClick={() => {
-                const nextStatuses: Record<string, string> = {
-                  '書類選考': '一次面接待ち',
-                  '一次面接待ち': '最終面接待ち',
-                  '最終面接待ち': '内定出し',
-                  '内定出し': '内定承諾',
-                };
-                const next = nextStatuses[selectedCandidate.status];
-                if (next) {
-                  toast(`ステータスを「${next}」に更新しました`);
-                } else {
-                  toast(`現在のステータス「${selectedCandidate.status}」から更新できません`);
-                }
-              }} className="btn-primary flex-1 text-sm py-2">ステータス更新</button>
+              <select
+                value={selectedCandidate.statusCode}
+                onChange={async (event) => {
+                  const nextCode = event.target.value;
+                  try {
+                    await apiClient(`/candidates/${selectedCandidate.id}/status`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ status: nextCode }),
+                    });
+                    const nextStatus = statuses.find((status) => status.code === nextCode);
+                    setSelectedCandidate((current) => current
+                      ? {
+                        ...current,
+                        statusCode: nextCode,
+                        status: nextStatus?.name || nextCode,
+                        statusFlagType: nextStatus?.flagType || 'wait',
+                      }
+                      : current);
+                    await fetchCandidates();
+                    toast('ステータスを更新しました');
+                  } catch {
+                    toast('ステータス更新に失敗しました');
+                  }
+                }}
+                className="border border-border rounded-md px-3 py-2 text-sm outline-none bg-card flex-1"
+              >
+                {statuses.map((status) => (
+                  <option key={status.code} value={status.code}>{status.name}</option>
+                ))}
+              </select>
             </div>
           </div>
         </>

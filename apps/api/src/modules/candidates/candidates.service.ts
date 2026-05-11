@@ -5,8 +5,16 @@
  * 候補者の作成・一覧取得を提供。
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+
+type RecruitStatusMaster = {
+  code: string;
+  name: string;
+  flagLabel: string | null;
+  flagType: string | null;
+  sortOrder: number;
+};
 
 @Injectable()
 export class CandidatesService {
@@ -40,6 +48,10 @@ export class CandidatesService {
     recommendation?: string;
     notes?: string;
   }) {
+    const firstStatus = await this.db.recruitStatus.findFirst({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
     return this.db.candidate.create({
       data: {
         lastName: data.lastName,
@@ -63,6 +75,7 @@ export class CandidatesService {
         interviewPreference: data.interviewPreference || null,
         recommendation: data.recommendation || null,
         notes: data.notes || null,
+        status: firstStatus?.code || 'new',
       },
     });
   }
@@ -73,6 +86,22 @@ export class CandidatesService {
   async findAll() {
     return this.db.candidate.findMany({
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updateCandidateStatus(id: string, data: { status: string }) {
+    const nextStatus = data.status?.trim();
+    const exists = await this.db.recruitStatus.findFirst({
+      where: { code: nextStatus, isActive: true },
+    });
+
+    if (!nextStatus || !exists) {
+      throw new BadRequestException('Invalid recruit status');
+    }
+
+    return this.db.candidate.update({
+      where: { id },
+      data: { status: nextStatus },
     });
   }
 
@@ -87,11 +116,16 @@ export class CandidatesService {
     const startDate = new Date(targetYear, 4, 1);       // 5月1日
     const endDate = new Date(targetYear + 1, 4, 1);     // 翌年5月1日
 
-    const candidates = await this.db.candidate.findMany({
-      where: {
-        applicationDate: { gte: startDate, lt: endDate },
-      },
-    });
+    const [candidates, statuses] = await Promise.all([
+      this.db.candidate.findMany({
+        where: {
+          applicationDate: { gte: startDate, lt: endDate },
+        },
+      }),
+      this.getStatuses(),
+    ]);
+    const statusIndex = new Map(statuses.map((status, index) => [status.code, index]));
+    const thresholds = this.resolveAnalyticsThresholds(statuses);
 
     // 経路別に集計
     const sourceMap = new Map<string, {
@@ -111,17 +145,30 @@ export class CandidatesService {
       }
       const s = sourceMap.get(src)!;
       s.apply++;
-      // ステータスが進んでいれば前段階もカウント
-      const statusOrder = ['new', 'screening', 'first_interview', 'final_interview', 'offer', 'accepted'];
-      const idx = statusOrder.indexOf(c.status);
-      if (idx >= 1) s.valid++;
-      if (idx >= 2) s.first++;
-      if (idx >= 3) s.final++;
-      if (idx >= 4) s.offer++;
-      if (idx >= 5) s.accept++;
+      const idx = statusIndex.get(c.status) ?? -1;
+      if (idx >= thresholds.valid) s.valid++;
+      if (idx >= thresholds.first) s.first++;
+      if (idx >= thresholds.final) s.final++;
+      if (idx >= thresholds.offer) s.offer++;
+      if (idx >= thresholds.accept) s.accept++;
     }
 
     return Array.from(sourceMap.values());
+  }
+
+  private resolveAnalyticsThresholds(statuses: RecruitStatusMaster[]) {
+    const findIndex = (predicate: (status: RecruitStatusMaster) => boolean, fallback: number) => {
+      const index = statuses.findIndex(predicate);
+      return index >= 0 ? index : fallback;
+    };
+
+    return {
+      valid: Math.min(1, Math.max(statuses.length - 1, 0)),
+      first: findIndex((status) => status.name.includes('一次面接'), 2),
+      final: findIndex((status) => status.name.includes('最終面接'), 3),
+      offer: findIndex((status) => status.name.includes('内定') || status.flagType === 'warn', 4),
+      accept: findIndex((status) => status.name.includes('承諾') || status.flagType === 'ok', 5),
+    };
   }
 
   // ---- 採用経路マスタ ----

@@ -893,7 +893,7 @@ model Candidate {
   interviewPreference String?   @map("interview_preference")
   recommendation      String?
   notes               String?
-  status              String    @default("new") @db.VarChar(20)
+  status              String    @default("new") @db.VarChar(50)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
