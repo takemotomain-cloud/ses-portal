@@ -38,33 +38,33 @@ export class NotificationsService {
   }
 
   /** 社員の通知一覧（未読優先、新しい順） */
-  async getMyNotifications(employeeId: string, limit?: number, audience?: 'admin' | 'employee') {
+  async getMyNotifications(tenantId: string, employeeId: string, limit?: number, audience?: 'admin' | 'employee') {
     return this.db.notification.findMany({
-      where: { employeeId, ...this.buildAudienceWhere(audience) },
+      where: { tenantId, employeeId, ...this.buildAudienceWhere(audience) },
       orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
       take: (limit && limit > 0) ? limit : 20,
     });
   }
 
   /** 未読件数を取得 */
-  async getUnreadCount(employeeId: string, audience?: 'admin' | 'employee'): Promise<number> {
+  async getUnreadCount(tenantId: string, employeeId: string, audience?: 'admin' | 'employee'): Promise<number> {
     return this.db.notification.count({
-      where: { employeeId, isRead: false, ...this.buildAudienceWhere(audience) },
+      where: { tenantId, employeeId, isRead: false, ...this.buildAudienceWhere(audience) },
     });
   }
 
   /** 既読にする */
-  async markAsRead(notificationId: string, employeeId: string) {
+  async markAsRead(tenantId: string, notificationId: string, employeeId: string) {
     await this.db.notification.updateMany({
-      where: { id: notificationId, employeeId },
+      where: { id: notificationId, tenantId, employeeId },
       data: { isRead: true, readAt: new Date() },
     });
   }
 
   /** 全件既読にする */
-  async markAllAsRead(employeeId: string, audience?: 'admin' | 'employee') {
+  async markAllAsRead(tenantId: string, employeeId: string, audience?: 'admin' | 'employee') {
     await this.db.notification.updateMany({
-      where: { employeeId, isRead: false, ...this.buildAudienceWhere(audience) },
+      where: { tenantId, employeeId, isRead: false, ...this.buildAudienceWhere(audience) },
       data: { isRead: true, readAt: new Date() },
     });
   }
@@ -78,6 +78,7 @@ export class NotificationsService {
    * - 契約更新時
    */
   async create(data: {
+    tenantId: string;
     employeeId: string;
     title: string;
     body: string;
@@ -93,11 +94,11 @@ export class NotificationsService {
    * 管理者全員に通知を送信する（申請が来た時など）
    * employeeId を渡すと社員名を自動解決して body に含める
    */
-  async notifyAdmins(title: string, body: string, employeeId?: string) {
+  async notifyAdmins(tenantId: string, title: string, body: string, employeeId?: string) {
     let resolvedBody = body;
     if (employeeId) {
-      const emp = await this.db.employee.findUnique({
-        where: { id: employeeId },
+      const emp = await this.db.employee.findFirst({
+        where: { id: employeeId, tenantId },
         select: { employeeCode: true, lastName: true, firstName: true },
       });
       if (emp) {
@@ -106,12 +107,13 @@ export class NotificationsService {
     }
 
     const admins = await this.db.user.findMany({
-      where: { role: 'admin' },
+      where: { tenantId, role: 'admin' },
       select: { employeeId: true },
     });
     if (!admins.length) return;
     await this.db.notification.createMany({
       data: admins.map(a => ({
+        tenantId,
         employeeId: a.employeeId,
         title,
         body: resolvedBody,
@@ -127,16 +129,11 @@ export class NotificationsService {
 
   /**
    * 送信先の選択肢を返す
-   *
-   * 管理画面の宛先セレクタ用:
-   * - 社員一覧（id, name, departmentName）
-   * - 部署一覧
-   * - エリア一覧（assignments テーブルの area フィールドから動的取得）
    */
-  async getTargetOptions() {
+  async getTargetOptions(tenantId: string) {
     const [employees, departments, areas] = await Promise.all([
       this.db.employee.findMany({
-        where: { deletedAt: null, status: { not: 'resigned' } },
+        where: { tenantId, deletedAt: null, status: { not: 'resigned' } },
         select: {
           id: true,
           employeeCode: true,
@@ -148,12 +145,12 @@ export class NotificationsService {
         orderBy: { employeeCode: 'asc' },
       }),
       this.db.department.findMany({
-        where: { isActive: true },
+        where: { tenantId, isActive: true },
         select: { id: true, name: true, code: true, parentId: true },
         orderBy: { sortOrder: 'asc' },
       }),
       this.db.assignment.findMany({
-        where: { area: { not: null } },
+        where: { tenantId, area: { not: null } },
         select: { area: true },
         distinct: ['area'],
       }),
@@ -198,14 +195,17 @@ export class NotificationsService {
    * - area: 指定エリアに配属中の社員（targetArea にエリアコード）
    * - individual: 指定社員（targetIds に社員IDリスト）
    */
-  async sendBulk(data: {
-    title: string;
-    body: string;
-    targetType: AnnouncementTargetType;
-    targetIds?: string[];
-    targetArea?: string;
-    imageUrl?: string;
-  }) {
+  async sendBulk(
+    tenantId: string,
+    data: {
+      title: string;
+      body: string;
+      targetType: AnnouncementTargetType;
+      targetIds?: string[];
+      targetArea?: string;
+      imageUrl?: string;
+    },
+  ) {
     if (!data.title?.trim() || !data.body?.trim()) {
       throw new BadRequestException('タイトルと本文を入力してください');
     }
@@ -216,7 +216,7 @@ export class NotificationsService {
     switch (data.targetType) {
       case 'all': {
         const employees = await this.db.employee.findMany({
-          where: { deletedAt: null, status: { not: 'resigned' } },
+          where: { tenantId, deletedAt: null, status: { not: 'resigned' } },
           select: { id: true },
         });
         employeeIds = employees.map(e => e.id);
@@ -235,6 +235,7 @@ export class NotificationsService {
         });
         const employees = await this.db.employee.findMany({
           where: {
+            tenantId,
             deletedAt: null,
             status: { not: 'resigned' },
             departmentId: { in: data.targetIds },
@@ -254,7 +255,7 @@ export class NotificationsService {
         }
         // assignmentsテーブルから対象エリアの社員を取得
         const assignments = await this.db.assignment.findMany({
-          where: { area: data.targetArea },
+          where: { tenantId, area: data.targetArea },
           select: { employeeId: true },
           distinct: ['employeeId'],
         });
@@ -307,6 +308,7 @@ export class NotificationsService {
     // 一括作成
     const result = await this.db.notification.createMany({
       data: employeeIds.map(employeeId => ({
+        tenantId,
         employeeId,
         title: data.title.trim(),
         body: data.body.trim(),
@@ -322,14 +324,11 @@ export class NotificationsService {
   }
 
   /**
-   * 送信済みお知らせ一覧（管理者用）
-   *
-   * category=announcement の通知をグルーピングして返す。
-   * 同一タイトル・同一時刻の通知を1つのお知らせとしてまとめる。
+   * 送信済みお知らせ一覧
    */
-  async getSentNotifications() {
+  async getSentNotifications(tenantId: string) {
     const notifications = await this.db.notification.findMany({
-      where: { category: 'announcement' },
+      where: { tenantId, category: 'announcement' },
       select: {
         id: true,
         title: true,

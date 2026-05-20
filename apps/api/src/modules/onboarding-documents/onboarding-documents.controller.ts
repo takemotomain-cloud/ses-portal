@@ -78,12 +78,15 @@ export class OnboardingDocumentsController {
     if (!ONBOARDING_DOCUMENT_TYPES.includes(documentType as any)) {
       throw new BadRequestException(`未対応の documentType: ${documentType}`);
     }
-    return this.service.uploadOne(employeeId, documentType, file, user?.userId);
+    return this.service.uploadOne(user.tenantId, employeeId, documentType, file, user?.userId);
   }
 
   @Get(':employeeId')
   @ApiOperation({ summary: '社員の本人確認書類アップロード履歴' })
-  async list(@Param('employeeId', ParseUUIDPipe) employeeId: string) {
-    return this.service.listByEmployee(employeeId);
+  async list(
+    @CurrentUser() user: RequestUser,
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+  ) {
+    return this.service.listByEmployee(user.tenantId, employeeId);
   }
 }

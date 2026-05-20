@@ -65,6 +65,7 @@ export class LeaveService {
       transferredDays?: number;
       transferredGrantedDate?: Date;
     },
+    tenantId: string,
   ) {
     if (opts.grantMethod === 'transferred') {
       const days = opts.transferredDays ?? 0;
@@ -76,6 +77,7 @@ export class LeaveService {
 
       return this.db.leaveBalance.create({
         data: {
+          tenantId,
           employeeId,
           grantedDate,
           expiryDate,
@@ -112,6 +114,7 @@ export class LeaveService {
 
     return this.db.leaveBalance.create({
       data: {
+        tenantId,
         employeeId,
         grantedDate,
         expiryDate,
@@ -125,10 +128,11 @@ export class LeaveService {
   /**
    * 有給残日数を取得（消滅日が未来のロットのみ）
    */
-  async getBalance(employeeId: string) {
+  async getBalance(employeeId: string, tenantId: string) {
     const today = new Date();
     const balances = await this.db.leaveBalance.findMany({
       where: {
+        tenantId,
         employeeId,
         expiryDate: { gte: today },
       },
@@ -165,9 +169,10 @@ export class LeaveService {
       days: number;
       reason?: string;
     },
+    tenantId: string,
   ) {
     // 残日数チェック
-    const balance = await this.getBalance(employeeId);
+    const balance = await this.getBalance(employeeId, tenantId);
     if (data.days > balance.remaining) {
       throw new BadRequestException(
         `有給残日数が不足しています（残: ${balance.remaining}日, 申請: ${data.days}日）`,
@@ -176,6 +181,7 @@ export class LeaveService {
 
     const result = await this.db.leaveRequest.create({
       data: {
+        tenantId,
         employeeId,
         leaveType: data.leaveType,
         startDate: new Date(data.startDate),
@@ -186,7 +192,7 @@ export class LeaveService {
       },
     });
 
-    this.notifications.notifyAdmins('有給休暇申請', 'が有給休暇申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '有給休暇申請', 'が有給休暇申請を提出しました。', employeeId).catch(() => {});
 
     return result;
   }
@@ -203,9 +209,9 @@ export class LeaveService {
    * - 残日数がある最古のロットから消化
    * - 1ロットで足りなければ次のロットへ
    */
-  async approveRequest(requestId: string, approverId: string) {
-    const request = await this.db.leaveRequest.findUnique({
-      where: { id: requestId },
+  async approveRequest(requestId: string, approverId: string, tenantId: string) {
+    const request = await this.db.leaveRequest.findFirst({
+      where: { id: requestId, tenantId },
     });
 
     if (!request) {
@@ -232,6 +238,7 @@ export class LeaveService {
       const balances = await tx.leaveBalance.findMany({
         where: {
           employeeId: request.employeeId,
+          tenantId,
           expiryDate: { gte: new Date() },
         },
         orderBy: { grantedDate: 'asc' },
@@ -247,8 +254,8 @@ export class LeaveService {
 
         const deduct = Math.min(available, remaining);
 
-        await tx.leaveBalance.update({
-          where: { id: balance.id },
+        await tx.leaveBalance.updateMany({
+          where: { id: balance.id, tenantId },
           data: {
             usedDays: Number(balance.usedDays) + deduct,
           },
@@ -270,15 +277,15 @@ export class LeaveService {
 
     this.logger.log(`Leave request ${requestId} approved by ${approverId}`);
 
-    this.notifications.create({ employeeId: request.employeeId, title: '有給休暇', body: '有給休暇申請が承認されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: request.employeeId, title: '有給休暇', body: '有給休暇申請が承認されました。' }).catch(() => {});
   }
 
   /**
    * 有給申請を却下
    */
-  async rejectRequest(requestId: string, approverId: string, reason?: string) {
-    const request = await this.db.leaveRequest.findUnique({
-      where: { id: requestId },
+  async rejectRequest(requestId: string, approverId: string, tenantId: string, reason?: string) {
+    const request = await this.db.leaveRequest.findFirst({
+      where: { id: requestId, tenantId },
     });
 
     if (!request) {
@@ -301,15 +308,15 @@ export class LeaveService {
 
     this.logger.log(`Leave request ${requestId} rejected by ${approverId}`);
 
-    this.notifications.create({ employeeId: request.employeeId, title: '有給休暇', body: '有給休暇申請が却下されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: request.employeeId, title: '有給休暇', body: '有給休暇申請が却下されました。' }).catch(() => {});
   }
 
   /**
    * 承認待ちの有給申請一覧（管理者用）
    */
-  async getPendingRequests() {
+  async getPendingRequests(tenantId: string) {
     return this.db.leaveRequest.findMany({
-      where: { status: 'pending' },
+      where: { tenantId, status: 'pending' },
       include: {
         employee: {
           select: {

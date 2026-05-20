@@ -43,7 +43,8 @@ export class UsersService {
   async changeRole(
     targetUserId: string,
     newRole: string,
-    actorUserId?: string,
+    actorUserId: string,
+    tenantId: string,
   ): Promise<{ id: string; role: string }> {
     if (!ALLOWED_ROLES.includes(newRole as UserRole)) {
       throw new BadRequestException(
@@ -51,8 +52,8 @@ export class UsersService {
       );
     }
 
-    const target = await this.db.user.findUnique({
-      where: { id: targetUserId },
+    const target = await this.db.user.findFirst({
+      where: { id: targetUserId, tenantId },
       include: {
         employee: {
           select: { id: true, deletedAt: true, lastName: true, firstName: true, employeeCode: true },
@@ -78,6 +79,7 @@ export class UsersService {
     if (oldRole === 'admin' && newRole !== 'admin') {
       const activeAdminCount = await this.db.user.count({
         where: {
+          tenantId,
           role: 'admin',
           employee: { deletedAt: null },
         },
@@ -89,10 +91,14 @@ export class UsersService {
       }
     }
 
-    const updated = await this.db.user.update({
-      where: { id: targetUserId },
+    const updated = await this.db.user.updateMany({
+      where: { id: targetUserId, tenantId },
       data: { role: newRole },
     });
+
+    if (updated.count === 0) {
+      throw new NotFoundException('ユーザーが見つからないか、更新に失敗しました');
+    }
 
     this.logger.log(
       `ロール変更: ${target.employee?.employeeCode ?? '?'} ${target.employee?.lastName ?? ''}${target.employee?.firstName ?? ''}  ${oldRole} → ${newRole}`,
@@ -107,7 +113,7 @@ export class UsersService {
       newValue: { role: newRole },
     });
 
-    return { id: updated.id, role: updated.role };
+    return { id: targetUserId, role: newRole };
   }
 
   /* ---------- ユーザー一覧（admin 専用） ---------- */
@@ -119,10 +125,12 @@ export class UsersService {
     employee: 3,
   };
 
-  async findAll(params: { search?: string; role?: string }) {
+  async findAll(params: { search?: string; role?: string; tenantId: string }) {
+    const { tenantId } = params;
     const ADMIN_ROLES = ['admin', 'manager', 'member'];
 
     const where: any = {
+      tenantId,
       employee: { deletedAt: null },
       role: { in: ADMIN_ROLES },
     };
@@ -191,9 +199,9 @@ export class UsersService {
    *
    * @returns 対象ユーザーが現時点の唯一の admin なら true
    */
-  async isLastAdmin(targetUserId: string): Promise<boolean> {
-    const target = await this.db.user.findUnique({
-      where: { id: targetUserId },
+  async isLastAdmin(targetUserId: string, tenantId: string): Promise<boolean> {
+    const target = await this.db.user.findFirst({
+      where: { id: targetUserId, tenantId },
       select: { role: true, employee: { select: { deletedAt: true } } },
     });
     if (!target || target.role !== 'admin' || target.employee?.deletedAt) {
@@ -201,6 +209,7 @@ export class UsersService {
     }
     const activeAdminCount = await this.db.user.count({
       where: {
+        tenantId,
         role: 'admin',
         employee: { deletedAt: null },
       },

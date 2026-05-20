@@ -38,7 +38,13 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
 
     // 未ログイン → ログイン画面へ
     if (!user) {
-      router.push('/login');
+      const pathname = window.location.pathname;
+      const tenantMatch = pathname.match(/^\/t\/([^\/]+)/);
+      if (tenantMatch) {
+        router.push(`/t/${tenantMatch[1]}/login`);
+      } else {
+        router.push('/login');
+      }
       return;
     }
 

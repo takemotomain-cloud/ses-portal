@@ -48,6 +48,7 @@ export class LeaveOfAbsenceService {
       filePath?: string;
       fileName?: string;
     },
+    tenantId: string,
   ) {
     const start = new Date(data.startDate);
     const end = new Date(data.expectedReturnDate);
@@ -67,6 +68,7 @@ export class LeaveOfAbsenceService {
     const existing = await this.db.leaveOfAbsence.findFirst({
       where: {
         employeeId,
+        tenantId,
         status: { in: ['pending', 'on_leave', 'return_pending'] },
       },
     });
@@ -76,6 +78,7 @@ export class LeaveOfAbsenceService {
 
     const record = await this.db.leaveOfAbsence.create({
       data: {
+        tenantId,
         employeeId,
         absenceType: data.absenceType,
         startDate: start,
@@ -88,16 +91,16 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`休職届を提出: employee=${employeeId}, type=${data.absenceType}`);
-    this.notifications.notifyAdmins('休職届', 'が休職届を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '休職届', 'が休職届を提出しました。', employeeId).catch(() => {});
     return { id: record.id };
   }
 
   /**
    * 休職届を承認 → 社員ステータスを 'leave' に更新
    */
-  async approve(id: string, approverId: string) {
+  async approve(id: string, approverId: string, tenantId: string) {
     const record = await this.db.leaveOfAbsence.findFirst({
-      where: { id, status: 'pending' },
+      where: { id, tenantId, status: 'pending' },
     });
     if (!record) {
       throw new NotFoundException('承認待ちの休職届が見つかりません');
@@ -105,7 +108,7 @@ export class LeaveOfAbsenceService {
 
     await this.db.$transaction(async (tx) => {
       await tx.leaveOfAbsence.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           status: 'on_leave',
           approvedBy: approverId,
@@ -114,29 +117,29 @@ export class LeaveOfAbsenceService {
       });
 
       await tx.employee.update({
-        where: { id: record.employeeId },
+        where: { id: record.employeeId, tenantId },
         data: { status: 'leave' },
       });
     });
 
     this.logger.log(`休職届を承認: id=${id}, approver=${approverId}`);
-    this.notifications.create({ employeeId: record.employeeId, title: '休職届', body: '休職届が承認されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: record.employeeId, title: '休職届', body: '休職届が承認されました。' }).catch(() => {});
     return { id };
   }
 
   /**
    * 休職届を却下
    */
-  async reject(id: string, approverId: string, reason?: string) {
+  async reject(id: string, approverId: string, tenantId: string, reason?: string) {
     const record = await this.db.leaveOfAbsence.findFirst({
-      where: { id, status: 'pending' },
+      where: { id, tenantId, status: 'pending' },
     });
     if (!record) {
       throw new NotFoundException('承認待ちの休職届が見つかりません');
     }
 
     await this.db.leaveOfAbsence.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         status: 'rejected',
         approvedBy: approverId,
@@ -146,23 +149,23 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`休職届を却下: id=${id}`);
-    this.notifications.create({ employeeId: record.employeeId, title: '休職届', body: '休職届が却下されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: record.employeeId, title: '休職届', body: '休職届が却下されました。' }).catch(() => {});
     return { id };
   }
 
   /**
    * 復職届を提出
    */
-  async submitReturn(id: string, employeeId: string, actualReturnDate: string) {
+  async submitReturn(id: string, employeeId: string, actualReturnDate: string, tenantId: string) {
     const record = await this.db.leaveOfAbsence.findFirst({
-      where: { id, employeeId, status: 'on_leave' },
+      where: { id, employeeId, tenantId, status: 'on_leave' },
     });
     if (!record) {
       throw new NotFoundException('休職中の記録が見つかりません');
     }
 
     await this.db.leaveOfAbsence.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         status: 'return_pending',
         actualReturnDate: new Date(actualReturnDate),
@@ -171,16 +174,16 @@ export class LeaveOfAbsenceService {
     });
 
     this.logger.log(`復職届を提出: id=${id}, employee=${employeeId}`);
-    this.notifications.notifyAdmins('復職届', 'が復職届を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '復職届', 'が復職届を提出しました。', employeeId).catch(() => {});
     return { id };
   }
 
   /**
    * 復職を承認 → 社員ステータスを 'active' に戻す
    */
-  async approveReturn(id: string, approverId: string) {
+  async approveReturn(id: string, approverId: string, tenantId: string) {
     const record = await this.db.leaveOfAbsence.findFirst({
-      where: { id, status: 'return_pending' },
+      where: { id, tenantId, status: 'return_pending' },
     });
     if (!record) {
       throw new NotFoundException('復職待ちの記録が見つかりません');
@@ -188,7 +191,7 @@ export class LeaveOfAbsenceService {
 
     await this.db.$transaction(async (tx) => {
       await tx.leaveOfAbsence.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           status: 'returned',
           returnApprovedBy: approverId,
@@ -197,22 +200,22 @@ export class LeaveOfAbsenceService {
       });
 
       await tx.employee.update({
-        where: { id: record.employeeId },
+        where: { id: record.employeeId, tenantId },
         data: { status: 'active' },
       });
     });
 
     this.logger.log(`復職を承認: id=${id}, approver=${approverId}`);
-    this.notifications.create({ employeeId: record.employeeId, title: '休職届', body: '復職が承認されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: record.employeeId, title: '休職届', body: '復職が承認されました。' }).catch(() => {});
     return { id };
   }
 
   /**
    * 承認待ち一覧（pending + return_pending）
    */
-  async getPending() {
+  async getPending(tenantId: string) {
     return this.db.leaveOfAbsence.findMany({
-      where: { status: { in: ['pending', 'return_pending'] } },
+      where: { status: { in: ['pending', 'return_pending'] }, tenantId },
       include: {
         employee: {
           select: { lastName: true, firstName: true, employeeCode: true },
@@ -225,9 +228,9 @@ export class LeaveOfAbsenceService {
   /**
    * 自分の休職届一覧
    */
-  async getMyList(employeeId: string) {
+  async getMyList(employeeId: string, tenantId: string) {
     return this.db.leaveOfAbsence.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
   }

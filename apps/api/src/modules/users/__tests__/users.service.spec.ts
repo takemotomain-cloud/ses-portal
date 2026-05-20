@@ -25,8 +25,10 @@ import { AuditService } from '../../audit-logs/audit.service';
 function createMockDb() {
   return {
     user: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
     },
   };
@@ -62,6 +64,8 @@ const mockAdminTargetUser = {
   },
 };
 
+const TENANT_ID = 'tenant-1';
+
 /* ====== テストスイート ====== */
 
 describe('UsersService', () => {
@@ -90,33 +94,33 @@ describe('UsersService', () => {
   describe('changeRole - validation', () => {
     it('許容外ロールは BadRequestException', async () => {
       await expect(
-        service.changeRole('target-user-id', 'super-admin', 'actor-id'),
+        service.changeRole('target-user-id', 'super-admin', 'actor-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
-      expect(db.user.findUnique).not.toHaveBeenCalled();
+      expect(db.user.findFirst).not.toHaveBeenCalled();
     });
 
     it('空文字ロールは BadRequestException', async () => {
       await expect(
-        service.changeRole('target-user-id', '', 'actor-id'),
+        service.changeRole('target-user-id', '', 'actor-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('存在しないユーザーは NotFoundException', async () => {
-      db.user.findUnique.mockResolvedValueOnce(null);
+      db.user.findFirst.mockResolvedValueOnce(null);
       await expect(
-        service.changeRole('nonexistent-id', 'manager', 'actor-id'),
+        service.changeRole('nonexistent-id', 'manager', 'actor-id', TENANT_ID),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('削除済み社員のロール変更は BadRequestException', async () => {
-      db.user.findUnique.mockResolvedValueOnce({
+      db.user.findFirst.mockResolvedValueOnce({
         ...mockTargetUser,
         employee: { ...mockTargetUser.employee, deletedAt: new Date() },
       });
       await expect(
-        service.changeRole('target-user-id', 'manager', 'actor-id'),
+        service.changeRole('target-user-id', 'manager', 'actor-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
-      expect(db.user.update).not.toHaveBeenCalled();
+      expect(db.user.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -125,33 +129,28 @@ describe('UsersService', () => {
    * ============================ */
   describe('changeRole - success cases', () => {
     it('member → manager への昇格が成功する', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockTargetUser);
-      db.user.update.mockResolvedValueOnce({
-        ...mockTargetUser,
-        role: 'manager',
-      });
+      db.user.findFirst.mockResolvedValueOnce(mockTargetUser);
+      db.user.updateMany.mockResolvedValueOnce({ count: 1 });
 
       const result = await service.changeRole(
         'target-user-id',
         'manager',
         'actor-id',
+        TENANT_ID,
       );
 
       expect(result).toEqual({ id: 'target-user-id', role: 'manager' });
-      expect(db.user.update).toHaveBeenCalledWith({
-        where: { id: 'target-user-id' },
+      expect(db.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'target-user-id', tenantId: TENANT_ID },
         data: { role: 'manager' },
       });
     });
 
     it('成功時に AuditService.log が user.role_change で呼ばれる', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockTargetUser);
-      db.user.update.mockResolvedValueOnce({
-        ...mockTargetUser,
-        role: 'manager',
-      });
+      db.user.findFirst.mockResolvedValueOnce(mockTargetUser);
+      db.user.updateMany.mockResolvedValueOnce({ count: 1 });
 
-      await service.changeRole('target-user-id', 'manager', 'actor-id');
+      await service.changeRole('target-user-id', 'manager', 'actor-id', TENANT_ID);
 
       expect(audit.log).toHaveBeenCalledTimes(1);
       expect(audit.log).toHaveBeenCalledWith({
@@ -165,55 +164,51 @@ describe('UsersService', () => {
     });
 
     it('同じロールへの変更は DB 更新も監査ログも呼ばない（no-op）', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockTargetUser);
 
       const result = await service.changeRole(
         'target-user-id',
         'member',
         'actor-id',
+        TENANT_ID,
       );
 
       expect(result).toEqual({ id: 'target-user-id', role: 'member' });
-      expect(db.user.update).not.toHaveBeenCalled();
+      expect(db.user.updateMany).not.toHaveBeenCalled();
       expect(audit.log).not.toHaveBeenCalled();
     });
 
     it('admin → manager への降格は、他に admin が居れば成功する（count=2）', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockAdminTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockAdminTargetUser);
       db.user.count.mockResolvedValueOnce(2);
-      db.user.update.mockResolvedValueOnce({
-        ...mockAdminTargetUser,
-        role: 'manager',
-      });
+      db.user.updateMany.mockResolvedValueOnce({ count: 1 });
 
       const result = await service.changeRole(
         'admin-user-id',
         'manager',
         'other-admin-id',
+        TENANT_ID,
       );
 
       expect(result.role).toBe('manager');
       expect(db.user.count).toHaveBeenCalledWith({
-        where: { role: 'admin', employee: { deletedAt: null } },
+        where: { tenantId: TENANT_ID, role: 'admin', employee: { deletedAt: null } },
       });
       expect(audit.log).toHaveBeenCalled();
     });
 
     it('employee → admin への昇格（admin 数の count チェックは発動しない）', async () => {
-      db.user.findUnique.mockResolvedValueOnce({
+      db.user.findFirst.mockResolvedValueOnce({
         ...mockTargetUser,
         role: 'employee',
       });
-      db.user.update.mockResolvedValueOnce({
-        ...mockTargetUser,
-        role: 'admin',
-      });
+      db.user.updateMany.mockResolvedValueOnce({ count: 1 });
 
-      await service.changeRole('target-user-id', 'admin', 'actor-id');
+      await service.changeRole('target-user-id', 'admin', 'actor-id', TENANT_ID);
 
       // admin → 非admin のときだけ count が呼ばれる。昇格時は呼ばれない
       expect(db.user.count).not.toHaveBeenCalled();
-      expect(db.user.update).toHaveBeenCalled();
+      expect(db.user.updateMany).toHaveBeenCalled();
     });
   });
 
@@ -222,50 +217,50 @@ describe('UsersService', () => {
    * ============================ */
   describe('changeRole - last admin protection', () => {
     it('admin 数 = 1 の状態で admin → manager は拒否', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockAdminTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockAdminTargetUser);
       db.user.count.mockResolvedValueOnce(1);
 
       await expect(
-        service.changeRole('admin-user-id', 'manager', 'admin-user-id'),
+        service.changeRole('admin-user-id', 'manager', 'admin-user-id', TENANT_ID),
       ).rejects.toThrow(/最後のadminを降格することはできません/);
-      expect(db.user.update).not.toHaveBeenCalled();
+      expect(db.user.updateMany).not.toHaveBeenCalled();
       expect(audit.log).not.toHaveBeenCalled();
     });
 
     it('admin 数 = 1 の状態で admin → member は拒否', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockAdminTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockAdminTargetUser);
       db.user.count.mockResolvedValueOnce(1);
 
       await expect(
-        service.changeRole('admin-user-id', 'member', 'admin-user-id'),
+        service.changeRole('admin-user-id', 'member', 'admin-user-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('admin 数 = 1 の状態で admin → employee は拒否', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockAdminTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockAdminTargetUser);
       db.user.count.mockResolvedValueOnce(1);
 
       await expect(
-        service.changeRole('admin-user-id', 'employee', 'admin-user-id'),
+        service.changeRole('admin-user-id', 'employee', 'admin-user-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('セルフ降格（actorUserId === targetUserId）でも最後の admin 保護が発動', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockAdminTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockAdminTargetUser);
       db.user.count.mockResolvedValueOnce(1);
 
       // admin-user-id が自分自身を降格しようとする
       await expect(
-        service.changeRole('admin-user-id', 'manager', 'admin-user-id'),
+        service.changeRole('admin-user-id', 'manager', 'admin-user-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('admin 数 = 0 という異常状態でも降格を拒否', async () => {
-      db.user.findUnique.mockResolvedValueOnce(mockAdminTargetUser);
+      db.user.findFirst.mockResolvedValueOnce(mockAdminTargetUser);
       db.user.count.mockResolvedValueOnce(0);
 
       await expect(
-        service.changeRole('admin-user-id', 'manager', 'admin-user-id'),
+        service.changeRole('admin-user-id', 'manager', 'admin-user-id', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -275,48 +270,48 @@ describe('UsersService', () => {
    * ============================ */
   describe('isLastAdmin', () => {
     it('admin ロールで admin 数 = 1 なら true', async () => {
-      db.user.findUnique.mockResolvedValueOnce({
+      db.user.findFirst.mockResolvedValueOnce({
         role: 'admin',
         employee: { deletedAt: null },
       });
       db.user.count.mockResolvedValueOnce(1);
 
-      await expect(service.isLastAdmin('admin-user-id')).resolves.toBe(true);
+      await expect(service.isLastAdmin('admin-user-id', TENANT_ID)).resolves.toBe(true);
     });
 
     it('admin ロールで admin 数 = 2 なら false', async () => {
-      db.user.findUnique.mockResolvedValueOnce({
+      db.user.findFirst.mockResolvedValueOnce({
         role: 'admin',
         employee: { deletedAt: null },
       });
       db.user.count.mockResolvedValueOnce(2);
 
-      await expect(service.isLastAdmin('admin-user-id')).resolves.toBe(false);
+      await expect(service.isLastAdmin('admin-user-id', TENANT_ID)).resolves.toBe(false);
     });
 
     it('admin ロールでないユーザーは false', async () => {
-      db.user.findUnique.mockResolvedValueOnce({
+      db.user.findFirst.mockResolvedValueOnce({
         role: 'manager',
         employee: { deletedAt: null },
       });
 
-      await expect(service.isLastAdmin('some-user-id')).resolves.toBe(false);
+      await expect(service.isLastAdmin('some-user-id', TENANT_ID)).resolves.toBe(false);
       expect(db.user.count).not.toHaveBeenCalled();
     });
 
     it('削除済み社員は false（admin 扱いしない）', async () => {
-      db.user.findUnique.mockResolvedValueOnce({
+      db.user.findFirst.mockResolvedValueOnce({
         role: 'admin',
         employee: { deletedAt: new Date() },
       });
 
-      await expect(service.isLastAdmin('admin-user-id')).resolves.toBe(false);
+      await expect(service.isLastAdmin('admin-user-id', TENANT_ID)).resolves.toBe(false);
     });
 
     it('存在しないユーザーは false', async () => {
-      db.user.findUnique.mockResolvedValueOnce(null);
+      db.user.findFirst.mockResolvedValueOnce(null);
 
-      await expect(service.isLastAdmin('nonexistent-id')).resolves.toBe(false);
+      await expect(service.isLastAdmin('nonexistent-id', TENANT_ID)).resolves.toBe(false);
     });
   });
 });

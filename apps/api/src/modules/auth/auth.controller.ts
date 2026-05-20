@@ -13,6 +13,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
   Body,
   HttpCode,
   HttpStatus,
@@ -78,7 +80,7 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'ログイン成功。JWTトークンを返却' })
   @ApiResponse({ status: 401, description: '認証失敗' })
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.login(dto.email, dto.password, extractMeta(req));
+    const result = await this.authService.login(dto.email, dto.password, dto.subdomain, extractMeta(req));
     setAuthCookie(req, res, result.accessToken);
     return result;
   }
@@ -96,8 +98,19 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    await this.authService.logout(user.userId, extractMeta(req));
+    await this.authService.logout(user.userId, user.tenantId, extractMeta(req));
     clearAuthCookie(req, res);
     return { ok: true };
+  }
+
+  /**
+   * テナント情報の取得（ログイン画面用）
+   */
+  @Get('tenant/:subdomain')
+  @ApiOperation({ summary: 'サブドメインからテナント情報を取得' })
+  @ApiResponse({ status: 200, description: 'テナント情報を返却' })
+  @ApiResponse({ status: 401, description: '無効なテナント' })
+  async getTenantInfo(@Param('subdomain') subdomain: string) {
+    return this.authService.getTenantBySubdomain(subdomain);
   }
 }

@@ -86,29 +86,29 @@ export class DelayCertificateController {
       reason,
       filePath: file ? `/uploads/delay-certificates/${file.filename}` : undefined,
       fileName: originalName,
-    });
+    }, user.tenantId);
   }
 
   @Get('my')
   @ApiOperation({ summary: '自分の提出一覧' })
   async getMyList(@CurrentUser() user: RequestUser) {
-    return this.service.getMyList(user.employeeId);
+    return this.service.getMyList(user.employeeId, user.tenantId);
   }
 
   @Get('pending')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '未確認一覧（管理者）' })
-  async getPending() {
-    return this.service.getPending();
+  async getPending(@CurrentUser() user: RequestUser) {
+    return this.service.getPending(user.tenantId);
   }
 
   @Get()
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '全件一覧（管理者）' })
-  async getAll() {
-    return this.service.getAll();
+  async getAll(@CurrentUser() user: RequestUser) {
+    return this.service.getAll(user.tenantId);
   }
 
   @Post(':id/confirm')
@@ -119,6 +119,6 @@ export class DelayCertificateController {
     @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.service.confirm(id, user.employeeId);
+    return this.service.confirm(id, user.employeeId, user.tenantId);
   }
 }

@@ -39,7 +39,7 @@ export class NoticesService {
     private readonly noticePdf: NoticePdfService,
   ) {}
 
-  async issueOffer(employeeId: string, data: OfferData, issuedByUserId?: string) {
+  async issueOffer(employeeId: string, data: OfferData, issuedByUserId?: string, tenantId = '') {
     const pdf = await this.noticePdf.buildOfferPdf(data);
     return this.persistAndUpload({
       employeeId,
@@ -47,10 +47,11 @@ export class NoticesService {
       pdf,
       issuedByUserId,
       metadata: data as any,
+      tenantId,
     });
   }
 
-  async issueLaborFixed(employeeId: string, data: LaborFixedData, issuedByUserId?: string) {
+  async issueLaborFixed(employeeId: string, data: LaborFixedData, issuedByUserId?: string, tenantId = '') {
     const pdf = await this.noticePdf.buildLaborFixedPdf(data);
     return this.persistAndUpload({
       employeeId,
@@ -58,10 +59,11 @@ export class NoticesService {
       pdf,
       issuedByUserId,
       metadata: data as any,
+      tenantId,
     });
   }
 
-  async issueLaborOpen(employeeId: string, data: LaborOpenData, issuedByUserId?: string) {
+  async issueLaborOpen(employeeId: string, data: LaborOpenData, issuedByUserId?: string, tenantId = '') {
     const pdf = await this.noticePdf.buildLaborOpenPdf(data);
     return this.persistAndUpload({
       employeeId,
@@ -69,6 +71,7 @@ export class NoticesService {
       pdf,
       issuedByUserId,
       metadata: data as any,
+      tenantId,
     });
   }
 
@@ -81,9 +84,10 @@ export class NoticesService {
     pdf: Buffer;
     issuedByUserId?: string;
     metadata: Record<string, unknown>;
+    tenantId: string;
   }) {
     const emp = await this.db.employee.findUnique({
-      where: { id: args.employeeId },
+      where: { id: args.employeeId, tenantId: args.tenantId },
       select: { id: true, employeeCode: true, lastName: true, firstName: true },
     });
     if (!emp) throw new NotFoundException('社員が見つかりません');
@@ -96,9 +100,9 @@ export class NoticesService {
 
     let driveFileId: string | null = null;
     let driveViewLink: string | null = null;
-    if (this.drive.isEnabled()) {
+    if (await this.drive.isEnabled(args.tenantId)) {
       try {
-        const res = await this.drive.saveDocumentPdf({
+        const res = await this.drive.saveDocumentPdf(args.tenantId, {
           categoryFolder,
           fiscalYearDate: now,  // 発行日基準（給与明細以外は発行月）
           monthDate: now,
@@ -116,6 +120,7 @@ export class NoticesService {
 
     const issuance = await this.db.documentIssuance.create({
       data: {
+        tenantId: args.tenantId,
         employeeId: emp.id,
         documentType: args.docType,
         targetDate: now,
@@ -139,9 +144,9 @@ export class NoticesService {
   /**
    * 社員別の発行履歴を取得（直近順）
    */
-  async listByEmployee(employeeId: string) {
+  async listByEmployee(employeeId: string, tenantId: string) {
     return this.db.documentIssuance.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       orderBy: { issuedAt: 'desc' },
     });
   }

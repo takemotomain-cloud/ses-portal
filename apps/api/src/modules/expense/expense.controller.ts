@@ -78,24 +78,24 @@ export class ExpenseController {
     if (!items || items.length === 0) {
       throw new BadRequestException('明細が1件もありません');
     }
-
-    // ファイル名のプレフィックス(receipt_0_, receipt_1_,...)で明細とマッチング
     const fileMap = new Map<number, Express.Multer.File>();
-    for (const f of (files || [])) {
-      const originalName = Buffer.from(f.originalname, 'latin1').toString('utf8');
-      const match = originalName.match(/^receipt_(\d+)_/);
-      if (match) {
-        fileMap.set(parseInt(match[1], 10), f);
+    if (files && files.length > 0) {
+      for (const file of files) {
+        // multipart/form-data で receipts_0, receipts_1 ... のように送られてくる想定
+        const match = file.fieldname.match(/^receipts_(\d+)$/);
+        if (match) {
+          fileMap.set(parseInt(match[1], 10), file);
+        }
       }
     }
 
-    return this.expenseService.createRequest(user.employeeId, { targetMonth, items }, fileMap);
+    return this.expenseService.createRequest(user.employeeId, { targetMonth, items }, fileMap, user.tenantId);
   }
 
   @Get('my')
   @ApiOperation({ summary: '自分の経費申請一覧' })
   async getMyRequests(@CurrentUser() user: RequestUser) {
-    return this.expenseService.getMyRequests(user.employeeId);
+    return this.expenseService.getMyRequests(user.employeeId, user.tenantId);
   }
 
   @Get('all')
@@ -103,6 +103,7 @@ export class ExpenseController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '全ステータス経費申請一覧（管理者用・月別）' })
   async getAll(
+    @CurrentUser() user: RequestUser,
     @Query('year') year: string,
     @Query('month') month: string,
     @Query('status') status?: string,
@@ -111,15 +112,15 @@ export class ExpenseController {
     const m = parseInt(month, 10);
     if (isNaN(y) || isNaN(m)) throw new BadRequestException('year/monthは必須です');
     const targetMonth = `${y}-${String(m).padStart(2, '0')}`;
-    return this.expenseService.getAllRequests(targetMonth, status);
+    return this.expenseService.getAllRequests(targetMonth, status, user.tenantId);
   }
 
   @Get('pending')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '承認待ち経費申請一覧（管理者用）' })
-  async getPending() {
-    return this.expenseService.getPendingRequests();
+  async getPending(@CurrentUser() user: RequestUser) {
+    return this.expenseService.getPendingRequests(user.tenantId);
   }
 
   @Post(':id/approve')
@@ -127,7 +128,7 @@ export class ExpenseController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '経費申請を承認' })
   async approve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.expenseService.approve(id, user.employeeId, user.userId, user.role);
+    await this.expenseService.approve(id, user.employeeId, user.tenantId, user.userId, user.role);
     return { message: '承認しました' };
   }
 
@@ -140,7 +141,7 @@ export class ExpenseController {
     @CurrentUser() user: RequestUser,
     @Body('reason') reason?: string,
   ) {
-    await this.expenseService.reject(id, user.employeeId, user.userId, user.role, reason);
+    await this.expenseService.reject(id, user.employeeId, user.tenantId, user.userId, user.role, reason);
     return { message: '却下しました' };
   }
 }

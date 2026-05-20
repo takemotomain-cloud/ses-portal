@@ -67,12 +67,12 @@ export class ReconciliationController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '稼働中社員一覧' })
-  async getActiveEmployees(@Query('yearMonth') yearMonth: string) {
+  async getActiveEmployees(@CurrentUser() user: RequestUser, @Query('yearMonth') yearMonth: string) {
     if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
       const now = new Date();
       yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
-    return this.reconciliationService.findActiveEmployees(yearMonth);
+    return this.reconciliationService.findActiveEmployees(yearMonth, user.tenantId);
   }
 
   /**
@@ -105,6 +105,7 @@ export class ReconciliationController {
     }),
   )
   async bulkUpload(
+    @CurrentUser() user: RequestUser,
     @UploadedFiles() files: Express.Multer.File[],
     @Body() body: any,
   ) {
@@ -125,7 +126,7 @@ export class ReconciliationController {
       try {
         const parsed = await this.reconciliationService.parseOnly(file, yearMonth);
         const matchedEmployee = parsed.employeeName
-          ? await this.reconciliationService.matchEmployeeByName(parsed.employeeName)
+          ? await this.reconciliationService.matchEmployeeByName(parsed.employeeName, user.tenantId)
           : null;
 
         this.logger.log(`bulk-upload: parsed file=${originalName}, employee=${parsed.employeeName}, matched=${matchedEmployee?.lastName}`);
@@ -135,11 +136,11 @@ export class ReconciliationController {
         let records = parsed.records;
         if (matchedEmployee) {
           const targetYm = parsed.yearMonth || yearMonth;
-          const hasAssignment = await this.reconciliationService.hasActiveAssignment(matchedEmployee.id, targetYm);
+          const hasAssignment = await this.reconciliationService.hasActiveAssignment(matchedEmployee.id, targetYm, user.tenantId);
           if (!hasAssignment) {
             warning = `${targetYm}に稼働情報がありません（待機中）`;
           } else {
-            const defaultStart = await this.reconciliationService.getDefaultStartTime(matchedEmployee.id, targetYm);
+            const defaultStart = await this.reconciliationService.getDefaultStartTime(matchedEmployee.id, targetYm, user.tenantId);
             if (defaultStart) {
               records = this.reconciliationService.fillMissingStartTime(records, defaultStart);
             }
@@ -190,6 +191,7 @@ export class ReconciliationController {
   @Roles('admin')
   @ApiOperation({ summary: '一括取込確定' })
   async bulkConfirm(
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       uploads: {
         employeeId: string;
@@ -213,6 +215,7 @@ export class ReconciliationController {
           item.yearMonth,
           { records: item.records, summary: item.summary, client: item.client },
           item.fileName,
+          user.tenantId,
         );
         results.push({
           employeeId: item.employeeId,
@@ -280,17 +283,17 @@ export class ReconciliationController {
       : user.employeeId;
 
     // Step0.5: 稼働情報チェック — 対象月にアクティブな稼働がなければ拒否
-    const hasAssignment = await this.reconciliationService.hasActiveAssignment(targetEmployeeId, yearMonth);
+    const hasAssignment = await this.reconciliationService.hasActiveAssignment(targetEmployeeId, yearMonth, user.tenantId);
     if (!hasAssignment) {
       throw new BadRequestException('対象月に稼働情報がありません。稼働中の社員のみアップロードできます。');
     }
 
     // Step1: アップロード＋構造化
-    const parsed = await this.reconciliationService.uploadAndParse(file, targetEmployeeId, yearMonth, clientId);
+    const parsed = await this.reconciliationService.uploadAndParse(file, targetEmployeeId, yearMonth, user.tenantId, clientId);
 
     // Step1.5: 社員（非admin）の場合、抽出した社員名が本人と一致するかチェック
     if (user.role !== 'admin') {
-      const employee = await this.reconciliationService.getEmployee(targetEmployeeId);
+      const employee = await this.reconciliationService.getEmployee(targetEmployeeId, user.tenantId);
       const extractedName = parsed.employeeName;
       if (!extractedName) {
         throw new BadRequestException('ファイルから社員名を読み取れませんでした。ファイルが間違っています。');
@@ -309,7 +312,7 @@ export class ReconciliationController {
     // Step2: 自動で突合実行
     let reconciliation = null;
     try {
-      reconciliation = await this.reconciliationService.reconcile(parsed.uploadId, targetEmployeeId);
+      reconciliation = await this.reconciliationService.reconcile(parsed.uploadId, targetEmployeeId, user.tenantId);
     } catch (e) {
       // 突合失敗してもアップロード自体は成功扱い
     }
@@ -327,7 +330,7 @@ export class ReconciliationController {
   @ApiOperation({ summary: '自分のアップロード一覧' })
   async getMyUploads(@CurrentUser() user: RequestUser) {
     return this.db.clientAttendanceUpload.findMany({
-      where: { employeeId: user.employeeId },
+      where: { employeeId: user.employeeId, tenantId: user.tenantId },
       include: {
         client: { select: { name: true } },
       },
@@ -341,15 +344,16 @@ export class ReconciliationController {
   @Roles('admin')
   @ApiOperation({ summary: '突合実行' })
   async reconcile(
+    @CurrentUser() user: RequestUser,
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
   ) {
     // アップロード情報から社員IDを取得
     const upload = await this.db.clientAttendanceUpload.findUnique({
-      where: { id: uploadId },
+      where: { id: uploadId, tenantId: user.tenantId },
     });
     if (!upload) throw new BadRequestException('アップロードデータが見つかりません');
 
-    return this.reconciliationService.reconcile(uploadId, upload.employeeId);
+    return this.reconciliationService.reconcile(uploadId, upload.employeeId, user.tenantId);
   }
 
   @Get('uploads')
@@ -357,10 +361,11 @@ export class ReconciliationController {
   @Roles('admin')
   @ApiOperation({ summary: 'アップロード一覧（管理者）' })
   async getUploads(
+    @CurrentUser() user: RequestUser,
     @Query('yearMonth') yearMonth?: string,
     @Query('employeeId') employeeId?: string,
   ) {
-    const where: any = {};
+    const where: any = { tenantId: user.tenantId };
     if (yearMonth) where.yearMonth = yearMonth;
     if (employeeId) where.employeeId = employeeId;
 
@@ -379,8 +384,8 @@ export class ReconciliationController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '突合設定取得' })
-  async getSettings(@Param('clientId', ParseUUIDPipe) clientId: string) {
-    return this.reconciliationService.getSettings(clientId);
+  async getSettings(@CurrentUser() user: RequestUser, @Param('clientId', ParseUUIDPipe) clientId: string) {
+    return this.reconciliationService.getSettings(clientId, user.tenantId);
   }
 
   @Put('settings/:clientId')
@@ -388,6 +393,7 @@ export class ReconciliationController {
   @Roles('admin')
   @ApiOperation({ summary: '突合設定更新' })
   async updateSettings(
+    @CurrentUser() user: RequestUser,
     @Param('clientId', ParseUUIDPipe) clientId: string,
     @Body() body: {
       timeToleranceMin?: number;
@@ -397,7 +403,7 @@ export class ReconciliationController {
       defaultStartTime?: string;
     },
   ) {
-    return this.reconciliationService.updateSettings(clientId, body);
+    return this.reconciliationService.updateSettings(clientId, user.tenantId, body);
   }
 
   @Get('employee/:employeeId/:yearMonth')
@@ -405,21 +411,22 @@ export class ReconciliationController {
   @Roles('admin')
   @ApiOperation({ summary: '社員月別突合結果取得' })
   async getResultsByEmployee(
+    @CurrentUser() user: RequestUser,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('yearMonth') yearMonth: string,
   ) {
     if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
       throw new BadRequestException('yearMonth must be YYYY-MM format');
     }
-    return this.reconciliationService.getReconcileResultsByEmployee(employeeId, yearMonth);
+    return this.reconciliationService.getReconcileResultsByEmployee(employeeId, yearMonth, user.tenantId);
   }
 
   @Get(':uploadId')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '突合結果取得' })
-  async getResults(@Param('uploadId', ParseUUIDPipe) uploadId: string) {
-    return this.reconciliationService.getReconcileResults(uploadId);
+  async getResults(@CurrentUser() user: RequestUser, @Param('uploadId', ParseUUIDPipe) uploadId: string) {
+    return this.reconciliationService.getReconcileResults(uploadId, user.tenantId);
   }
 
   @Put(':uploadId/confirm')
@@ -440,6 +447,6 @@ export class ReconciliationController {
       }[];
     },
   ) {
-    return this.reconciliationService.confirm(uploadId, user.employeeId, body.updates);
+    return this.reconciliationService.confirm(uploadId, user.employeeId, user.tenantId, body.updates);
   }
 }

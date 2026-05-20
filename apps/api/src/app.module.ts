@@ -51,6 +51,7 @@ import { OnboardingDocumentsModule } from './modules/onboarding-documents/onboar
 import { OnboardingCheckStatusesModule } from './modules/onboarding-check-statuses/onboarding-check-statuses.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { TenantsModule } from './modules/tenants/tenants.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
     OnboardingCheckStatusesModule,
     AgentsModule,
     ApprovalsModule,
+    TenantsModule,
   ],
   controllers: [HealthController],
 })

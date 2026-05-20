@@ -128,21 +128,24 @@ export class ProposalsService {
   /**
    * 提案メール送信
    */
-  async send(data: {
-    clientId: string;
-    employeeIds: string[];
-    toEmail: string;
-    contactPerson?: string;
-    customMessage?: string;
-    projectName?: string;
-  }) {
+  async send(
+    tenantId: string,
+    data: {
+      clientId: string;
+      employeeIds: string[];
+      toEmail: string;
+      contactPerson?: string;
+      customMessage?: string;
+      projectName?: string;
+    },
+  ) {
     // クライアント取得
-    const client = await this.db.client.findUnique({ where: { id: data.clientId } });
+    const client = await this.db.client.findUnique({ where: { id: data.clientId, tenantId } });
     if (!client) throw new NotFoundException('クライアントが見つかりません');
 
     // 社員＋スキルシート取得
     const employees = await this.db.employee.findMany({
-      where: { id: { in: data.employeeIds }, deletedAt: null },
+      where: { id: { in: data.employeeIds }, tenantId, deletedAt: null },
       include: { skillsheet: true },
     });
     if (employees.length === 0) throw new NotFoundException('対象社員が見つかりません');
@@ -199,7 +202,7 @@ export class ProposalsService {
     // N4: スキルシート PDF を Puppeteer で生成して添付
     let attachments: MailAttachment[] = [];
     try {
-      const pdfBuffer = await this.skillsheetPdfService.generateSkillsheetPdf(data.employeeIds);
+      const pdfBuffer = await this.skillsheetPdfService.generateSkillsheetPdf(tenantId, data.employeeIds);
       if (pdfBuffer) {
         const filename = employees.length === 1
           ? `skillsheet_${summaries[0].initial.replace(/\./g, '')}.pdf`
@@ -228,6 +231,7 @@ export class ProposalsService {
     const record = await this.db.proposalEmail.create({
       data: {
         clientId: data.clientId,
+        tenantId,
         toEmail: data.toEmail,
         subject,
         bodyText,
@@ -247,17 +251,25 @@ export class ProposalsService {
    * 過去90日以内に送信済み / draft になっている提案を返す。
    * フロントエンドは送信前にこの結果を確認し、件数があれば確認ダイアログを表示する。
    */
-  async findRecentSimilar(params: {
-    clientId: string;
-    employeeIds: string[];
-    projectName?: string;
-  }) {
+  async findRecentSimilar(
+    tenantId: string,
+    params: {
+      clientId: string;
+      employeeIds: string[];
+      projectName?: string;
+    },
+  ) {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
     // まずクライアント＋期間で絞る
+    // クライアントがこのテナントのものか確認
+    const client = await this.db.client.findUnique({ where: { id: params.clientId, tenantId } });
+    if (!client) return [];
+
     const candidates = await this.db.proposalEmail.findMany({
       where: {
+        tenantId,
         clientId: params.clientId,
         OR: [
           { sentAt: { gte: ninetyDaysAgo } },
@@ -299,17 +311,20 @@ export class ProposalsService {
   /**
    * プレビュー（送信せず本文のみ返す）
    */
-  async preview(data: {
-    clientId: string;
-    employeeIds: string[];
-    contactPerson?: string;
-    customMessage?: string;
-  }) {
-    const client = await this.db.client.findUnique({ where: { id: data.clientId } });
+  async preview(
+    tenantId: string,
+    data: {
+      clientId: string;
+      employeeIds: string[];
+      contactPerson?: string;
+      customMessage?: string;
+    },
+  ) {
+    const client = await this.db.client.findUnique({ where: { id: data.clientId, tenantId } });
     if (!client) throw new NotFoundException('クライアントが見つかりません');
 
     const employees = await this.db.employee.findMany({
-      where: { id: { in: data.employeeIds }, deletedAt: null },
+      where: { id: { in: data.employeeIds }, tenantId, deletedAt: null },
       include: { skillsheet: true },
     });
     if (employees.length === 0) throw new NotFoundException('対象社員が見つかりません');
@@ -365,16 +380,20 @@ export class ProposalsService {
   /**
    * メール送信なしで提案をDB保存（draft状態）
    */
-  async createWithoutEmail(data: {
-    clientId: string;
-    employeeIds: string[];
-    projectName?: string;
-  }) {
-    const client = await this.db.client.findUnique({ where: { id: data.clientId } });
+  async createWithoutEmail(
+    tenantId: string,
+    data: {
+      clientId: string;
+      employeeIds: string[];
+      projectName?: string;
+    },
+  ) {
+    const client = await this.db.client.findUnique({ where: { id: data.clientId, tenantId } });
     if (!client) throw new NotFoundException('クライアントが見つかりません');
 
     const record = await this.db.proposalEmail.create({
       data: {
+        tenantId,
         clientId: data.clientId,
         toEmail: '',
         subject: data.projectName ? `提案: ${data.projectName}` : '（メール未送信）',
@@ -392,18 +411,26 @@ export class ProposalsService {
   /**
    * 既存の提案（draft）に対してメールを送信
    */
-  async sendExisting(id: string, data: {
-    toEmail: string;
-    contactPerson?: string;
-    customMessage?: string;
-  }) {
-    const proposal = await this.db.proposalEmail.findUnique({ where: { id } });
-    if (!proposal) throw new NotFoundException('提案が見つかりません');
+  async sendExisting(
+    tenantId: string,
+    id: string,
+    data: {
+      toEmail: string;
+      contactPerson?: string;
+      customMessage?: string;
+    },
+  ) {
+    const proposal = await this.db.proposalEmail.findFirst({
+      where: { id, tenantId },
+    });
+    if (!proposal) {
+      throw new NotFoundException('提案が見つかりません');
+    }
 
     const employeeIds = Array.isArray(proposal.employeeIds) ? proposal.employeeIds as string[] : [];
 
     // 既存のsendロジックを再利用
-    const result = await this.send({
+    const result = await this.send(tenantId, {
       clientId: proposal.clientId,
       employeeIds,
       toEmail: data.toEmail,
@@ -413,7 +440,7 @@ export class ProposalsService {
 
     // 元のdraftレコードを更新（sent/failedに変更）
     await this.db.proposalEmail.update({
-      where: { id },
+      where: { id, tenantId } as any,
       data: {
         toEmail: data.toEmail,
         subject: result.subject,
@@ -425,7 +452,7 @@ export class ProposalsService {
 
     // sendが別レコードを作成するので、重複を削除
     if (result.id !== id) {
-      await this.db.proposalEmail.delete({ where: { id: result.id } });
+      await this.db.proposalEmail.deleteMany({ where: { id: result.id, tenantId } });
     }
 
     return { id, status: result.status, subject: result.subject };
@@ -434,9 +461,13 @@ export class ProposalsService {
   /**
    * クライアント別の送信履歴
    */
-  async findByClient(clientId: string) {
+  async findByClient(tenantId: string, clientId: string) {
+    // クライアントがこのテナントのものか確認
+    const client = await this.db.client.findUnique({ where: { id: clientId, tenantId } });
+    if (!client) return [];
+
     const records = await this.db.proposalEmail.findMany({
-      where: { clientId },
+      where: { clientId, tenantId },
       orderBy: { sentAt: 'desc' },
     });
 
@@ -448,7 +479,7 @@ export class ProposalsService {
     });
 
     const employees = await this.db.employee.findMany({
-      where: { id: { in: Array.from(allEmpIds) } },
+      where: { id: { in: Array.from(allEmpIds) }, tenantId },
       select: { id: true, lastName: true, firstName: true, lastNameKana: true, firstNameKana: true },
     });
     const empMap = new Map(employees.map(e => [e.id, e]));
@@ -476,9 +507,12 @@ export class ProposalsService {
   /**
    * 送信失敗の提案一覧（N3: 再送 UI 用）
    */
-  async findFailed() {
+  async findFailed(tenantId: string) {
     const records = await this.db.proposalEmail.findMany({
-      where: { status: 'failed' },
+      where: {
+        status: 'failed',
+        tenantId,
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -493,11 +527,11 @@ export class ProposalsService {
 
     const [clients, employees] = await Promise.all([
       this.db.client.findMany({
-        where: { id: { in: clientIds } },
+        where: { id: { in: clientIds }, tenantId },
         select: { id: true, name: true },
       }),
       this.db.employee.findMany({
-        where: { id: { in: Array.from(allEmpIds) } },
+        where: { id: { in: Array.from(allEmpIds) }, tenantId },
         select: { id: true, lastName: true, firstName: true },
       }),
     ]);
@@ -524,12 +558,16 @@ export class ProposalsService {
   /**
    * 提案結果を更新（案件確定/不採用）
    */
-  async updateResult(id: string, result: string) {
-    const record = await this.db.proposalEmail.findUnique({ where: { id } });
-    if (!record) throw new NotFoundException('提案が見つかりません');
+  async updateResult(tenantId: string, id: string, result: string) {
+    const record = await this.db.proposalEmail.findFirst({
+      where: { id, tenantId },
+    });
+    if (!record) {
+      throw new NotFoundException('提案が見つかりません');
+    }
 
     const updated = await this.db.proposalEmail.update({
-      where: { id },
+      where: { id, tenantId } as any,
       data: { result },
     });
     return { id: updated.id, result: updated.result };

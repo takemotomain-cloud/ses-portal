@@ -22,9 +22,9 @@ export class WorkRulesService {
   /**
    * 現行版を取得（社員側で使用）
    */
-  async getCurrent() {
+  async getCurrent(tenantId: string) {
     const rule = await this.db.workRule.findFirst({
-      where: { isCurrent: true },
+      where: { isCurrent: true, tenantId },
     });
 
     if (!rule) {
@@ -43,8 +43,9 @@ export class WorkRulesService {
   /**
    * 改定履歴一覧
    */
-  async getHistory() {
+  async getHistory(tenantId: string) {
     return this.db.workRule.findMany({
+      where: { tenantId },
       select: {
         id: true,
         version: true,
@@ -70,17 +71,18 @@ export class WorkRulesService {
     content: any;
     memo?: string;
     publishedBy: string;
-  }) {
+  }, tenantId: string) {
     return this.db.$transaction(async (tx) => {
       // 旧版を全部FALSEに
       await tx.workRule.updateMany({
-        where: { isCurrent: true },
+        where: { isCurrent: true, tenantId },
         data: { isCurrent: false },
       });
 
       // 新版を作成
       const newRule = await tx.workRule.create({
         data: {
+          tenantId,
           version: data.version,
           effectiveDate: new Date(data.effectiveDate),
           content: data.content,

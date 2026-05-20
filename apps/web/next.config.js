@@ -14,10 +14,9 @@ const nextConfig = {
   experimental: {
     outputFileTracingRoot: path.join(__dirname, '../../'),
   },
-
   // APIリクエストをNestJSにプロキシ（CORSの複雑さを回避）
   async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const apiUrl = process.env.API_URL || 'http://localhost:3001';
     return [
       {
         source: '/api/:path*',

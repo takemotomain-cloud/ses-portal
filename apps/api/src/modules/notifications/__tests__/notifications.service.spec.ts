@@ -11,6 +11,8 @@ import { DatabaseService } from '../../../database/database.service';
 
 /* ====== モック定義 ====== */
 
+const TENANT_ID = 'test-tenant-id';
+
 function createMockDb() {
   return {
     notification: {
@@ -56,10 +58,10 @@ describe('NotificationsService', () => {
   describe('getMyNotifications', () => {
     it('未読優先・新しい順で取得する', async () => {
       db.notification.findMany.mockResolvedValue([]);
-      await service.getMyNotifications('emp-1');
+      await service.getMyNotifications(TENANT_ID, 'emp-1');
 
       expect(db.notification.findMany).toHaveBeenCalledWith({
-        where: { employeeId: 'emp-1' },
+        where: { employeeId: 'emp-1', tenantId: TENANT_ID },
         orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
         take: 20,
       });
@@ -67,7 +69,7 @@ describe('NotificationsService', () => {
 
     it('limitパラメータが反映される', async () => {
       db.notification.findMany.mockResolvedValue([]);
-      await service.getMyNotifications('emp-1', 5);
+      await service.getMyNotifications(TENANT_ID, 'emp-1', 5);
 
       expect(db.notification.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 5 }),
@@ -81,10 +83,10 @@ describe('NotificationsService', () => {
   describe('markAsRead', () => {
     it('指定通知を既読にする', async () => {
       db.notification.updateMany.mockResolvedValue({ count: 1 });
-      await service.markAsRead('notif-1', 'emp-1');
+      await service.markAsRead(TENANT_ID, 'notif-1', 'emp-1');
 
       expect(db.notification.updateMany).toHaveBeenCalledWith({
-        where: { id: 'notif-1', employeeId: 'emp-1' },
+        where: { id: 'notif-1', employeeId: 'emp-1', tenantId: TENANT_ID },
         data: { isRead: true, readAt: expect.any(Date) },
       });
     });
@@ -96,10 +98,10 @@ describe('NotificationsService', () => {
   describe('markAllAsRead', () => {
     it('全未読を既読にする', async () => {
       db.notification.updateMany.mockResolvedValue({ count: 5 });
-      await service.markAllAsRead('emp-1');
+      await service.markAllAsRead(TENANT_ID, 'emp-1');
 
       expect(db.notification.updateMany).toHaveBeenCalledWith({
-        where: { employeeId: 'emp-1', isRead: false },
+        where: { employeeId: 'emp-1', isRead: false, tenantId: TENANT_ID },
         data: { isRead: true, readAt: expect.any(Date) },
       });
     });
@@ -117,7 +119,7 @@ describe('NotificationsService', () => {
       ]);
       db.notification.createMany.mockResolvedValue({ count: 3 });
 
-      const result = await service.sendBulk({
+      const result = await service.sendBulk(TENANT_ID, {
         title: 'テスト通知',
         body: '本文です',
         targetType: 'all',
@@ -142,7 +144,7 @@ describe('NotificationsService', () => {
       db.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
       db.notification.createMany.mockResolvedValue({ count: 1 });
 
-      await service.sendBulk({
+      await service.sendBulk(TENANT_ID, {
         title: 'テスト',
         body: '本文',
         targetType: 'all',
@@ -165,7 +167,7 @@ describe('NotificationsService', () => {
       db.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
       db.notification.createMany.mockResolvedValue({ count: 1 });
 
-      await service.sendBulk({
+      await service.sendBulk(TENANT_ID, {
         title: 'テスト',
         body: '本文',
         targetType: 'department',
@@ -176,6 +178,7 @@ describe('NotificationsService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             departmentId: { in: ['dept-1'] },
+            tenantId: TENANT_ID,
           }),
         }),
       );
@@ -188,7 +191,7 @@ describe('NotificationsService', () => {
       ]);
       db.notification.createMany.mockResolvedValue({ count: 2 });
 
-      const result = await service.sendBulk({
+      const result = await service.sendBulk(TENANT_ID, {
         title: 'テスト',
         body: '本文',
         targetType: 'area',
@@ -205,7 +208,7 @@ describe('NotificationsService', () => {
       ]);
       db.notification.createMany.mockResolvedValue({ count: 2 });
 
-      const result = await service.sendBulk({
+      const result = await service.sendBulk(TENANT_ID, {
         title: 'テスト',
         body: '本文',
         targetType: 'individual',
@@ -217,31 +220,31 @@ describe('NotificationsService', () => {
 
     it('タイトルが空の場合はBadRequestException', async () => {
       await expect(
-        service.sendBulk({ title: '', body: '本文', targetType: 'all' }),
+        service.sendBulk(TENANT_ID, { title: '', body: '本文', targetType: 'all' }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('本文が空の場合はBadRequestException', async () => {
       await expect(
-        service.sendBulk({ title: 'タイトル', body: '  ', targetType: 'all' }),
+        service.sendBulk(TENANT_ID, { title: 'タイトル', body: '  ', targetType: 'all' }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('部署未選択の場合はBadRequestException', async () => {
       await expect(
-        service.sendBulk({ title: 'タイトル', body: '本文', targetType: 'department' }),
+        service.sendBulk(TENANT_ID, { title: 'タイトル', body: '本文', targetType: 'department' }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('エリア未選択の場合はBadRequestException', async () => {
       await expect(
-        service.sendBulk({ title: 'タイトル', body: '本文', targetType: 'area' }),
+        service.sendBulk(TENANT_ID, { title: 'タイトル', body: '本文', targetType: 'area' }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('個別選択で社員未選択の場合はBadRequestException', async () => {
       await expect(
-        service.sendBulk({ title: 'タイトル', body: '本文', targetType: 'individual', targetIds: [] }),
+        service.sendBulk(TENANT_ID, { title: 'タイトル', body: '本文', targetType: 'individual', targetIds: [] }),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -249,7 +252,7 @@ describe('NotificationsService', () => {
       db.employee.findMany.mockResolvedValue([]);
 
       await expect(
-        service.sendBulk({ title: 'タイトル', body: '本文', targetType: 'all' }),
+        service.sendBulk(TENANT_ID, { title: 'タイトル', body: '本文', targetType: 'all' }),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -308,7 +311,23 @@ describe('NotificationsService', () => {
         { area: 'tokyo' },
       ]);
 
-      const result = await service.getTargetOptions();
+      const result = await service.getTargetOptions(TENANT_ID);
+
+      expect(db.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT_ID }),
+        }),
+      );
+      expect(db.department.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT_ID }),
+        }),
+      );
+      expect(db.assignment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT_ID }),
+        }),
+      );
 
       expect(result.employees).toHaveLength(1);
       expect(result.employees[0].name).toBe('田中 太郎');

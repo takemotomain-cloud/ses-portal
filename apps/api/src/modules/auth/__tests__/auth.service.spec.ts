@@ -22,11 +22,16 @@ const mockPasswordHash = '$2b$12$mockhashedpassword';
 const mockUser = {
   id: 'user-1',
   employeeId: 'emp-1',
+  tenantId: 'tenant-1',
   passwordHash: mockPasswordHash,
   role: 'employee',
   isLocked: false,
   failedLoginCount: 0,
   lastLoginAt: null,
+  tenant: {
+    id: 'tenant-1',
+    name: 'テストテナント',
+  },
   employee: {
     id: 'emp-1',
     employeeCode: 'EMP-001',
@@ -104,6 +109,8 @@ describe('AuthService', () => {
       expect(result.user.email).toBe('tanaka@example.com');
       expect(result.user.name).toBe('田中 太郎');
       expect(result.user.role).toBe('employee');
+      expect(result.user.tenantId).toBe('tenant-1');
+      expect(result.user.tenantName).toBe('テストテナント');
     });
 
     it('成功時に失敗カウントをリセットする', async () => {

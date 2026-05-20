@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": ["API_URL", "NEXT_PUBLIC_API_URL"],
   "tasks": {
     "dev": {
       "cache": false,
@@ -7,6 +8,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
+      "env": ["API_URL", "NEXT_PUBLIC_API_URL"],
       "outputs": [".next/**", "dist/**"]
     },
     "lint": {

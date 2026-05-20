@@ -55,27 +55,27 @@ export class GeneralExpenseController {
       expectedDate: body.expectedDate,
       description: body.description,
       estimatedAmount: body.estimatedAmount,
-    });
+    }, user.tenantId);
   }
 
   @Get('pre-approval/my')
   @ApiOperation({ summary: '自分の事前申請一覧' })
   async getMyPreApprovals(@CurrentUser() user: RequestUser) {
-    return this.service.getMyPreApprovals(user.employeeId);
+    return this.service.getMyPreApprovals(user.employeeId, user.tenantId);
   }
 
   @Get('pre-approval/unused')
   @ApiOperation({ summary: '承認済み未使用の事前申請一覧' })
   async getApprovedUnused(@CurrentUser() user: RequestUser) {
-    return this.service.getMyApprovedUnusedPreApprovals(user.employeeId);
+    return this.service.getMyApprovedUnusedPreApprovals(user.employeeId, user.tenantId);
   }
 
   @Get('pre-approval/all')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '全事前申請一覧（管理者用）' })
-  async getAllPreApprovals(@Query('status') status?: string) {
-    return this.service.getAllPreApprovals(status);
+  async getAllPreApprovals(@CurrentUser() user: RequestUser, @Query('status') status?: string) {
+    return this.service.getAllPreApprovals(user.tenantId, status);
   }
 
   @Post('pre-approval/:id/approve')
@@ -83,7 +83,7 @@ export class GeneralExpenseController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '事前申請を承認' })
   async approvePreApproval(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.service.approvePreApproval(id, user.employeeId, user.userId);
+    await this.service.approvePreApproval(id, user.employeeId, user.tenantId, user.userId);
     return { message: '承認しました' };
   }
 
@@ -96,7 +96,7 @@ export class GeneralExpenseController {
     @CurrentUser() user: RequestUser,
     @Body('reason') reason?: string,
   ) {
-    await this.service.rejectPreApproval(id, user.employeeId, user.userId, reason);
+    await this.service.rejectPreApproval(id, user.employeeId, user.tenantId, user.userId, reason);
     return { message: '却下しました' };
   }
 
@@ -138,6 +138,7 @@ export class GeneralExpenseController {
         amount: parseInt(amount, 10),
         preApprovalId: preApprovalId || undefined,
       },
+      user.tenantId,
       file,
     );
   }
@@ -145,15 +146,15 @@ export class GeneralExpenseController {
   @Get('my')
   @ApiOperation({ summary: '自分の経費申請一覧' })
   async getMy(@CurrentUser() user: RequestUser) {
-    return this.service.getMyExpenses(user.employeeId);
+    return this.service.getMyExpenses(user.employeeId, user.tenantId);
   }
 
   @Get('all')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '全経費申請一覧（管理者用）' })
-  async getAll(@Query('status') status?: string) {
-    return this.service.getAllExpenses(status);
+  async getAll(@CurrentUser() user: RequestUser, @Query('status') status?: string) {
+    return this.service.getAllExpenses(user.tenantId, status);
   }
 
   @Post(':id/approve')
@@ -161,7 +162,7 @@ export class GeneralExpenseController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '経費申請を承認' })
   async approve(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.service.approveExpense(id, user.employeeId, user.userId);
+    await this.service.approveExpense(id, user.employeeId, user.tenantId, user.userId);
     return { message: '承認しました' };
   }
 
@@ -174,7 +175,7 @@ export class GeneralExpenseController {
     @CurrentUser() user: RequestUser,
     @Body('reason') reason?: string,
   ) {
-    await this.service.rejectExpense(id, user.employeeId, user.userId, reason);
+    await this.service.rejectExpense(id, user.employeeId, user.tenantId, user.userId, reason);
     return { message: '却下しました' };
   }
 }

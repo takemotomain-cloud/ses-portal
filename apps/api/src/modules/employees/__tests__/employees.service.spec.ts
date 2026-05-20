@@ -137,7 +137,7 @@ describe('EmployeesService', () => {
       db.employee.findMany.mockResolvedValue([listItem]);
       db.employee.count.mockResolvedValue(1);
 
-      const result = await service.findAll({});
+      const result = await service.findAll({ tenantId: 'tenant-1' });
 
       expect(result.data).toHaveLength(1);
       expect(result.data[0].employeeCode).toBe('EMP-001');
@@ -152,12 +152,13 @@ describe('EmployeesService', () => {
       db.employee.findMany.mockResolvedValue([]);
       db.employee.count.mockResolvedValue(0);
 
-      await service.findAll({ page: 2, limit: 10 });
+      await service.findAll({ page: 2, limit: 10, tenantId: 'tenant-1' });
 
       expect(db.employee.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           skip: 10,
           take: 10,
+          where: expect.objectContaining({ tenantId: 'tenant-1' }),
         }),
       );
     });
@@ -166,7 +167,7 @@ describe('EmployeesService', () => {
       db.employee.findMany.mockResolvedValue([]);
       db.employee.count.mockResolvedValue(0);
 
-      await service.findAll({ limit: 999 });
+      await service.findAll({ limit: 999, tenantId: 'tenant-1' });
 
       expect(db.employee.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -179,7 +180,7 @@ describe('EmployeesService', () => {
       db.employee.findMany.mockResolvedValue([]);
       db.employee.count.mockResolvedValue(0);
 
-      await service.findAll({ search: '田中' });
+      await service.findAll({ search: '田中', tenantId: 'tenant-1' });
 
       const call = db.employee.findMany.mock.calls[0][0];
       expect(call.where.OR).toBeDefined();
@@ -191,7 +192,7 @@ describe('EmployeesService', () => {
       db.employee.findMany.mockResolvedValue([]);
       db.employee.count.mockResolvedValue(0);
 
-      await service.findAll({ status: 'leave' });
+      await service.findAll({ status: 'leave', tenantId: 'tenant-1' });
 
       const call = db.employee.findMany.mock.calls[0][0];
       expect(call.where.status).toBe('leave');
@@ -201,7 +202,7 @@ describe('EmployeesService', () => {
       db.employee.findMany.mockResolvedValue([]);
       db.employee.count.mockResolvedValue(0);
 
-      await service.findAll({});
+      await service.findAll({ tenantId: 'tenant-1' });
 
       const call = db.employee.findMany.mock.calls[0][0];
       expect(call.where.deletedAt).toBeNull();
@@ -215,7 +216,7 @@ describe('EmployeesService', () => {
     it('社員詳細を返す（myNumberは除外）', async () => {
       db.employee.findFirst.mockResolvedValue(mockEmployeeWithRelations);
 
-      const result = await service.findOne(mockEmployee.id);
+      const result = await service.findOne(mockEmployee.id, 'tenant-1');
 
       expect(result.id).toBe(mockEmployee.id);
       expect(result.lastName).toBe('田中');
@@ -227,7 +228,7 @@ describe('EmployeesService', () => {
       db.employee.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.findOne('nonexistent-id'),
+        service.findOne('nonexistent-id', 'tenant-1'),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -244,6 +245,7 @@ describe('EmployeesService', () => {
       departmentId: 'dept-1',
       email: 'sato@example.com',
     };
+    const mockUser = { tenantId: 'tenant-1', userId: 'admin-1' } as any;
 
     it('社員とUserレコードを作成し、id/employeeCodeを返す', async () => {
       db.employee.findFirst.mockResolvedValue(null); // 重複なし
@@ -264,7 +266,7 @@ describe('EmployeesService', () => {
         return cb(tx);
       });
 
-      const result = await service.create(createData);
+      const result = await service.create(createData, mockUser);
 
       expect(result).toEqual({ id: 'new-id', employeeCode: 'EMP-100' });
     });
@@ -273,7 +275,7 @@ describe('EmployeesService', () => {
       // メール重複チェックでヒット
       db.employee.findFirst.mockResolvedValueOnce({ id: 'existing' });
 
-      await expect(service.create(createData)).rejects.toThrow(BadRequestException);
+      await expect(service.create(createData, mockUser)).rejects.toThrow(BadRequestException);
     });
 
     it('社員番号重複でBadRequestExceptionを投げる', async () => {
@@ -282,7 +284,7 @@ describe('EmployeesService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ id: 'existing' });
 
-      await expect(service.create(createData)).rejects.toThrow(BadRequestException);
+      await expect(service.create(createData, mockUser)).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -294,7 +296,7 @@ describe('EmployeesService', () => {
       db.employee.findFirst.mockResolvedValue(mockEmployee);
       db.employee.update.mockResolvedValue({ ...mockEmployee, lastName: '鈴木' });
 
-      const result = await service.update(mockEmployee.id, { lastName: '鈴木' });
+      const result = await service.update(mockEmployee.id, { lastName: '鈴木' }, 'admin-1', 'tenant-1');
 
       expect(result).toEqual({ id: mockEmployee.id });
       expect(db.employee.update).toHaveBeenCalledWith({
@@ -307,7 +309,7 @@ describe('EmployeesService', () => {
       db.employee.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.update('nonexistent', { lastName: '鈴木' }),
+        service.update('nonexistent', { lastName: '鈴木' }, 'admin-1', 'tenant-1'),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -317,7 +319,7 @@ describe('EmployeesService', () => {
         .mockResolvedValueOnce({ id: 'other-id' }); // メール重複
 
       await expect(
-        service.update(mockEmployee.id, { email: 'taken@example.com' }),
+        service.update(mockEmployee.id, { email: 'taken@example.com' }, 'admin-1', 'tenant-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -326,7 +328,7 @@ describe('EmployeesService', () => {
       db.employee.update.mockResolvedValue(mockEmployee);
 
       // 同じメールアドレスで更新 → 重複チェック不要
-      await service.update(mockEmployee.id, { email: mockEmployee.email });
+      await service.update(mockEmployee.id, { email: mockEmployee.email }, 'admin-1', 'tenant-1');
 
       // findFirstは1回のみ（存在確認）、メール重複チェックは呼ばれない
       expect(db.employee.findFirst).toHaveBeenCalledTimes(1);
@@ -336,7 +338,7 @@ describe('EmployeesService', () => {
       db.employee.findFirst.mockResolvedValue(mockEmployee);
       db.employee.update.mockResolvedValue(mockEmployee);
 
-      await service.update(mockEmployee.id, { birthDate: '1995-06-15' });
+      await service.update(mockEmployee.id, { birthDate: '1995-06-15' }, 'admin-1', 'tenant-1');
 
       expect(db.employee.update).toHaveBeenCalledWith({
         where: { id: mockEmployee.id },
@@ -358,7 +360,7 @@ describe('EmployeesService', () => {
         name: '田中 花子',
         relationship: '配偶者',
         phone: '090-0000-0000',
-      });
+      }, 'tenant-1');
 
       expect(result).toEqual({ id: 'ec-1' });
       expect(db.emergencyContact.create).toHaveBeenCalledWith({
@@ -381,7 +383,7 @@ describe('EmployeesService', () => {
         name: '田中 次郎',
         relationship: '父',
         phone: '090-1111-1111',
-      });
+      }, 'tenant-1');
 
       expect(db.emergencyContact.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ sortOrder: 4 }),
@@ -396,7 +398,7 @@ describe('EmployeesService', () => {
           name: 'Test',
           relationship: '父',
           phone: '090-0000-0000',
-        }),
+        }, 'tenant-1'),
       ).rejects.toThrow(NotFoundException);
     });
   });

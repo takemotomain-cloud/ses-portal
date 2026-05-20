@@ -87,7 +87,7 @@ interface EditForm {
   employeeCode: string;
   hireDate: string;
   resignDate: string;
-  department: string;
+  departmentId: string;
   employmentType: string;
   status: string;
   education: string;
@@ -192,6 +192,11 @@ const accountTypeReverse: Record<string, string> = {
   '当座': 'checking',
 };
 
+interface Department {
+  id: string;
+  name: string;
+}
+
 /** 部署名 → departmentId のマッピング（仮: 本来はAPIから取得） */
 const deptNameMap: Record<string, string> = {
   'SES事業部': 'ses',
@@ -247,7 +252,7 @@ export default function EmployeeEditPage() {
     employeeCode: '',
     hireDate: '',
     resignDate: '',
-    department: 'SES事業部',
+    departmentId: '',
     employmentType: '正社員',
     status: '在籍',
     education: '大卒',
@@ -288,6 +293,7 @@ export default function EmployeeEditPage() {
   const [originalDeptId, setOriginalDeptId] = useState<string | null>(null);
   const [originalStatus, setOriginalStatus] = useState<string>('active');
   const [qualifications, setQualifications] = useState<string[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [newQualification, setNewQualification] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -337,6 +343,13 @@ export default function EmployeeEditPage() {
 
   useEffect(() => {
     if (!currentUser) return;
+    // 部署一覧を取得
+    apiClient<Department[]>('/settings/departments')
+      .then(data => {
+        setDepartments(data);
+      })
+      .catch(err => console.error('部署一覧の取得に失敗しました', err));
+
     apiClient<SalaryGradeItem[]>('/employees/salary-grades')
       .then((data) => { console.log('salary-grades loaded:', data?.length); setSalaryGrades(Array.isArray(data) ? data : []); })
       .catch((e) => console.error('salary-grades fetch error:', e));
@@ -354,7 +367,7 @@ export default function EmployeeEditPage() {
           employeeCode: d.employeeCode || '',
           hireDate: fmtDateForDisplay(d.hireDate),
           resignDate: d.resignDate ? String(d.resignDate).slice(0, 10) : '',
-          department: d.department?.name || 'SES事業部',
+          departmentId: d.department?.id || '',
           employmentType: empTypeLabel[d.employmentType] || '正社員',
           status: statusLabel[d.status] || '在籍',
           education: educationLabel[d.education || ''] || d.education || '大卒',
@@ -569,10 +582,7 @@ export default function EmployeeEditPage() {
         payload.bankAccountHolder = form.bankAccountHolder;
       }
 
-      // 部署IDは元の値を使用（部署セレクトはUUIDマッピングがないため）
-      if (originalDeptId) {
-        payload.departmentId = originalDeptId;
-      }
+      payload.departmentId = form.departmentId;
 
       await apiClient(`/employees/${id}`, {
         method: 'PATCH',
@@ -736,11 +746,14 @@ export default function EmployeeEditPage() {
             <select
               className={selectCls}
               style={{ width: 200 }}
-              value={form.department}
-              onChange={set('department')}
+              value={form.departmentId}
+              onChange={set('departmentId')}
             >
-              <option>SES事業部</option>
-              <option>管理部</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
             </select>
           </div>
 

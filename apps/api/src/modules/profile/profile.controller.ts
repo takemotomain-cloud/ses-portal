@@ -26,7 +26,7 @@ export class ProfileController {
   @Get()
   @ApiOperation({ summary: '個人情報を取得' })
   async getProfile(@CurrentUser() user: RequestUser) {
-    return this.profileService.getProfile(user.employeeId);
+    return this.profileService.getProfile(user.employeeId, user.tenantId);
   }
 
   @Post('name')
@@ -35,7 +35,7 @@ export class ProfileController {
     @CurrentUser() user: RequestUser,
     @Body() body: { lastName: string; firstName: string; lastNameKana?: string; firstNameKana?: string },
   ) {
-    return this.profileService.requestNameChange(user.employeeId, body);
+    return this.profileService.requestNameChange(user.employeeId, body, user.tenantId);
   }
 
   @Post('phone')
@@ -44,7 +44,7 @@ export class ProfileController {
     @CurrentUser() user: RequestUser,
     @Body() body: { phone: string },
   ) {
-    return this.profileService.updatePhone(user.employeeId, body.phone);
+    return this.profileService.updatePhone(user.employeeId, body.phone, user.tenantId);
   }
 
   @Post('address')
@@ -53,7 +53,7 @@ export class ProfileController {
     @CurrentUser() user: RequestUser,
     @Body() body: { postalCode: string; address: string; moveDate?: string },
   ) {
-    return this.profileService.requestAddressChange(user.employeeId, body);
+    return this.profileService.requestAddressChange(user.employeeId, body, user.tenantId);
   }
 
   @Post('bank')
@@ -62,7 +62,7 @@ export class ProfileController {
     @CurrentUser() user: RequestUser,
     @Body() body: { bankName: string; bankBranch: string; bankAccountType: string; bankAccountNumber: string; bankAccountHolder: string },
   ) {
-    return this.profileService.requestBankChange(user.employeeId, body);
+    return this.profileService.requestBankChange(user.employeeId, body, user.tenantId);
   }
 
   @Post('password')
@@ -79,8 +79,8 @@ export class ProfileController {
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '承認待ち変更申請一覧（管理者用）' })
-  async getPendingChangeRequests() {
-    return this.profileService.getPendingChangeRequests();
+  async getPendingChangeRequests(@CurrentUser() user: RequestUser) {
+    return this.profileService.getPendingChangeRequests(user.tenantId);
   }
 
   @Post('change-requests/:id/approve')
@@ -92,7 +92,7 @@ export class ProfileController {
     @CurrentUser() user: RequestUser,
   ) {
     // bank 変更は service 側で manager 以上をチェック
-    await this.profileService.approveChangeRequest(id, user.employeeId, user.userId, user.role);
+    await this.profileService.approveChangeRequest(id, user.employeeId, user.tenantId, user.userId, user.role);
     return { message: '承認しました' };
   }
 
@@ -104,7 +104,7 @@ export class ProfileController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.profileService.rejectChangeRequest(id, user.employeeId, user.userId, user.role);
+    await this.profileService.rejectChangeRequest(id, user.employeeId, user.tenantId, user.userId, user.role);
     return { message: '却下しました' };
   }
 }

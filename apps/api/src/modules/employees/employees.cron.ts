@@ -34,8 +34,7 @@ export class EmployeesCron {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // E: 最後の admin 保護 — admin ロールの社員は cron 自動退職の対象外
-      // （万が一退職日が過ぎていても、明示的な UI 操作＋降格を要求する）
+      // 1. 一般社員の自動退職処理（全テナント一括）
       const result = await this.db.employee.updateMany({
         where: {
           status: 'active',
@@ -53,7 +52,7 @@ export class EmployeesCron {
         this.logger.log(`自動退職処理: ${result.count}名を resigned に更新しました`);
       }
 
-      // admin 社員が退職日超過でまだ active なら管理者に通知
+      // 2. admin 社員が退職日超過でまだ active なケースを抽出
       const skippedAdmins = await this.db.employee.findMany({
         where: {
           status: 'active',
@@ -63,36 +62,55 @@ export class EmployeesCron {
         },
         select: {
           id: true,
+          tenantId: true,
           employeeCode: true,
           lastName: true,
           firstName: true,
           resignDate: true,
         },
       });
+
       if (skippedAdmins.length > 0) {
-        this.logger.warn(
-          `adminユーザーの自動退職をスキップしました: ${skippedAdmins.map((e) => e.employeeCode).join(', ')}`,
-        );
-        try {
-          await this.notificationsService.notifyAdmins(
-            '[要対応] 退職日超過のadminユーザー',
-            `以下のadminユーザーが退職日を超過していますが、自動退職処理はスキップされました。\n別のユーザーをadminに昇格してから手動で退職処理を行ってください。\n\n${skippedAdmins
-              .map((e) => `- ${e.employeeCode} ${e.lastName} ${e.firstName}（退職日: ${e.resignDate?.toISOString().slice(0, 10)}）`)
-              .join('\n')}`,
+        // テナントごとにグルーピングして通知
+        const adminsByTenant = new Map<string, typeof skippedAdmins>();
+        for (const e of skippedAdmins) {
+          const list = adminsByTenant.get(e.tenantId) || [];
+          list.push(e);
+          adminsByTenant.set(e.tenantId, list);
+        }
+
+        for (const [tenantId, list] of adminsByTenant.entries()) {
+          this.logger.warn(
+            `[Tenant:${tenantId}] adminユーザーの自動退職をスキップしました: ${list.map((e) => e.employeeCode).join(', ')}`,
           );
-        } catch (notifyErr: any) {
-          this.logger.error(`admin 退職スキップ通知も失敗: ${notifyErr?.message ?? notifyErr}`);
+          try {
+            await this.notificationsService.notifyAdmins(
+              tenantId,
+              '[要対応] 退職日超過のadminユーザー',
+              `以下のadminユーザーが退職日を超過していますが、自動退職処理はスキップされました。\n別のユーザーをadminに昇格してから手動で退職処理を行ってください。\n\n${list
+                .map((e) => `- ${e.employeeCode} ${e.lastName} ${e.firstName}（退職日: ${e.resignDate?.toISOString().slice(0, 10)}）`)
+                .join('\n')}`,
+            );
+          } catch (notifyErr: any) {
+            this.logger.error(`[Tenant:${tenantId}] admin 退職スキップ通知失敗: ${notifyErr?.message ?? notifyErr}`);
+          }
         }
       }
     } catch (err: any) {
       this.logger.error(`autoResign cron 失敗: ${err?.message ?? err}`, err?.stack);
+      // 全体失敗時の通知（特定のテナントに依存しないエラーの場合、全てのテナント管理者、またはシステム管理者に通知したいが
+      // 現状はログ出力に留めるか、全テナントをループして通知する。ここでは全テナントへの通知を試行）
       try {
-        await this.notificationsService.notifyAdmins(
-          '[cron失敗] 自動退職処理',
-          `employees.cron の autoResign で例外が発生しました: ${err?.message ?? err}`,
-        );
+        const tenants = await this.db.tenant.findMany({ select: { id: true } });
+        for (const t of tenants) {
+          await this.notificationsService.notifyAdmins(
+            t.id,
+            '[システム通知] 自動退職バッチ失敗',
+            `システム全体の自動退職処理でエラーが発生しました。エンジニアに確認を依頼してください。\nエラー: ${err?.message ?? err}`,
+          );
+        }
       } catch (notifyErr: any) {
-        this.logger.error(`管理者通知も失敗: ${notifyErr?.message ?? notifyErr}`);
+        this.logger.error(`システム全体失敗の通知も失敗: ${notifyErr?.message ?? notifyErr}`);
       }
     }
   }

@@ -14,6 +14,11 @@ import { apiClient } from '@/lib/api-client';
 
 /* ---------- フォーム状態の型 ---------- */
 
+interface Department {
+  id: string;
+  name: string;
+}
+
 interface EmployeeForm {
   lastName: string;
   firstName: string;
@@ -21,7 +26,7 @@ interface EmployeeForm {
   firstNameKana: string;
   employeeCode: string;
   hireDate: string;
-  department: string;
+  departmentId: string;
   employmentType: string;
   birthDate: string;
   education: string;
@@ -43,7 +48,7 @@ const initialForm: EmployeeForm = {
   firstNameKana: '',
   employeeCode: '',
   hireDate: '',
-  department: 'SES事業部',
+  departmentId: '',
   employmentType: '正社員',
   birthDate: '',
   education: '大卒',
@@ -71,12 +76,6 @@ const readonlyCls =
 
 /* ---------- メインコンポーネント ---------- */
 
-/** 部署名 → departmentId のマッピング */
-const deptMap: Record<string, string> = {
-  'SES事業部': 'd0000001-0000-0000-0000-000000000001',
-  '管理部': 'd0000001-0000-0000-0000-000000000005',
-};
-
 /** 雇用形態ラベル → DB値 */
 const empTypeMap: Record<string, string> = {
   '正社員': 'regular',
@@ -93,11 +92,29 @@ const educationMap: Record<string, string> = {
   '高卒': 'high_school',
 };
 
+import { useEffect } from 'react';
+
 export default function NewEmployeePage() {
   const router = useRouter();
   const { toast, ToastUI } = useToast();
   const [form, setForm] = useState<EmployeeForm>(initialForm);
   const [submitting, setSubmitting] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
+
+  useEffect(() => {
+    // 部署一覧を取得
+    apiClient<Department[]>('/settings/departments')
+      .then(data => {
+        setDepartments(data);
+        if (data.length > 0) {
+          setForm(prev => ({ ...prev, departmentId: data[0].id }));
+        }
+      })
+      .catch(err => {
+        console.error('部署一覧の取得に失敗しました', err);
+        toast('部署一覧の取得に失敗しました');
+      });
+  }, []);
 
   const set = (key: keyof EmployeeForm) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -110,6 +127,7 @@ export default function NewEmployeePage() {
     if (!form.lastName || !form.firstName) { toast('姓・名は必須です'); return; }
     if (!form.hireDate) { toast('入社日は必須です'); return; }
     if (!form.email) { toast('メールアドレスは必須です'); return; }
+    if (!form.departmentId) { toast('部署は必須です'); return; }
     setSubmitting(true);
     try {
       // フォーム値をAPI形式に変換
@@ -120,7 +138,7 @@ export default function NewEmployeePage() {
         firstNameKana: form.firstNameKana || undefined,
         employeeCode: form.employeeCode || undefined,
         hireDate: form.hireDate,
-        departmentId: deptMap[form.department] || form.department,
+        departmentId: form.departmentId,
         employmentType: empTypeMap[form.employmentType] || form.employmentType,
         birthDate: form.birthDate || undefined,
         education: form.education ? (educationMap[form.education] || form.education) : undefined,
@@ -255,12 +273,14 @@ export default function NewEmployeePage() {
             <select
               className={selectCls}
               style={{ width: 200 }}
-              value={form.department}
-              onChange={set('department')}
+              value={form.departmentId}
+              onChange={set('departmentId')}
             >
-              <option>SES事業部</option>
-              <option>開発部</option>
-              <option>管理部</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
             </select>
           </div>
 

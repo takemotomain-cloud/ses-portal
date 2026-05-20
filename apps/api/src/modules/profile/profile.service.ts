@@ -39,9 +39,9 @@ export class ProfileService {
    * マイナンバー・パスワードハッシュは除外。
    * 口座情報は社員本人にのみ返す。
    */
-  async getProfile(employeeId: string) {
+  async getProfile(employeeId: string, tenantId: string) {
     const emp = await this.db.employee.findFirst({
-      where: { id: employeeId, deletedAt: null },
+      where: { id: employeeId, tenantId, deletedAt: null },
       include: {
         department: { select: { name: true } },
         position: { select: { name: true } },
@@ -67,13 +67,13 @@ export class ProfileService {
     firstName: string;
     lastNameKana?: string;
     firstNameKana?: string;
-  }) {
+  }, tenantId: string) {
     if (!data.lastName?.trim() || !data.firstName?.trim()) {
       throw new BadRequestException('姓と名は必須です');
     }
 
     const current = await this.db.employee.findUnique({
-      where: { id: employeeId },
+      where: { id: employeeId, tenantId },
       select: {
         lastName: true,
         firstName: true,
@@ -84,6 +84,7 @@ export class ProfileService {
 
     const result = await this.db.changeRequest.create({
       data: {
+        tenantId,
         employeeId,
         changeType: 'name',
         oldValue: current as any,
@@ -92,7 +93,7 @@ export class ProfileService {
       },
     });
 
-    this.notifications.notifyAdmins('個人情報変更', 'が氏名変更申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '個人情報変更', 'が氏名変更申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
@@ -102,26 +103,27 @@ export class ProfileService {
    * 電話番号は承認フローを経由せず、社員本人の操作で即時更新する。
    * 監査ログ目的で変更履歴を change_requests に approved ステータスで記録する。
    */
-  async updatePhone(employeeId: string, phone: string) {
+  async updatePhone(employeeId: string, phone: string, tenantId: string) {
     const trimmed = (phone || '').trim();
     if (!trimmed) {
       throw new BadRequestException('電話番号を入力してください');
     }
 
     const current = await this.db.employee.findUnique({
-      where: { id: employeeId },
+      where: { id: employeeId, tenantId },
       select: { phone: true },
     });
 
     await this.db.$transaction(async (tx) => {
       await tx.employee.update({
-        where: { id: employeeId },
+        where: { id: employeeId, tenantId },
         data: { phone: trimmed },
       });
 
       // 変更履歴として change_requests に approved で記録（監査ログ用途）
       await tx.changeRequest.create({
         data: {
+          tenantId,
           employeeId,
           changeType: 'phone',
           oldValue: current as any,
@@ -144,14 +146,15 @@ export class ProfileService {
     postalCode: string;
     address: string;
     moveDate?: string;
-  }) {
+  }, tenantId: string) {
     const current = await this.db.employee.findUnique({
-      where: { id: employeeId },
+      where: { id: employeeId, tenantId },
       select: { postalCode: true, address: true },
     });
 
     const result = await this.db.changeRequest.create({
       data: {
+        tenantId,
         employeeId,
         changeType: 'address',
         oldValue: current as any,
@@ -160,7 +163,7 @@ export class ProfileService {
       },
     });
 
-    this.notifications.notifyAdmins('個人情報変更', 'が住所変更申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '個人情報変更', 'が住所変更申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
@@ -173,9 +176,9 @@ export class ProfileService {
     bankAccountType: string;
     bankAccountNumber: string;
     bankAccountHolder: string;
-  }) {
+  }, tenantId: string) {
     const current = await this.db.employee.findUnique({
-      where: { id: employeeId },
+      where: { id: employeeId, tenantId },
       select: {
         bankName: true,
         bankBranch: true,
@@ -187,6 +190,7 @@ export class ProfileService {
 
     const result = await this.db.changeRequest.create({
       data: {
+        tenantId,
         employeeId,
         changeType: 'bank',
         oldValue: current as any,
@@ -195,16 +199,16 @@ export class ProfileService {
       },
     });
 
-    this.notifications.notifyAdmins('個人情報変更', 'が口座変更申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '個人情報変更', 'が口座変更申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
   /**
    * 承認待ちの変更申請一覧（管理者用）
    */
-  async getPendingChangeRequests() {
+  async getPendingChangeRequests(tenantId: string) {
     return this.db.changeRequest.findMany({
-      where: { status: 'pending' },
+      where: { status: 'pending', tenantId },
       include: {
         employee: {
           select: {
@@ -230,11 +234,12 @@ export class ProfileService {
   async approveChangeRequest(
     requestId: string,
     approverId: string,
+    tenantId: string,
     actorUserId?: string,
     approverRole?: string,
   ) {
     const request = await this.db.changeRequest.findUnique({
-      where: { id: requestId },
+      where: { id: requestId, tenantId },
     });
 
     if (!request) throw new NotFoundException('申請が見つかりません');
@@ -253,7 +258,7 @@ export class ProfileService {
     await this.db.$transaction(async (tx) => {
       // 1. 申請を承認
       await tx.changeRequest.update({
-        where: { id: requestId },
+        where: { id: requestId, tenantId },
         data: {
           status: 'approved',
           approverId,
@@ -265,7 +270,7 @@ export class ProfileService {
       const newValue = request.newValue as Record<string, any>;
       if (newValue && Object.keys(newValue).length > 0) {
         await tx.employee.update({
-          where: { id: request.employeeId },
+          where: { id: request.employeeId, tenantId },
           data: newValue,
         });
       }
@@ -282,7 +287,7 @@ export class ProfileService {
       newValue: { ...(request.newValue as any), changeType: request.changeType, employeeId: request.employeeId },
     });
 
-    this.notifications.create({ employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が承認されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が承認されました。' }).catch(() => {});
   }
 
   /**
@@ -293,11 +298,12 @@ export class ProfileService {
   async rejectChangeRequest(
     requestId: string,
     approverId: string,
+    tenantId: string,
     actorUserId?: string,
     approverRole?: string,
   ) {
     const request = await this.db.changeRequest.findUnique({
-      where: { id: requestId },
+      where: { id: requestId, tenantId },
     });
 
     if (!request) throw new NotFoundException('申請が見つかりません');
@@ -311,7 +317,7 @@ export class ProfileService {
     void approverRole;
 
     await this.db.changeRequest.update({
-      where: { id: requestId },
+      where: { id: requestId, tenantId },
       data: {
         status: 'rejected',
         approverId,
@@ -329,7 +335,7 @@ export class ProfileService {
       newValue: { changeType: request.changeType, employeeId: request.employeeId },
     });
 
-    this.notifications.create({ employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が却下されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: request.employeeId, title: '個人情報変更', body: '個人情報変更申請が却下されました。' }).catch(() => {});
   }
 
   /**

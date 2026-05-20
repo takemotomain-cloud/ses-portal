@@ -4,6 +4,7 @@ import { FreeeService } from './freee.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('freee連携')
 @ApiBearerAuth()
@@ -15,35 +16,35 @@ export class FreeeController {
   @Get('journals')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '仕訳一覧' })
-  async getJournals(@Query('status') status?: string) {
-    return this.freeeService.getJournals(status);
+  async getJournals(@Query('status') status: string | undefined, @CurrentUser() user: RequestUser) {
+    return this.freeeService.getJournals(user.tenantId, status);
   }
 
   @Get('summary')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '今月のサマリー' })
-  async getSummary() {
-    return this.freeeService.getSummary();
+  async getSummary(@CurrentUser() user: RequestUser) {
+    return this.freeeService.getSummary(user.tenantId);
   }
 
   @Post('journals')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '仕訳作成' })
-  async createJournal(@Body() body: any) {
-    return this.freeeService.createJournal(body);
+  async createJournal(@Body() body: any, @CurrentUser() user: RequestUser) {
+    return this.freeeService.createJournal(body, user.tenantId);
   }
 
   @Patch('journals/:id/send')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '仕訳を送信済みに' })
-  async markAsSent(@Param('id', ParseUUIDPipe) id: string) {
-    return this.freeeService.markAsSent(id);
+  async markAsSent(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
+    return this.freeeService.markAsSent(id, user.tenantId);
   }
 
   @Post('sync')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '一括送信' })
-  async sendAll() {
-    return this.freeeService.sendAll();
+  async sendAll(@CurrentUser() user: RequestUser) {
+    return this.freeeService.sendAll(user.tenantId);
   }
 }

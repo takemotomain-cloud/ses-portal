@@ -15,21 +15,22 @@ export class FreeeService {
     );
   }
 
-  async getJournals(status?: string) {
+  async getJournals(tenantId: string, status?: string) {
     return this.db.freeeJournal.findMany({
-      where: status ? { status } : undefined,
+      where: status ? { status, tenantId } : { tenantId },
       orderBy: { date: 'desc' },
     });
   }
 
-  async getSummary() {
+  async getSummary(tenantId: string) {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const where: any = { date: { gte: startOfMonth }, tenantId };
 
     const [total, sent, errors] = await Promise.all([
-      this.db.freeeJournal.count({ where: { date: { gte: startOfMonth } } }),
-      this.db.freeeJournal.count({ where: { date: { gte: startOfMonth }, status: 'sent' } }),
-      this.db.freeeJournal.count({ where: { date: { gte: startOfMonth }, status: 'error' } }),
+      this.db.freeeJournal.count({ where }),
+      this.db.freeeJournal.count({ where: { ...where, status: 'sent' } }),
+      this.db.freeeJournal.count({ where: { ...where, status: 'error' } }),
     ]);
 
     return { total, sent, errors, unsent: total - sent - errors };
@@ -41,9 +42,10 @@ export class FreeeService {
     debitAccount: string;
     creditAccount: string;
     amount: number;
-  }) {
+  }, tenantId: string) {
     return this.db.freeeJournal.create({
       data: {
+        tenantId,
         date: new Date(data.date),
         description: data.description,
         debitAccount: data.debitAccount,
@@ -53,17 +55,17 @@ export class FreeeService {
     });
   }
 
-  async markAsSent(id: string) {
+  async markAsSent(id: string, tenantId: string) {
     return this.db.freeeJournal.update({
-      where: { id },
+      where: { id, tenantId } as any,
       data: { status: 'sent', sentAt: new Date() },
     });
   }
 
-  async sendAll() {
+  async sendAll(tenantId: string) {
     this.ensureSyncEnabled();
 
-    const unsent = await this.db.freeeJournal.findMany({ where: { status: 'unsent' } });
+    const unsent = await this.db.freeeJournal.findMany({ where: { status: 'unsent', tenantId } });
     let success = 0;
     let errors = 0;
 
@@ -71,13 +73,13 @@ export class FreeeService {
       try {
         // 実際の freee API 送信は live モードの実装時にここへ入れる。
         await this.db.freeeJournal.update({
-          where: { id: j.id },
+          where: { id: j.id, tenantId } as any,
           data: { status: 'sent', sentAt: new Date() },
         });
         success++;
       } catch {
         await this.db.freeeJournal.update({
-          where: { id: j.id },
+          where: { id: j.id, tenantId } as any,
           data: { status: 'error', errorMessage: '送信に失敗しました' },
         });
         errors++;

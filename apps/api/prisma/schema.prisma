@@ -14,8 +14,93 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ----------------------------------------
+// テナント
+// ----------------------------------------
+model Tenant {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String   @unique @db.VarChar(100)
+  subdomain          String?  @unique @db.VarChar(50)
+  isActive           Boolean  @default(true) @map("is_active")
+
+  // 企業情報
+  zipCode            String?  @map("zip_code") @db.VarChar(10)
+  address            String?  @db.VarChar(500)
+  tel                String?  @db.VarChar(20)
+  email              String?  @db.VarChar(255)
+  registrationNumber String?  @map("registration_number") @db.VarChar(50)
+
+  // 銀行口座情報
+  bankName           String?  @map("bank_name") @db.VarChar(100)
+  bankBranch         String?  @map("bank_branch") @db.VarChar(100)
+  bankAccountType    String?  @map("bank_account_type") @db.VarChar(10)
+  bankAccountNumber  String?  @map("bank_account_number") @db.VarChar(20)
+  bankAccountName    String?  @map("bank_account_name") @db.VarChar(100)
+
+  // プラン管理
+  planType           String   @default("standard") @map("plan_type") @db.VarChar(20)
+  maxUsers           Int      @default(50) @map("max_users")
+
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  departments      Department[]
+  positions        Position[]
+  employees        Employee[]
+  users            User[]
+  clients          Client[]
+  projects         Project[]
+  assignments      Assignment[]
+  skillsheets      Skillsheet[]
+  invoices         Invoice[]
+  attendances      Attendance[]
+  attendanceCorrections AttendanceCorrection[]
+  adminAttendanceEdits AdminAttendanceEdit[]
+  monthlyShifts    MonthlyShift[]
+  attendanceMonthlyClosures AttendanceMonthlyClosure[]
+  clientAttendanceUploads ClientAttendanceUpload[]
+  reconciliationSettings ReconciliationSettings[]
+  attendanceConfirmed AttendanceConfirmed[]
+  leaveBalances    LeaveBalance[]
+  leaveRequests    LeaveRequest[]
+  expenseRequests  ExpenseRequest[]
+  expenseItems     ExpenseItem[]
+  preApprovals     PreApproval[]
+  generalExpenses  GeneralExpense[]
+  payrolls         Payroll[]
+  notifications    Notification[]
+  rateMaster       RateMaster?
+  companyInfo      CompanyInfo?
+  payrollEditHistories PayrollEditHistory[]
+  leaveOfAbsences  LeaveOfAbsence[]
+  delayCertificates DelayCertificate[]
+  certificates     Certificate[]
+  yearendAdjustments YearendAdjustment[]
+  meetings         Meeting[]
+  changeRequests   ChangeRequest[]
+  onboardingDocuments OnboardingDocument[]
+  documentIssuances DocumentIssuance[]
+  candidates       Candidate[]
+  recruitSources   RecruitSource[]
+  recruitBudgets   RecruitBudget[]
+  emergencyContacts EmergencyContact[]
+  dependents       Dependent[]
+  residentTaxes    EmployeeResidentTax[]
+  businessCards    BusinessCard[]
+  dealLogs         DealLog[]
+  workRules        WorkRule[]
+  proposalEmails   ProposalEmail[]
+  freeeJournals    FreeeJournal[]
+  integrationTokens IntegrationToken[]
+  autoNotificationRules AutoNotificationRule[]
+  salaryGrades     SalaryGrade[]
+
+  @@map("tenants")
 }
 
 // ----------------------------------------
@@ -23,7 +108,8 @@ datasource db {
 // ----------------------------------------
 model Department {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code      String   @unique @db.VarChar(20)
+  tenantId  String   @map("tenant_id") @db.Uuid
+  code      String   @db.VarChar(20)
   name      String   @db.VarChar(100)
   parentId  String?  @map("parent_id") @db.Uuid
   sortOrder Int      @default(0) @map("sort_order")
@@ -31,10 +117,12 @@ model Department {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   parent    Department?  @relation("DeptHierarchy", fields: [parentId], references: [id])
   children  Department[] @relation("DeptHierarchy")
   employees Employee[]
 
+  @@unique([tenantId, code])
   @@map("departments")
 }
 
@@ -43,12 +131,14 @@ model Department {
 // ----------------------------------------
 model Position {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
   name        String   @db.VarChar(50)
   rank        Int
   hasApproval Boolean  @default(false) @map("has_approval")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employees Employee[]
 
   @@map("positions")
@@ -59,7 +149,8 @@ model Position {
 // ----------------------------------------
 model Employee {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  employeeCode      String    @unique @map("employee_code") @db.VarChar(20)
+  tenantId          String    @map("tenant_id") @db.Uuid
+  employeeCode      String    @map("employee_code") @db.VarChar(20)
   lastName          String    @map("last_name") @db.VarChar(50)
   firstName         String    @map("first_name") @db.VarChar(50)
   lastNameKana      String    @map("last_name_kana") @db.VarChar(50)
@@ -74,7 +165,7 @@ model Employee {
   status            String    @default("active") @db.VarChar(20)
   departmentId      String    @map("department_id") @db.Uuid
   positionId        String?   @map("position_id") @db.Uuid
-  email             String    @unique @db.VarChar(255)
+  email             String    @db.VarChar(255)
   phone             String?   @db.VarChar(20)
   address           String?
   postalCode        String?   @map("postal_code") @db.VarChar(10)
@@ -85,18 +176,12 @@ model Employee {
   isExecutive       Boolean   @default(false) @map("is_executive")
   salaryGradeId     String?   @map("salary_grade_id") @db.Uuid
   rewardRate        Decimal?  @map("reward_rate") @db.Decimal(5, 2)
-  // J2: 所定労働時間・固定残業時間を社員別に設定（単位: 時間/月、null = デフォルト値を使用）
   contractHours     Int?      @map("contract_hours")
   fixedOvertime     Int?      @map("fixed_overtime")
-  // 交通費申請システム: 社員の通勤スタイル（onetime / monthly / three_month / null）
   commuteStyle      String?   @map("commute_style") @db.VarChar(20)
-  // L1: 有給付与方式（hire_date = 入社日基準 / transferred = 前職引継ぎ）
   leaveGrantMethod  String?   @map("leave_grant_method") @db.VarChar(20)
-  // L1: 前職引継ぎ時の初期残日数（transferred の場合のみ）
   transferredLeaveDays    Decimal?  @map("transferred_leave_days") @db.Decimal(4, 1)
-  // L1: 前職での有給付与日（transferred の場合のみ、不明なら入社日をデフォルトとして使う）
   transferredLeaveGrantedDate DateTime? @map("transferred_leave_granted_date") @db.Date
-  // J1: 社員別料率上書き（null の場合は RateMaster のデフォルトを使用）
   rateHealthInsurance      Decimal?  @map("rate_health_insurance") @db.Decimal(6, 4)
   rateEmployeePension      Decimal?  @map("rate_employee_pension") @db.Decimal(6, 4)
   rateEmploymentInsurance  Decimal?  @map("rate_employment_insurance") @db.Decimal(6, 4)
@@ -116,6 +201,7 @@ model Employee {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department         Department          @relation(fields: [departmentId], references: [id])
   position           Position?           @relation(fields: [positionId], references: [id])
   salaryGrade        SalaryGrade?        @relation(fields: [salaryGradeId], references: [id])
@@ -153,6 +239,8 @@ model Employee {
   adminAttendanceEdits    AdminAttendanceEdit[] @relation("AdminEditsEmployee")
   residentTaxes           EmployeeResidentTax[]
 
+  @@unique([tenantId, employeeCode])
+  @@unique([tenantId, email])
   @@map("employees")
 }
 
@@ -161,6 +249,7 @@ model Employee {
 // ----------------------------------------
 model Skillsheet {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
   employeeId   String   @unique @map("employee_id") @db.Uuid
   employee     Employee @relation(fields: [employeeId], references: [id])
   gender       String?  @db.VarChar(10)
@@ -176,6 +265,8 @@ model Skillsheet {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("skillsheets")
 }
 
@@ -184,11 +275,9 @@ model Skillsheet {
 // ----------------------------------------
 model User {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
   employeeId       String    @unique @map("employee_id") @db.Uuid
   passwordHash     String    @map("password_hash") @db.VarChar(255)
-  /// admin | manager | member | employee
-  /// 管理側ログイン: admin/manager/member
-  /// employee: SES事業部など管理側非ログイン（/mypage のみ）
   role             String    @default("employee") @db.VarChar(20)
   isLocked         Boolean   @default(false) @map("is_locked")
   failedLoginCount Int       @default(0) @map("failed_login_count")
@@ -197,6 +286,7 @@ model User {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee  Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   auditLogs AuditLog[]
   adminAttendanceEdits AdminAttendanceEdit[] @relation("AdminEditsByUser")
@@ -209,6 +299,7 @@ model User {
 // ----------------------------------------
 model EmergencyContact {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
   employeeId   String   @map("employee_id") @db.Uuid
   sortOrder    Int      @default(1) @map("sort_order")
   name         String   @db.VarChar(100)
@@ -217,6 +308,7 @@ model EmergencyContact {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@map("emergency_contacts")
@@ -227,6 +319,7 @@ model EmergencyContact {
 // ----------------------------------------
 model Dependent {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
   employeeId   String    @map("employee_id") @db.Uuid
   name         String    @db.VarChar(100)
   relationship String    @db.VarChar(30)
@@ -237,6 +330,7 @@ model Dependent {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@map("dependents")
@@ -248,6 +342,7 @@ model Dependent {
 // ----------------------------------------
 model EmployeeResidentTax {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
   employeeId  String   @map("employee_id") @db.Uuid
   fiscalYear  Int      @map("fiscal_year")
   month       Int
@@ -255,9 +350,10 @@ model EmployeeResidentTax {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
-  @@unique([employeeId, fiscalYear, month])
+  @@unique([tenantId, employeeId, fiscalYear, month])
   @@map("employee_resident_taxes")
 }
 
@@ -266,6 +362,7 @@ model EmployeeResidentTax {
 // ----------------------------------------
 model Client {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   name            String    @db.VarChar(200)
   corporateNumber String?   @map("corporate_number") @db.VarChar(30)
   invoiceNumber   String?   @map("invoice_number") @db.VarChar(30)
@@ -294,6 +391,7 @@ model Client {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant                  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignments             Assignment[]
   projects                Project[]
   clientAttendanceUploads ClientAttendanceUpload[]
@@ -309,6 +407,7 @@ model Client {
 // ----------------------------------------
 model Project {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
   clientId          String    @map("client_id") @db.Uuid
   name              String    @db.VarChar(200)
   contractPrice     Int?      @map("contract_price")
@@ -337,6 +436,7 @@ model Project {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client      Client       @relation(fields: [clientId], references: [id])
   assignments Assignment[]
 
@@ -348,6 +448,7 @@ model Project {
 // ----------------------------------------
 model BusinessCard {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
   name       String    @db.VarChar(100)
   company    String    @db.VarChar(200)
   department String?   @db.VarChar(200)
@@ -364,6 +465,7 @@ model BusinessCard {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   logs       DealLog[]
 
   @@map("business_cards")
@@ -371,6 +473,7 @@ model BusinessCard {
 
 model DealLog {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
   businessCardId String       @map("business_card_id") @db.Uuid
   businessCard   BusinessCard @relation(fields: [businessCardId], references: [id])
   date           DateTime     @db.Date
@@ -381,6 +484,8 @@ model DealLog {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("deal_logs")
 }
 
@@ -389,6 +494,7 @@ model DealLog {
 // ----------------------------------------
 model Assignment {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   employeeId      String    @map("employee_id") @db.Uuid
   clientId        String    @map("client_id") @db.Uuid
   projectId       String?   @map("project_id") @db.Uuid
@@ -413,6 +519,7 @@ model Assignment {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee     Employee                @relation(fields: [employeeId], references: [id])
   client       Client                  @relation(fields: [clientId], references: [id])
   project      Project?                @relation(fields: [projectId], references: [id])
@@ -453,6 +560,7 @@ model AssignmentRateHistory {
 // ----------------------------------------
 model Attendance {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   employeeId      String    @map("employee_id") @db.Uuid
   workDate        DateTime  @map("work_date") @db.Date
   clockIn         DateTime? @map("clock_in") @db.Timestamptz
@@ -465,11 +573,12 @@ model Attendance {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee    Employee               @relation(fields: [employeeId], references: [id])
   corrections AttendanceCorrection[]
   adminEdits  AdminAttendanceEdit[]
 
-  @@unique([employeeId, workDate])
+  @@unique([tenantId, employeeId, workDate])
   @@map("attendances")
 }
 
@@ -478,6 +587,7 @@ model Attendance {
 // ----------------------------------------
 model AttendanceCorrection {
   id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
   attendanceId         String    @map("attendance_id") @db.Uuid
   employeeId           String    @map("employee_id") @db.Uuid
   originalClockIn      DateTime? @map("original_clock_in") @db.Timestamptz
@@ -494,6 +604,7 @@ model AttendanceCorrection {
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   attendance Attendance @relation(fields: [attendanceId], references: [id])
   employee   Employee   @relation(fields: [employeeId], references: [id])
   approver   Employee?  @relation("CorrectionApprover", fields: [approverId], references: [id])
@@ -506,6 +617,7 @@ model AttendanceCorrection {
 // ----------------------------------------
 model AdminAttendanceEdit {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   attendanceId    String    @map("attendance_id") @db.Uuid
   employeeId      String    @map("employee_id") @db.Uuid
   adminUserId     String    @map("admin_user_id") @db.Uuid
@@ -525,6 +637,7 @@ model AdminAttendanceEdit {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   attendance Attendance @relation(fields: [attendanceId], references: [id])
   employee   Employee   @relation("AdminEditsEmployee", fields: [employeeId], references: [id])
   adminUser  User       @relation("AdminEditsByUser", fields: [adminUserId], references: [id])
@@ -537,6 +650,7 @@ model AdminAttendanceEdit {
 // ----------------------------------------
 model LeaveBalance {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
   employeeId    String   @map("employee_id") @db.Uuid
   grantedDate   DateTime @map("granted_date") @db.Date
   expiryDate    DateTime @map("expiry_date") @db.Date
@@ -547,7 +661,9 @@ model LeaveBalance {
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("leave_balances")
 }
 
@@ -556,6 +672,7 @@ model LeaveBalance {
 // ----------------------------------------
 model LeaveRequest {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
   employeeId   String    @map("employee_id") @db.Uuid
   leaveType    String    @map("leave_type") @db.VarChar(20)
   startDate    DateTime  @map("start_date") @db.Date
@@ -570,7 +687,9 @@ model LeaveRequest {
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("leave_requests")
 }
 
@@ -579,6 +698,7 @@ model LeaveRequest {
 // ----------------------------------------
 model ExpenseRequest {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
   employeeId  String    @map("employee_id") @db.Uuid
   targetMonth String    @map("target_month") @db.VarChar(7)
   totalAmount Int       @map("total_amount")
@@ -590,6 +710,7 @@ model ExpenseRequest {
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee      @relation(fields: [employeeId], references: [id])
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   items    ExpenseItem[]
 
   @@map("expense_requests")
@@ -597,6 +718,7 @@ model ExpenseRequest {
 
 model ExpenseItem {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
   expenseRequestId String   @map("expense_request_id") @db.Uuid
   // 申請種別: onetime (都度) / monthly_pass (1ヶ月定期) / three_month_pass (3ヶ月定期)
   kind             String   @default("onetime") @db.VarChar(20)
@@ -614,7 +736,9 @@ model ExpenseItem {
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   expenseRequest ExpenseRequest @relation(fields: [expenseRequestId], references: [id], onDelete: Cascade)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, expenseRequestId])
   @@map("expense_items")
 }
 
@@ -623,6 +747,7 @@ model ExpenseItem {
 // ----------------------------------------
 model PreApproval {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   employeeId      String    @map("employee_id") @db.Uuid
   expectedDate    DateTime  @map("expected_date") @db.Date   // 発生予定日（未来日のみ）
   description     String    @db.VarChar(500)
@@ -635,6 +760,7 @@ model PreApproval {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee        Employee         @relation(fields: [employeeId], references: [id])
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   generalExpenses GeneralExpense[]
 
   @@map("pre_approvals")
@@ -645,6 +771,7 @@ model PreApproval {
 // ----------------------------------------
 model GeneralExpense {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
   employeeId     String    @map("employee_id") @db.Uuid
   preApprovalId  String?   @map("pre_approval_id") @db.Uuid  // 事前申請とのペア（admin以外は必須）
   expenseDate    DateTime  @map("expense_date") @db.Date
@@ -660,6 +787,7 @@ model GeneralExpense {
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee    Employee     @relation(fields: [employeeId], references: [id])
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   preApproval PreApproval? @relation(fields: [preApprovalId], references: [id])
 
   @@map("general_expenses")
@@ -670,6 +798,7 @@ model GeneralExpense {
 // ----------------------------------------
 model ChangeRequest {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
   employeeId String    @map("employee_id") @db.Uuid
   changeType String    @map("change_type") @db.VarChar(30)
   oldValue   Json      @map("old_value")
@@ -681,7 +810,9 @@ model ChangeRequest {
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("change_requests")
 }
 
@@ -690,6 +821,7 @@ model ChangeRequest {
 // ----------------------------------------
 model Payroll {
   id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
   employeeId          String   @map("employee_id") @db.Uuid
   targetMonth         String   @map("target_month") @db.VarChar(7)
   baseSalary          Int      @map("base_salary")
@@ -723,8 +855,9 @@ model Payroll {
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([employeeId, targetMonth])
+  @@unique([tenantId, employeeId, targetMonth])
   @@map("payrolls")
 }
 
@@ -733,6 +866,7 @@ model Payroll {
 // ----------------------------------------
 model Notification {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
   employeeId String    @map("employee_id") @db.Uuid
   title      String    @db.VarChar(200)
   body       String
@@ -745,7 +879,9 @@ model Notification {
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("notifications")
 }
 
@@ -754,6 +890,7 @@ model Notification {
 // ----------------------------------------
 model AutoNotificationRule {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   name            String    @db.VarChar(100)
   triggerType     String    @map("trigger_type") @db.VarChar(50)
   triggerConfig   Json?     @map("trigger_config")
@@ -765,6 +902,8 @@ model AutoNotificationRule {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("auto_notification_rules")
 }
 
@@ -773,6 +912,7 @@ model AutoNotificationRule {
 // ----------------------------------------
 model WorkRule {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
   version       String   @db.VarChar(20)
   effectiveDate DateTime @map("effective_date") @db.Date
   content       Json
@@ -782,6 +922,8 @@ model WorkRule {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("work_rules")
 }
 
@@ -790,6 +932,7 @@ model WorkRule {
 // ----------------------------------------
 model Certificate {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
   employeeId String    @map("employee_id") @db.Uuid
   certType   String    @map("cert_type") @db.VarChar(30)
   status     String    @default("pending") @db.VarChar(20)
@@ -800,7 +943,9 @@ model Certificate {
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("certificates")
 }
 
@@ -809,6 +954,7 @@ model Certificate {
 // ----------------------------------------
 model YearendAdjustment {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
   employeeId  String    @map("employee_id") @db.Uuid
   fiscalYear  Int       @map("fiscal_year")
   formData    Json      @map("form_data")
@@ -822,8 +968,9 @@ model YearendAdjustment {
 
   employee Employee  @relation(fields: [employeeId], references: [id])
   approver Employee? @relation("YearendApprover", fields: [approvedBy], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([employeeId, fiscalYear])
+  @@unique([tenantId, employeeId, fiscalYear])
   @@map("yearend_adjustments")
 }
 
@@ -854,6 +1001,7 @@ model AuditLog {
 // ----------------------------------------
 model Meeting {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
   employeeId  String   @map("employee_id") @db.Uuid
   date        DateTime @db.Date
   interviewer String   @db.VarChar(100)
@@ -863,7 +1011,9 @@ model Meeting {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   employee Employee @relation(fields: [employeeId], references: [id])
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("meetings")
 }
 
@@ -872,6 +1022,7 @@ model Meeting {
 // ----------------------------------------
 model Candidate {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
   lastName            String    @map("last_name") @db.VarChar(50)
   firstName           String    @map("first_name") @db.VarChar(50)
   lastNameKana        String?   @map("last_name_kana") @db.VarChar(50)
@@ -897,6 +1048,9 @@ model Candidate {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, applicationDate])
   @@map("candidates")
 }
 
@@ -905,6 +1059,7 @@ model Candidate {
 // ----------------------------------------
 model AttendanceConfirmed {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   employeeId      String    @map("employee_id") @db.Uuid
   workDate        DateTime  @map("work_date") @db.Date
   startTime       DateTime? @map("start_time") @db.Timestamptz
@@ -918,10 +1073,11 @@ model AttendanceConfirmed {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee  Employee  @relation(fields: [employeeId], references: [id])
   confirmer Employee? @relation("ConfirmedBy", fields: [confirmedBy], references: [id])
 
-  @@unique([employeeId, workDate])
+  @@unique([tenantId, employeeId, workDate])
   @@map("attendance_confirmed")
 }
 
@@ -930,6 +1086,7 @@ model AttendanceConfirmed {
 // ----------------------------------------
 model ClientAttendanceUpload {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
   employeeId String   @map("employee_id") @db.Uuid
   clientId   String?  @map("client_id") @db.Uuid
   yearMonth  String   @map("year_month") @db.VarChar(7)
@@ -941,6 +1098,7 @@ model ClientAttendanceUpload {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee Employee              @relation(fields: [employeeId], references: [id])
   client   Client?               @relation(fields: [clientId], references: [id])
   records  ClientAttendanceRecord[]
@@ -1003,6 +1161,7 @@ model ReconciliationResult {
 // ----------------------------------------
 model ReconciliationSettings {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
   clientId         String   @unique @map("client_id") @db.Uuid
   timeToleranceMin Int      @default(15) @map("time_tolerance_min")
   hoursTolerance   Decimal  @default(0.5) @map("hours_tolerance") @db.Decimal(3, 1)
@@ -1012,7 +1171,8 @@ model ReconciliationSettings {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  client Client @relation(fields: [clientId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@map("reconciliation_settings")
 }
@@ -1022,6 +1182,7 @@ model ReconciliationSettings {
 // ----------------------------------------
 model DelayCertificate {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
   employeeId  String    @map("employee_id") @db.Uuid
   targetDate  DateTime  @map("target_date") @db.Date
   route       String?   @db.VarChar(200)
@@ -1036,7 +1197,9 @@ model DelayCertificate {
 
   employee  Employee  @relation(fields: [employeeId], references: [id])
   confirmer Employee? @relation("DelayCertConfirmer", fields: [confirmedBy], references: [id])
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("delay_certificates")
 }
 
@@ -1045,6 +1208,7 @@ model DelayCertificate {
 // ----------------------------------------
 model LeaveOfAbsence {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
   employeeId         String    @map("employee_id") @db.Uuid
   absenceType        String    @map("absence_type") @db.VarChar(20)
   startDate          DateTime  @map("start_date") @db.Date
@@ -1066,7 +1230,9 @@ model LeaveOfAbsence {
   employee       Employee  @relation(fields: [employeeId], references: [id])
   approver       Employee? @relation("LoaApprover", fields: [approvedBy], references: [id])
   returnApprover Employee? @relation("LoaReturnApprover", fields: [returnApprovedBy], references: [id])
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId, employeeId])
   @@map("leave_of_absence")
 }
 
@@ -1075,6 +1241,7 @@ model LeaveOfAbsence {
 // ----------------------------------------
 model ProposalEmail {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
   clientId    String    @map("client_id") @db.Uuid
   toEmail     String    @map("to_email") @db.VarChar(255)
   subject     String    @db.VarChar(500)
@@ -1086,6 +1253,7 @@ model ProposalEmail {
   sentAt      DateTime  @default(now()) @map("sent_at") @db.Timestamptz
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client      Client    @relation(fields: [clientId], references: [id])
 
   @@map("proposal_emails")
@@ -1096,6 +1264,7 @@ model ProposalEmail {
 // ----------------------------------------
 model RecruitSource {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
   name      String   @db.VarChar(100)
   category  String   @db.VarChar(20) /// agent | media | other
   fee       String?  @db.VarChar(100) /// 例: "理論年収の35%", "1,200,000円"
@@ -1105,6 +1274,9 @@ model RecruitSource {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sortOrder])
   @@map("recruit_sources")
 }
 
@@ -1162,6 +1334,7 @@ model RecruitInterviewer {
 // ----------------------------------------
 model RecruitBudget {
   id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
   fiscalYear Int    @map("fiscal_year")
   category   String @db.VarChar(50) /// agent_fee | media_fee | referral_fee
   month      Int    /// 1-12
@@ -1170,7 +1343,9 @@ model RecruitBudget {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@unique([fiscalYear, category, month])
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, fiscalYear, category, month])
   @@map("recruit_budgets")
 }
 
@@ -1179,7 +1354,8 @@ model RecruitBudget {
 // ----------------------------------------
 model Invoice {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  invoiceNo    String    @unique @map("invoice_no") @db.VarChar(30)
+  tenantId     String    @map("tenant_id") @db.Uuid
+  invoiceNo    String    @map("invoice_no") @db.VarChar(30)
   clientId     String    @map("client_id") @db.Uuid
   targetMonth  String    @map("target_month") @db.VarChar(7) /// "2026-04"
   totalAmount  Int       @map("total_amount")
@@ -1194,9 +1370,11 @@ model Invoice {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client       Client    @relation(fields: [clientId], references: [id])
   items        InvoiceItem[]
 
+  @@unique([tenantId, invoiceNo])
   @@map("invoices")
 }
 
@@ -1226,6 +1404,7 @@ model InvoiceItem {
 // ----------------------------------------
 model FreeeJournal {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
   date        DateTime  @db.Date
   description String    @db.VarChar(300)
   debitAccount  String  @map("debit_account") @db.VarChar(100)
@@ -1237,6 +1416,8 @@ model FreeeJournal {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("freee_journals")
 }
 
@@ -1245,6 +1426,7 @@ model FreeeJournal {
 // ----------------------------------------
 model MonthlyShift {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
   employeeId  String    @map("employee_id") @db.Uuid
   yearMonth   String    @map("year_month") @db.VarChar(7)
   isStandard  Boolean   @default(true) @map("is_standard")
@@ -1254,9 +1436,10 @@ model MonthlyShift {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employee Employee @relation(fields: [employeeId], references: [id])
 
-  @@unique([employeeId, yearMonth])
+  @@unique([tenantId, employeeId, yearMonth])
   @@map("monthly_shifts")
 }
 
@@ -1266,6 +1449,7 @@ model MonthlyShift {
 // ----------------------------------------
 model PayrollEditHistory {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
   payrollId   String   @map("payroll_id") @db.Uuid
   editedBy    String?  @map("edited_by") @db.Uuid
   fieldName   String   @map("field_name") @db.VarChar(50)
@@ -1274,7 +1458,9 @@ model PayrollEditHistory {
   reason      String?  @db.VarChar(200)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  @@index([payrollId, createdAt])
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, payrollId, createdAt])
   @@map("payroll_edit_history")
 }
 
@@ -1284,7 +1470,7 @@ model PayrollEditHistory {
 // 社員別の上書きは Employee.rate* フィールドで行う。
 // ----------------------------------------
 model RateMaster {
-  id                      String   @id @default("default") @db.VarChar(20)
+  tenantId                String   @id @map("tenant_id") @db.Uuid
   healthInsurance         Decimal  @default(0.05) @map("health_insurance") @db.Decimal(6, 4)
   healthInsuranceStdRate  Decimal  @default(0.0499) @map("health_insurance_std_rate") @db.Decimal(6, 4)
   nursingCareRate         Decimal  @default(0.0080) @map("nursing_care_rate") @db.Decimal(6, 4)
@@ -1295,6 +1481,8 @@ model RateMaster {
   updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
   updatedBy               String?  @map("updated_by") @db.Uuid
 
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("rate_master")
 }
 
@@ -1303,7 +1491,7 @@ model RateMaster {
 // シングルレコード（id="default"）。設定ページから編集 → 請求書に反映。
 // ----------------------------------------
 model CompanyInfo {
-  id                 String   @id @default("default") @db.VarChar(20)
+  tenantId           String   @id @map("tenant_id") @db.Uuid
   name               String   @default("") @db.VarChar(200)
   postalCode         String   @default("") @map("postal_code") @db.VarChar(20)
   address1           String   @default("") @db.VarChar(300)
@@ -1317,6 +1505,8 @@ model CompanyInfo {
   sealImagePath      String?  @map("seal_image_path") @db.VarChar(500)
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   @@map("company_info")
 }
 
@@ -1326,6 +1516,7 @@ model CompanyInfo {
 // ----------------------------------------
 model SalaryGrade {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
   department        String   @db.VarChar(20)          // 'ses' | 'admin'
   grade             Int                                // 等級 or 連番
   overtimeType      Int      @map("overtime_type")     // 固定残業時間: 20 or 40
@@ -1335,9 +1526,10 @@ model SalaryGrade {
   positionAllowance Int      @default(0) @map("position_allowance") // 役職手当（管理部主任以上）
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employees Employee[]
 
-  @@unique([department, grade, overtimeType])
+  @@unique([tenantId, department, grade, overtimeType])
   @@map("salary_grades")
 }
 
@@ -1348,7 +1540,8 @@ model SalaryGrade {
 // ----------------------------------------
 model AttendanceMonthlyClosure {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  yearMonth             String    @unique @map("year_month") @db.VarChar(7)
+  tenantId              String    @map("tenant_id") @db.Uuid
+  yearMonth             String    @map("year_month") @db.VarChar(7)
   status                String    @default("open") @db.VarChar(20)
   closedAt              DateTime? @map("closed_at") @db.Timestamptz
   closedBy              String?   @map("closed_by") @db.Uuid
@@ -1358,9 +1551,11 @@ model AttendanceMonthlyClosure {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   closedByEmployee      Employee? @relation("ClosureClosedBy", fields: [closedBy], references: [id])
   reopenedByEmployee    Employee? @relation("ClosureReopenedBy", fields: [reopenedBy], references: [id])
 
+  @@unique([tenantId, yearMonth])
   @@map("attendance_monthly_closures")
 }
 
@@ -1369,7 +1564,8 @@ model AttendanceMonthlyClosure {
 // ----------------------------------------
 model IntegrationToken {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  provider     String   @unique @db.VarChar(50) // "google_drive"
+  tenantId     String   @map("tenant_id") @db.Uuid
+  provider     String   @db.VarChar(50) // "google_drive"
   accessToken  String   @map("access_token")
   refreshToken String   @map("refresh_token")
   expiresAt    DateTime @map("expires_at") @db.Timestamptz
@@ -1379,6 +1575,9 @@ model IntegrationToken {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
   @@map("integration_tokens")
 }
 
@@ -1387,6 +1586,7 @@ model IntegrationToken {
 // ----------------------------------------
 model DocumentIssuance {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
   employeeId    String   @map("employee_id") @db.Uuid
   documentType  String   @map("document_type") @db.VarChar(32) // 'payslip' | 'offer' | 'notice_fixed' | 'notice_open'
   targetDate    DateTime @map("target_date") @db.Date
@@ -1404,7 +1604,9 @@ model DocumentIssuance {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@index([employeeId])
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeId])
   @@index([documentType, targetDate])
   @@index([issuedAt(sort: Desc)])
   @@map("document_issuances")
@@ -1413,6 +1615,7 @@ model DocumentIssuance {
 /// 入社情報フォームで本人確認書類を社員単位に管理（Drive 保管）
 model OnboardingDocument {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
   employeeId    String   @map("employee_id") @db.Uuid
   documentType  String   @map("document_type") @db.VarChar(32)
   fileName      String   @map("file_name") @db.VarChar(255)
@@ -1426,7 +1629,9 @@ model OnboardingDocument {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@index([employeeId])
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeId])
   @@index([documentType])
   @@index([uploadedAt(sort: Desc)])
   @@map("onboarding_documents")

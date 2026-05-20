@@ -30,10 +30,10 @@ export class PayslipPdfService {
    * 給与明細PDFを発行（生成→Drive保存→DocumentIssuance記録）
    * Drive未連携・PDF生成失敗時は警告ログのみ（給与確定処理を止めない）
    */
-  async issueForPayroll(payrollId: string, issuedByUserId?: string): Promise<void> {
+  async issueForPayroll(tenantId: string, payrollId: string, issuedByUserId?: string): Promise<void> {
     try {
       const payroll = await this.db.payroll.findUnique({
-        where: { id: payrollId },
+        where: { id: payrollId, tenantId },
         include: {
           employee: {
             select: {
@@ -59,7 +59,7 @@ export class PayslipPdfService {
       // 会社情報を取得（あれば）
       let companyName = '';
       try {
-        const company = await this.db.companyInfo.findFirst();
+        const company = await this.db.companyInfo.findUnique({ where: { tenantId } });
         companyName = company?.name || '';
       } catch { /* CompanyInfoモデルがない場合は無視 */ }
 
@@ -91,9 +91,9 @@ export class PayslipPdfService {
 
       let driveFileId: string | null = null;
       let driveViewLink: string | null = null;
-      if (this.drive.isEnabled()) {
+      if (await this.drive.isEnabled(tenantId)) {
         try {
-          const result = await this.drive.saveDocumentPdf({
+          const result = await this.drive.saveDocumentPdf(tenantId, {
             categoryFolder: '給与明細',
             fiscalYearDate: targetDate, // 給与明細は対象月で年度判定
             monthDate: targetDate,      // 対象月で格納
@@ -111,6 +111,7 @@ export class PayslipPdfService {
 
       await this.db.documentIssuance.create({
         data: {
+          tenantId,
           employeeId: payroll.employee.id,
           documentType: 'payslip',
           targetDate,
@@ -130,6 +131,40 @@ export class PayslipPdfService {
       // 給与確定の本筋を止めないよう、ここでは握りつぶしてログのみ
       this.logger.error(`給与明細PDF発行失敗 payrollId=${payrollId}: ${(e as Error).message}`, (e as Error).stack);
     }
+  }
+
+  /**
+   * 単発で給与明細 PDF を生成して返す（プレビュー用）
+   */
+  async generate(payroll: any, company: any): Promise<Buffer> {
+    const [year, month] = payroll.targetMonth.split('-').map(Number);
+    const fullName = `${payroll.employee.lastName}${payroll.employee.firstName}`;
+
+    const html = this.buildHtml({
+      companyName: company?.name || '',
+      employeeCode: payroll.employee.employeeCode,
+      fullName,
+      year,
+      month,
+      baseSalary: Number(payroll.baseSalary || 0),
+      fixedOvertimePay: Number(payroll.fixedOvertimePay || 0),
+      overtimePay: Number(payroll.overtimePay || 0),
+      commuteAllowance: Number(payroll.commuteAllowance || 0),
+      otherAllowance: Number(payroll.otherAllowance || 0),
+      absenceDeduction: Number(payroll.absenceDeduction || 0),
+      grossSalary: Number(payroll.grossSalary || 0),
+      healthInsurance: Number(payroll.healthInsurance || 0),
+      nursingCareInsurance: Number(payroll.nursingCareInsurance || 0),
+      pension: Number(payroll.pension || 0),
+      employmentInsurance: Number(payroll.employmentInsurance || 0),
+      incomeTax: Number(payroll.incomeTax || 0),
+      residentTax: Number(payroll.residentTax || 0),
+      totalDeductions: Number(payroll.totalDeductions || 0),
+      netSalary: Number(payroll.netSalary || 0),
+      issuedAt: new Date(),
+    });
+
+    return this.pdf.generatePdfFromHtml(html);
   }
 
   /* ------------------------------------------------------------------ */

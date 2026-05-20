@@ -15,17 +15,17 @@ export class CertificatesService {
   constructor(private readonly db: DatabaseService) {}
 
   /** 社員の証明書一覧 */
-  async getMyCertificates(employeeId: string) {
+  async getMyCertificates(employeeId: string, tenantId: string) {
     return this.db.certificate.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   /** 証明書発行申請 */
-  async requestCertificate(employeeId: string, certType: string) {
+  async requestCertificate(employeeId: string, certType: string, tenantId: string) {
     const cert = await this.db.certificate.create({
-      data: { employeeId, certType, status: 'pending' },
+      data: { tenantId, employeeId, certType, status: 'pending' },
     });
     this.logger.log(`Certificate requested: ${certType} for employee ${employeeId}`);
     return cert;

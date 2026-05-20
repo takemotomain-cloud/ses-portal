@@ -104,7 +104,7 @@ export class ExpenseService {
   async createRequest(employeeId: string, data: {
     targetMonth: string;
     items: ExpenseItemInput[];
-  }, fileMap?: Map<number, Express.Multer.File>) {
+  }, fileMap?: Map<number, Express.Multer.File>, tenantId: string = '') {
     if (!data.items || data.items.length === 0) {
       throw new BadRequestException('明細が1件もありません');
     }
@@ -188,6 +188,7 @@ export class ExpenseService {
       // 既存の承認済み・申請中の定期との重複
       const existingPasses = await this.db.expenseItem.findMany({
         where: {
+          tenantId,
           kind: { in: ['monthly_pass', 'three_month_pass'] },
           expenseRequest: {
             employeeId,
@@ -215,6 +216,7 @@ export class ExpenseService {
     const result = await this.db.$transaction(async (tx) => {
       const request = await tx.expenseRequest.create({
         data: {
+          tenantId,
           employeeId,
           targetMonth: data.targetMonth,
           totalAmount,
@@ -224,6 +226,7 @@ export class ExpenseService {
 
       await tx.expenseItem.createMany({
         data: normalized.map((item) => ({
+          tenantId,
           expenseRequestId: request.id,
           kind: item.kind,
           expenseDate: item.expenseDate,
@@ -241,7 +244,7 @@ export class ExpenseService {
       return request;
     });
 
-    this.notifications.notifyAdmins('交通費申請', 'が交通費申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId!, '交通費申請', 'が交通費申請を提出しました。', employeeId).catch(() => {});
 
     return result;
   }
@@ -249,9 +252,9 @@ export class ExpenseService {
   /**
    * 社員自身の経費申請一覧
    */
-  async getMyRequests(employeeId: string) {
+  async getMyRequests(employeeId: string, tenantId: string) {
     return this.db.expenseRequest.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       include: { items: { orderBy: { sortOrder: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -260,9 +263,9 @@ export class ExpenseService {
   /**
    * 承認待ち一覧（管理者用）
    */
-  async getPendingRequests() {
+  async getPendingRequests(tenantId: string) {
     return this.db.expenseRequest.findMany({
-      where: { status: 'pending' },
+      where: { tenantId, status: 'pending' },
       include: {
         employee: { select: { lastName: true, firstName: true, employeeCode: true } },
         items: { orderBy: { sortOrder: 'asc' } },
@@ -274,8 +277,8 @@ export class ExpenseService {
   /**
    * 全ステータス経費一覧（管理者用・月別フィルタ）
    */
-  async getAllRequests(targetMonth: string, status?: string) {
-    const where: any = { targetMonth };
+  async getAllRequests(targetMonth: string, status?: string, tenantId?: string) {
+    const where: any = { targetMonth, tenantId };
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
       where.status = status;
     }
@@ -299,6 +302,7 @@ export class ExpenseService {
     requesterEmployeeId: string,
     approverEmployeeId: string,
     approverRole: string,
+    tenantId: string,
   ): Promise<void> {
     // セルフ承認禁止
     if (requesterEmployeeId === approverEmployeeId) {
@@ -307,7 +311,7 @@ export class ExpenseService {
 
     // 申請者の User ロールを取得（User レコードが無い場合は 'employee' とみなす）
     const requesterUser = await this.db.user.findFirst({
-      where: { employeeId: requesterEmployeeId },
+      where: { employeeId: requesterEmployeeId, tenantId },
       select: { role: true },
     });
     const requesterRole = requesterUser?.role ?? 'employee';
@@ -332,17 +336,18 @@ export class ExpenseService {
   async approve(
     requestId: string,
     approverEmployeeId: string,
+    tenantId: string,
     actorUserId?: string,
     approverRole?: string,
   ) {
-    const request = await this.db.expenseRequest.findUnique({ where: { id: requestId } });
+    const request = await this.db.expenseRequest.findFirst({ where: { id: requestId, tenantId } });
     if (!request) throw new NotFoundException('経費申請が見つかりません');
     if (request.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
 
-    await this.assertCanActOnRequest(request.employeeId, approverEmployeeId, approverRole ?? 'admin');
+    await this.assertCanActOnRequest(request.employeeId, approverEmployeeId, approverRole ?? 'admin', tenantId);
 
-    await this.db.expenseRequest.update({
-      where: { id: requestId },
+    await this.db.expenseRequest.updateMany({
+      where: { id: requestId, tenantId },
       data: { status: 'approved', approverId: approverEmployeeId, approvedAt: new Date() },
     });
 
@@ -360,7 +365,7 @@ export class ExpenseService {
       },
     });
 
-    this.notifications.create({ employeeId: request.employeeId, title: '交通費', body: '交通費申請が承認されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: request.employeeId, title: '交通費', body: '交通費申請が承認されました。' }).catch(() => {});
   }
 
   /**
@@ -369,18 +374,19 @@ export class ExpenseService {
   async reject(
     requestId: string,
     approverEmployeeId: string,
+    tenantId: string,
     actorUserId?: string,
     approverRole?: string,
     reason?: string,
   ) {
-    const request = await this.db.expenseRequest.findUnique({ where: { id: requestId } });
+    const request = await this.db.expenseRequest.findFirst({ where: { id: requestId, tenantId } });
     if (!request) throw new NotFoundException('経費申請が見つかりません');
     if (request.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
 
-    await this.assertCanActOnRequest(request.employeeId, approverEmployeeId, approverRole ?? 'admin');
+    await this.assertCanActOnRequest(request.employeeId, approverEmployeeId, approverRole ?? 'admin', tenantId);
 
-    await this.db.expenseRequest.update({
-      where: { id: requestId },
+    await this.db.expenseRequest.updateMany({
+      where: { id: requestId, tenantId },
       data: {
         status: 'rejected',
         approverId: approverEmployeeId,
@@ -403,7 +409,7 @@ export class ExpenseService {
       },
     });
 
-    this.notifications.create({ employeeId: request.employeeId, title: '交通費', body: '交通費申請が却下されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: request.employeeId, title: '交通費', body: '交通費申請が却下されました。' }).catch(() => {});
   }
 }
 

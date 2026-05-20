@@ -14,6 +14,7 @@ import { ProposalsService } from './proposals.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('提案メール')
 @ApiBearerAuth()
@@ -27,19 +28,21 @@ export class ProposalsController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案追加（メールなし）' })
   async create(
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       clientId: string;
       employeeIds: string[];
       projectName?: string;
     },
   ) {
-    return this.service.createWithoutEmail(body);
+    return this.service.createWithoutEmail(user.tenantId, body);
   }
 
   @Post('send')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案メール送信' })
   async send(
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       clientId: string;
       employeeIds: string[];
@@ -49,7 +52,7 @@ export class ProposalsController {
       projectName?: string;
     },
   ) {
-    return this.service.send(body);
+    return this.service.send(user.tenantId, body);
   }
 
   /** 提案結果を更新（案件確定/不採用） */
@@ -57,10 +60,11 @@ export class ProposalsController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案結果更新' })
   async updateResult(
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { result: string },
   ) {
-    return this.service.updateResult(id, body.result);
+    return this.service.updateResult(user.tenantId, id, body.result);
   }
 
   /** 既存の提案（draft）に対してメール送信 */
@@ -68,6 +72,7 @@ export class ProposalsController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '既存提案にメール送信' })
   async sendExisting(
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: {
       toEmail: string;
@@ -75,13 +80,14 @@ export class ProposalsController {
       customMessage?: string;
     },
   ) {
-    return this.service.sendExisting(id, body);
+    return this.service.sendExisting(user.tenantId, id, body);
   }
 
   @Post('preview')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '提案メールプレビュー' })
   async preview(
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       clientId: string;
       employeeIds: string[];
@@ -89,7 +95,7 @@ export class ProposalsController {
       customMessage?: string;
     },
   ) {
-    return this.service.preview(body);
+    return this.service.preview(user.tenantId, body);
   }
 
   /**
@@ -102,21 +108,25 @@ export class ProposalsController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '同一クライアント・社員・案件の重複送信チェック' })
   async checkDuplicate(
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       clientId: string;
       employeeIds: string[];
       projectName?: string;
     },
   ) {
-    const duplicates = await this.service.findRecentSimilar(body);
+    const duplicates = await this.service.findRecentSimilar(user.tenantId, body);
     return { count: duplicates.length, duplicates };
   }
 
   @Get('history')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント別送信履歴' })
-  async history(@Query('clientId') clientId: string) {
-    return this.service.findByClient(clientId);
+  async history(
+    @CurrentUser() user: RequestUser,
+    @Query('clientId') clientId: string,
+  ) {
+    return this.service.findByClient(user.tenantId, clientId);
   }
 
   /**
@@ -125,8 +135,8 @@ export class ProposalsController {
   @Get('failed')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '送信失敗した提案一覧' })
-  async failed() {
-    const rows = await this.service.findFailed();
+  async failed(@CurrentUser() user: RequestUser) {
+    const rows = await this.service.findFailed(user.tenantId);
     return { count: rows.length, rows };
   }
 }

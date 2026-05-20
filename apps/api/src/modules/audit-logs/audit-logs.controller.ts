@@ -10,6 +10,7 @@ import { AuditService } from './audit.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('監査ログ')
 @ApiBearerAuth()
@@ -22,6 +23,7 @@ export class AuditLogsController {
   @Get()
   @ApiOperation({ summary: '監査ログ一覧（管理者のみ）' })
   async list(
+    @CurrentUser() user: RequestUser,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('action') action?: string,
@@ -32,6 +34,7 @@ export class AuditLogsController {
       offset: offset ? Number(offset) : undefined,
       action,
       userId,
+      tenantId: user.tenantId,
     });
   }
 }

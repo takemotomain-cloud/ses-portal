@@ -35,7 +35,7 @@ export class LeaveController {
   @Get('balance')
   @ApiOperation({ summary: '有給残日数を取得' })
   async getBalance(@CurrentUser() user: RequestUser) {
-    return this.leaveService.getBalance(user.employeeId);
+    return this.leaveService.getBalance(user.employeeId, user.tenantId);
   }
 
   @Post('request')
@@ -44,15 +44,15 @@ export class LeaveController {
     @CurrentUser() user: RequestUser,
     @Body() body: { leaveType: string; startDate: string; endDate: string; days: number; reason?: string },
   ) {
-    return this.leaveService.createRequest(user.employeeId, body);
+    return this.leaveService.createRequest(user.employeeId, body, user.tenantId);
   }
 
   @Get('pending')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '承認待ち有給申請一覧（管理者用）' })
-  async getPending() {
-    return this.leaveService.getPendingRequests();
+  async getPending(@CurrentUser() user: RequestUser) {
+    return this.leaveService.getPendingRequests(user.tenantId);
   }
 
   @Post(':id/approve')
@@ -63,7 +63,7 @@ export class LeaveController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.leaveService.approveRequest(id, user.employeeId);
+    await this.leaveService.approveRequest(id, user.employeeId, user.tenantId);
     return { message: '承認しました' };
   }
 
@@ -76,7 +76,7 @@ export class LeaveController {
     @CurrentUser() user: RequestUser,
     @Body('reason') reason?: string,
   ) {
-    await this.leaveService.rejectRequest(id, user.employeeId, reason);
+    await this.leaveService.rejectRequest(id, user.employeeId, user.tenantId, reason);
     return { message: '却下しました' };
   }
 }

@@ -49,7 +49,7 @@ export class EmployeesController {
   @Get('me')
   @ApiOperation({ summary: '自分の社員情報を取得' })
   async getMe(@CurrentUser() user: RequestUser) {
-    return this.employeesService.findOne(user.employeeId);
+    return this.employeesService.findOne(user.employeeId, user.tenantId);
   }
 
   /**
@@ -59,8 +59,8 @@ export class EmployeesController {
   @Get('unassigned')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'アサイン未経験社員一覧' })
-  async findUnassigned() {
-    return this.employeesService.findUnassigned();
+  async findUnassigned(@CurrentUser() user: RequestUser) {
+    return this.employeesService.findUnassigned(user.tenantId);
   }
 
   /**
@@ -70,15 +70,15 @@ export class EmployeesController {
   @Get('salary-grades')
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与テーブル（等級マスタ）一覧' })
-  async getSalaryGrades() {
-    return this.employeesService.getSalaryGrades();
+  async getSalaryGrades(@CurrentUser() user: RequestUser) {
+    return this.employeesService.getSalaryGrades(user.tenantId);
   }
 
   @Get('deleted')
   @Roles('admin')
   @ApiOperation({ summary: '削除済み社員一覧' })
-  async findDeleted() {
-    return this.employeesService.findDeleted();
+  async findDeleted(@CurrentUser() user: RequestUser) {
+    return this.employeesService.findDeleted(user.tenantId);
   }
 
   /**
@@ -86,26 +86,26 @@ export class EmployeesController {
    * 注意: /:id/mynumber は /:id より先に定義
    */
   @Get(':id/mynumber')
-  @Roles('admin', 'manager')
+  @Roles('admin')
   @ApiOperation({ summary: 'マイナンバー閲覧（監査ログ記録）' })
   async getMyNumber(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.getMyNumber(id, user.userId);
+    return this.employeesService.getMyNumber(id, user.userId, user.tenantId);
   }
 
   /**
    * 銀行口座閲覧（T2: 監査ログ必須）
    */
-  @Get(':id/bank')
-  @Roles('admin', 'manager')
+  @Get(':id/bank-account')
+  @Roles('admin')
   @ApiOperation({ summary: '銀行口座閲覧（監査ログ記録）' })
   async getBankAccount(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.getBankAccount(id, user.userId);
+    return this.employeesService.getBankAccount(id, user.userId, user.tenantId);
   }
 
   /**
@@ -122,12 +122,13 @@ export class EmployeesController {
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, type: String })
   async findAll(
+    @CurrentUser() user: RequestUser,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('status') status?: string,
   ) {
-    return this.employeesService.findAll({ page, limit, search, status });
+    return this.employeesService.findAll({ page, limit, search, status, tenantId: user.tenantId });
   }
 
   /**
@@ -172,7 +173,7 @@ export class EmployeesController {
     bankAccountNumber?: string;
     bankAccountHolder?: string;
   }) {
-    return this.employeesService.create(body, user.userId);
+    return this.employeesService.create(body, user);
   }
 
   /**
@@ -229,7 +230,7 @@ export class EmployeesController {
       resignDate?: string | null;
     },
   ) {
-    return this.employeesService.update(id, body, user.userId);
+    return this.employeesService.update(id, body, user.userId, user.tenantId);
   }
 
   /**
@@ -245,7 +246,7 @@ export class EmployeesController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.softDelete(id, user.userId);
+    return this.employeesService.softDelete(id, user.userId, user.tenantId);
   }
 
   /**
@@ -258,7 +259,7 @@ export class EmployeesController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.restore(id, user.userId);
+    return this.employeesService.restore(id, user.userId, user.tenantId);
   }
 
   /**
@@ -272,8 +273,9 @@ export class EmployeesController {
   async createEmergencyContact(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { name: string; relationship: string; phone: string },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.createEmergencyContact(id, body);
+    return this.employeesService.createEmergencyContact(id, body, user.tenantId);
   }
 
   // ----------------------------------------
@@ -287,8 +289,9 @@ export class EmployeesController {
   async getResidentTaxes(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('fiscalYear') fiscalYear: number,
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.getResidentTaxes(id, Number(fiscalYear));
+    return this.employeesService.getResidentTaxes(id, Number(fiscalYear), user.tenantId);
   }
 
   @Patch(':id/resident-taxes')
@@ -297,8 +300,9 @@ export class EmployeesController {
   async upsertResidentTaxes(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { fiscalYear: number; amounts: Record<string, number> },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.upsertResidentTaxes(id, body.fiscalYear, body.amounts);
+    return this.employeesService.upsertResidentTaxes(id, body.fiscalYear, body.amounts, user.tenantId);
   }
 
   // ----------------------------------------
@@ -311,8 +315,9 @@ export class EmployeesController {
   async createDependent(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { name: string; relationship: string; birthDate: string; annualIncome?: number },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.createDependent(id, body);
+    return this.employeesService.createDependent(id, body, user.tenantId);
   }
 
   @Patch(':id/dependents/:depId')
@@ -322,8 +327,9 @@ export class EmployeesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Param('depId', ParseUUIDPipe) depId: string,
     @Body() body: { name?: string; relationship?: string; birthDate?: string; annualIncome?: number },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.updateDependent(id, depId, body);
+    return this.employeesService.updateDependent(id, depId, body, user.tenantId);
   }
 
   @Delete(':id/dependents/:depId')
@@ -332,8 +338,9 @@ export class EmployeesController {
   async deleteDependent(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('depId', ParseUUIDPipe) depId: string,
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.employeesService.deleteDependent(id, depId);
+    return this.employeesService.deleteDependent(id, depId, user.tenantId);
   }
 
   /**
@@ -353,7 +360,6 @@ export class EmployeesController {
     if (user.role === 'employee' && user.employeeId !== id) {
       throw new ForbiddenException('他の社員の情報にはアクセスできません');
     }
-
-    return this.employeesService.findOne(id);
+    return this.employeesService.findOne(id, user.tenantId);
   }
 }

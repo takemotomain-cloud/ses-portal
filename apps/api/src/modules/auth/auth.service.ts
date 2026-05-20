@@ -57,14 +57,18 @@ export class AuthService {
   async login(
     email: string,
     password: string,
+    subdomain?: string,
     meta: { ipAddress?: string; userAgent?: string } = {},
   ): Promise<LoginResponse> {
     // 1. ユーザー検索（employeesとJOIN）
+    const tenantFilter = subdomain ? { tenant: { subdomain } } : {};
+    
     const user = await this.db.user.findFirst({
       where: {
         employee: {
           email,
           deletedAt: null, // 論理削除されていない社員のみ
+          ...tenantFilter,
         },
       },
       include: {
@@ -77,6 +81,13 @@ export class AuthService {
             email: true,
             status: true,
             resignDate: true,
+          },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
           },
         },
       },
@@ -106,6 +117,7 @@ export class AuthService {
         action: 'auth.login_failure',
         targetTable: 'users',
         targetId: user.id,
+        tenantId: user.tenantId,
         newValue: { email, reason: 'locked' },
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
@@ -130,6 +142,7 @@ export class AuthService {
           });
           this.notifications
             .notifyAdmins(
+              user.tenantId,
               'アカウント停止',
               `${user.employee.lastName} ${user.employee.firstName} のアカウントが退職後2ヶ月経過のためログイン停止されました`,
             )
@@ -173,6 +186,7 @@ export class AuthService {
         action: 'auth.login_failure',
         targetTable: 'users',
         targetId: user.id,
+        tenantId: user.tenantId,
         newValue: { email, reason: 'bad_password', failedCount: newFailCount, locked: shouldLock },
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
@@ -204,6 +218,9 @@ export class AuthService {
       resignDate: user.employee.resignDate
         ? user.employee.resignDate.toISOString().slice(0, 10)
         : null,
+      tenantId: user.tenantId,
+      tenantName: user.tenant.name,
+      subdomain: user.tenant.subdomain,
     };
 
     const accessToken = this.jwtService.sign({
@@ -217,6 +234,7 @@ export class AuthService {
       action: 'auth.login_success',
       targetTable: 'users',
       targetId: user.id,
+      tenantId: user.tenantId,
       newValue: { email, role: user.role },
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
@@ -232,10 +250,12 @@ export class AuthService {
    */
   async logout(
     userId: string,
+    tenantId: string,
     meta: { ipAddress?: string; userAgent?: string } = {},
   ): Promise<void> {
     await this.auditService.log({
       userId,
+      tenantId,
       action: 'auth.logout',
       targetTable: 'users',
       targetId: userId,
@@ -243,5 +263,21 @@ export class AuthService {
       userAgent: meta.userAgent,
     });
     this.logger.log(`Logout: user=${userId}`);
+  }
+
+  /**
+   * サブドメインからテナント情報を取得（ログイン画面用）
+   */
+  async getTenantBySubdomain(subdomain: string) {
+    const tenant = await this.db.tenant.findUnique({
+      where: { subdomain },
+      select: { id: true, name: true, isActive: true },
+    });
+
+    if (!tenant || !tenant.isActive) {
+      throw new UnauthorizedException('無効なテナントです');
+    }
+
+    return { name: tenant.name };
   }
 }

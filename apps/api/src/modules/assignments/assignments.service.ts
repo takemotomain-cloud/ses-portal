@@ -11,9 +11,12 @@
  * 単価・還元率は社員に公開する設計（SES業界の慣行）。
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { PAGINATION } from '@ses-portal/shared';
+
+// デフォルトテナントID（シングルテナント運用時の暫定値、JWT導入後に忠実な値へ置厰）
+const SYSTEM_TENANT_ID = process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
 
 @Injectable()
 export class AssignmentsService {
@@ -41,9 +44,10 @@ export class AssignmentsService {
     projectId?: string;
     startDate: string;
     endDate?: string;
-  }) {
+  }, tenantId: string) {
     return this.db.assignment.create({
       data: {
+        tenantId,
         employeeId: data.employeeId,
         clientId: data.clientId,
         projectId: data.projectId || null,
@@ -80,7 +84,9 @@ export class AssignmentsService {
     page?: number;
     limit?: number;
     status?: string;
+    tenantId: string;
   }) {
+    const { tenantId } = params;
     const page = params.page || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(
       params.limit || PAGINATION.DEFAULT_LIMIT,
@@ -88,7 +94,7 @@ export class AssignmentsService {
     );
     const skip = (page - 1) * limit;
 
-    const where: any = { deletedAt: null };
+    const where: any = { tenantId, deletedAt: null };
     if (params.status) {
       where.status = params.status;
     }
@@ -145,10 +151,10 @@ export class AssignmentsService {
     rateChangeReason?: string;
     rateChangeEffectiveFrom?: string;
     rateChangedBy?: string;
-  }) {
+  }, tenantId: string) {
     // 現行の単価を取得（改定履歴判定用）
-    const existing = await this.db.assignment.findUnique({
-      where: { id },
+    const existing = await this.db.assignment.findFirst({
+      where: { id, tenantId },
       select: {
         contractPrice: true,
         settlementLower: true,
@@ -184,9 +190,18 @@ export class AssignmentsService {
         (data.deductionRate !== undefined && data.deductionRate !== existing.deductionRate));
 
     return this.db.$transaction(async (tx) => {
-      const updated = await tx.assignment.update({
-        where: { id },
+      const updated = await tx.assignment.updateMany({
+        where: { id, tenantId },
         data: updateData,
+      });
+
+      if (updated.count === 0) {
+        throw new NotFoundException('アサインが見つからないか、更新に失敗しました');
+      }
+
+      // データの取得（後続ロジック用）
+      const refreshed = await tx.assignment.findFirst({
+        where: { id, tenantId },
         include: {
           employee: {
             select: { id: true, lastName: true, firstName: true, employeeCode: true },
@@ -196,6 +211,8 @@ export class AssignmentsService {
           },
         },
       });
+
+      if (!refreshed) throw new NotFoundException('アサインが見つかりません');
 
       if (rateChanged && existing) {
         await tx.assignmentRateHistory.create({
@@ -216,62 +233,71 @@ export class AssignmentsService {
         this.logger.log(`M3: アサイン単価改定履歴を追加 (assignment=${id})`);
       }
 
-      return updated;
+      return refreshed;
     });
   }
 
   /**
    * アサインの単価改定履歴を取得（M3）
    */
-  async getRateHistory(assignmentId: string) {
+  async getRateHistory(assignmentId: string, tenantId: string) {
     return this.db.assignmentRateHistory.findMany({
-      where: { assignmentId },
+      where: { 
+        assignmentId,
+        assignment: { tenantId }
+      },
       orderBy: { effectiveFrom: 'desc' },
     });
   }
 
   /**
-   * 稼働終了
    * mode: 'scheduled' = 契約期間通り終了（endDateそのまま、ステータスending_scheduled）
    *        'immediate' = 途中終了（endDateを指定日に上書き、ステータスended）
    */
-  async endAssignment(id: string, data?: { mode?: string; endDate?: string; endReason?: string }) {
+  async endAssignment(id: string, tenantId: string, data?: { mode?: string; endDate?: string; endReason?: string }) {
     const mode = data?.mode || 'immediate';
+    const where = { id, tenantId };
 
     if (mode === 'scheduled') {
       // 契約期間通り終了 → 終了予定ステータスに変更（endDateはそのまま）
-      return this.db.assignment.update({
-        where: { id },
+      const updated = await this.db.assignment.updateMany({
+        where,
         data: {
           status: 'ending_scheduled',
           endReason: data?.endReason || 'term_end',
         },
       });
+      if (updated.count === 0) throw new NotFoundException('アサインが見つかりません');
+      return { id, status: 'ending_scheduled' };
     }
 
     // 途中終了 → 即終了
-    return this.db.assignment.update({
-      where: { id },
+    const updated = await this.db.assignment.updateMany({
+      where,
       data: {
         status: 'ended',
         endDate: data?.endDate ? new Date(data.endDate) : new Date(),
         endReason: data?.endReason || 'early_termination',
       },
     });
+    if (updated.count === 0) throw new NotFoundException('アサインが見つかりません');
+    return { id, status: 'ended' };
   }
 
   /**
    * 契約延長（endDateを更新）
    */
-  async extendAssignment(id: string, newEndDate: string) {
-    return this.db.assignment.update({
-      where: { id },
+  async extendAssignment(id: string, tenantId: string, newEndDate: string) {
+    const updated = await this.db.assignment.updateMany({
+      where: { id, tenantId },
       data: {
         endDate: new Date(newEndDate),
         // ending_scheduledだった場合はactiveに戻す
         status: 'active',
       },
     });
+    if (updated.count === 0) throw new NotFoundException('アサインが見つかりません');
+    return { id, status: 'active', endDate: newEndDate };
   }
 
   /**
@@ -281,10 +307,11 @@ export class AssignmentsService {
    * クライアント情報（会社名・連絡先）もJOINで取得。
    * アサインがない場合はnullを返す（エラーにはしない）。
    */
-  async getCurrentAssignment(employeeId: string) {
+  async getCurrentAssignment(employeeId: string, tenantId: string) {
     return this.db.assignment.findFirst({
       where: {
         employeeId,
+        tenantId,
         status: 'active',
         deletedAt: null,
       },
@@ -307,10 +334,11 @@ export class AssignmentsService {
    * 全アサイン（終了済み含む）を開始日の新しい順で返す。
    * パフォーマンス: 1社員のアサイン数は通常10件以下なのでページネーション不要。
    */
-  async getHistory(employeeId: string) {
+  async getHistory(employeeId: string, tenantId: string) {
     return this.db.assignment.findMany({
       where: {
         employeeId,
+        tenantId,
         deletedAt: null,
       },
       include: {

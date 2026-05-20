@@ -31,10 +31,11 @@ export class UsersController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: 'ユーザー一覧取得（admin / manager）' })
   async findAll(
+    @CurrentUser() user: RequestUser,
     @Query('search') search?: string,
     @Query('role') role?: string,
   ) {
-    return this.usersService.findAll({ search, role });
+    return this.usersService.findAll({ search, role, tenantId: user.tenantId });
   }
 
   /**
@@ -51,7 +52,7 @@ export class UsersController {
     @Body() body: { role: string },
     @CurrentUser() user: RequestUser,
   ) {
-    const result = await this.usersService.changeRole(id, body.role, user.userId);
+    const result = await this.usersService.changeRole(id, body.role, user.userId, user.tenantId);
     return { id: result.id, role: result.role, message: 'ロールを変更しました' };
   }
 }

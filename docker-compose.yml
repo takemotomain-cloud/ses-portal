@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ses_dev_password
       POSTGRES_DB: ses_portal
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # 初回起動時にpgcrypto拡張を自動有効化
@@ -38,6 +38,44 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ses-portal-api
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://ses_dev:ses_dev_password@postgres:5432/ses_portal
+      - REDIS_URL=redis://redis:6379
+      - PORT=3001
+      - SYSTEM_TENANT_ID=00000000-0000-0000-0000-000000000001
+      - SYSTEM_ADMIN_SECRET=ses-system-2026
+      - JWT_SECRET=super-secret-jwt-key-for-local-dev-only
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - MAIL_FROM=${MAIL_FROM}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: ses-portal-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001/api
+      - NEXT_PUBLIC_SYSTEM_ADMIN_SECRET=ses-system-2026
+      - API_URL=http://api:3001
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

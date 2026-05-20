@@ -16,13 +16,13 @@ export class CertificatesController {
   @Get()
   @ApiOperation({ summary: '自分の証明書一覧' })
   async getMyCertificates(@CurrentUser() user: RequestUser) {
-    return this.certificatesService.getMyCertificates(user.employeeId);
+    return this.certificatesService.getMyCertificates(user.employeeId, user.tenantId);
   }
 
   @Post('request')
   @ApiOperation({ summary: '証明書発行申請' })
   async request(@CurrentUser() user: RequestUser, @Body('certType') certType: string) {
-    return this.certificatesService.requestCertificate(user.employeeId, certType);
+    return this.certificatesService.requestCertificate(user.employeeId, certType, user.tenantId);
   }
 
   @Get('pending')

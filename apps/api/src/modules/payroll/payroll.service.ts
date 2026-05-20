@@ -66,8 +66,8 @@ export class PayrollService {
   ): Promise<number> {
     // 特別徴収の年度: 6月〜12月は当年、1月〜5月は前年
     const fiscalYear = month >= 6 ? year : year - 1;
-    const record = await this.db.employeeResidentTax.findUnique({
-      where: { employeeId_fiscalYear_month: { employeeId, fiscalYear, month } },
+    const record = await this.db.employeeResidentTax.findFirst({
+      where: { employeeId, fiscalYear, month },
     });
     if (record) return record.amount;
     // フォールバック: 社員別固定額 → マスタデフォルト
@@ -105,23 +105,24 @@ export class PayrollService {
   /**
    * 勤怠確定ステータスを返す（フロント用）
    */
-  async getClosureStatus(year: number, month: number) {
+  async getClosureStatus(tenantId: string, year: number, month: number) {
     const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate = new Date(Date.UTC(year, month, 0));
 
-    // closureテーブルも確認（後方互換）
-    const closure = await this.db.attendanceMonthlyClosure.findUnique({
-      where: { yearMonth },
+    // closureテーブルも確認
+    const closure = await this.db.attendanceMonthlyClosure.findFirst({
+      where: { tenantId, yearMonth },
     });
 
     // SES（アサインあり）と社内（アサインなし）を分けて確定状態を確認
     const activeEmployeesWithAssignment = await this.db.employee.findMany({
-      where: { status: 'active', deletedAt: null, user: { role: { not: 'admin' } } },
+      where: { tenantId, status: 'active', deletedAt: null, user: { role: { not: 'admin' } } },
       select: {
         id: true,
         assignments: {
           where: {
+            tenantId,
             status: 'active',
             deletedAt: null,
             startDate: { lte: endDate },
@@ -143,6 +144,7 @@ export class PayrollService {
       if (ids.length === 0) return { unconfirmed: 0, noRecords: 0 };
       const unconfirmed = await this.db.attendance.count({
         where: {
+          tenantId,
           employeeId: { in: ids },
           workDate: { gte: startDate, lte: endDate },
           status: { not: 'confirmed' },
@@ -151,6 +153,7 @@ export class PayrollService {
       const withRecords = await this.db.attendance.groupBy({
         by: ['employeeId'],
         where: {
+          tenantId,
           employeeId: { in: ids },
           workDate: { gte: startDate, lte: endDate },
         },
@@ -178,10 +181,10 @@ export class PayrollService {
   /**
    * 社員自身の給与明細を取得
    */
-  async getMyPayslip(employeeId: string, year: number, month: number) {
+  async getMyPayslip(tenantId: string, employeeId: string, year: number, month: number) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
-    const payroll = await this.db.payroll.findUnique({
-      where: { employeeId_targetMonth: { employeeId, targetMonth } },
+    const payroll = await this.db.payroll.findFirst({
+      where: { tenantId, employeeId, targetMonth },
     });
     if (!payroll) throw new NotFoundException(`${year}年${month}月の給与明細はまだ作成されていません`);
     return payroll;
@@ -199,13 +202,14 @@ export class PayrollService {
    * `_masked: true` のフラグを付けて返し、フロントで ボタン非表示 の判定に使う。
    */
   async getMonthlyPayroll(
+    tenantId: string,
     year: number,
     month: number,
     viewer?: { role: string; employeeId: string; userId?: string },
   ) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
     const records = await this.db.payroll.findMany({
-      where: { targetMonth },
+      where: { tenantId, targetMonth },
       include: {
         employee: {
           select: {
@@ -224,6 +228,7 @@ export class PayrollService {
     if (viewer?.userId) {
       this.auditService.log({
         userId: viewer.userId,
+        tenantId,
         action: 'payroll.view',
         targetTable: 'payrolls',
         newValue: { targetMonth, viewerRole: viewer.role },
@@ -290,20 +295,28 @@ export class PayrollService {
    * 5. 社会保険料・税金を仮計算
    * 6. payrollsテーブルにUPSERT
    */
-  async calculateMonthly(year: number, month: number) {
+  async calculateMonthly(tenantId: string, year: number, month: number) {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
+    
+    // J1: 勤怠確定済みかチェック
+    const closure = await this.db.attendanceMonthlyClosure.findUnique({
+      where: { tenantId_yearMonth: { tenantId, yearMonth: targetMonth } },
+    });
+    if (!closure || closure.status !== 'closed') {
+      throw new BadRequestException('勤怠が確定されていません');
+    }
 
-    // J1: 料率マスタを取得（存在しなければデフォルト値で作成）
+    // J1: 料率マスタを取得
     const rateMaster = await this.db.rateMaster.upsert({
-      where: { id: 'default' },
+      where: { tenantId },
       update: {},
-      create: { id: 'default' },
+      create: { tenantId },
     });
 
     const employees = await this.db.employee.findMany({
-      where: { status: 'active', deletedAt: null },
+      where: { tenantId, status: 'active', deletedAt: null },
       include: {
-        assignments: { where: { status: 'active', deletedAt: null }, take: 1 },
+        assignments: { where: { tenantId, status: 'active', deletedAt: null }, take: 1 },
       },
     });
 
@@ -317,9 +330,9 @@ export class PayrollService {
     const depCounts = await this.db.dependent.groupBy({
       by: ['employeeId'],
       where: { isActive: true, deletedAt: null, employeeId: { in: empIds } },
-      _count: true,
+      _count: { _all: true },
     });
-    const depCountMap = new Map(depCounts.map(d => [d.employeeId, d._count]));
+    const depCountMap = new Map(depCounts.map(d => [d.employeeId, d._count._all]));
 
     // 年間残業時間を算出するために過去11ヶ月分のpayrollを取得
     const pastMonths: string[] = [];
@@ -330,12 +343,13 @@ export class PayrollService {
       pastMonths.push(`${y}-${String(mm).padStart(2, '0')}`);
     }
     const pastPayrolls = await this.db.payroll.findMany({
-      where: { employeeId: { in: empIds }, targetMonth: { in: pastMonths } },
+      where: { tenantId, employeeId: { in: empIds }, targetMonth: { in: pastMonths } },
       select: { employeeId: true, overtimePay: true, regularOvertimePay: true, excessOvertimePay: true, lateNightPay: true, holidayPay: true },
     });
     // 社員ごとの過去残業時間（概算: 過去payrollのovertimePay合計から逆算は不正確なので、勤怠ベースで算出）
     const pastAttendances = await this.db.attendance.findMany({
       where: {
+        tenantId,
         employeeId: { in: empIds },
         workDate: {
           gte: new Date(year - 1, month - 1, 1), // 12ヶ月前
@@ -351,7 +365,7 @@ export class PayrollService {
 
     // confirmed な給与レコードの社員IDを取得（上書き防止）
     const confirmedPayrolls = await this.db.payroll.findMany({
-      where: { targetMonth, status: 'confirmed', employeeId: { in: empIds } },
+      where: { tenantId, targetMonth, status: 'confirmed', employeeId: { in: empIds } },
       select: { employeeId: true },
     });
     const confirmedSet = new Set(confirmedPayrolls.map(p => p.employeeId));
@@ -372,6 +386,7 @@ export class PayrollService {
       // 勤怠データ取得
       const attendances = await this.db.attendance.findMany({
         where: {
+          tenantId,
           employeeId: emp.id,
           workDate: {
             gte: new Date(year, month - 1, 1),
@@ -428,7 +443,9 @@ export class PayrollService {
       // 通勤手当: 当月承認済みの経費申請を合算
       const approvedExpenses = await this.db.expenseItem.findMany({
         where: {
+          tenantId,
           expenseRequest: {
+            tenantId,
             employeeId: emp.id,
             targetMonth,
             status: 'approved',
@@ -443,6 +460,7 @@ export class PayrollService {
       const approvedGeneralEnd = new Date(tmYear, tmMonth, 1);
       const approvedGeneralExpenses = await this.db.generalExpense.findMany({
         where: {
+          tenantId,
           employeeId: emp.id,
           status: 'approved',
           approvedAt: { gte: approvedGeneralStart, lt: approvedGeneralEnd },
@@ -508,8 +526,9 @@ export class PayrollService {
 
       // UPSERT
       await this.db.payroll.upsert({
-        where: { employeeId_targetMonth: { employeeId: emp.id, targetMonth } },
+        where: { tenantId_employeeId_targetMonth: { tenantId, employeeId: emp.id, targetMonth } },
         create: {
+          tenantId,
           employeeId: emp.id, targetMonth, baseSalary, fixedOvertimePay,
           fixedOvertimeHours: fixedOvertime,
           absenceDeduction, overtimePay,
@@ -549,12 +568,12 @@ export class PayrollService {
    * 個別社員の給与を計算する（勤怠確定トリガー用）
    * confirmed の給与レコードがあればスキップ（上書き防止）
    */
-  async calculateForEmployee(employeeId: string, year: number, month: number): Promise<{ calculated: boolean }> {
+  async calculateForEmployee(tenantId: string, employeeId: string, year: number, month: number): Promise<{ calculated: boolean }> {
     const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
 
     // confirmed の給与レコードはスキップ
-    const existing = await this.db.payroll.findUnique({
-      where: { employeeId_targetMonth: { employeeId, targetMonth } },
+    const existing = await this.db.payroll.findFirst({
+      where: { tenantId, employeeId, targetMonth },
       select: { status: true },
     });
     if (existing?.status === 'confirmed') {
@@ -563,10 +582,10 @@ export class PayrollService {
     }
 
     // 社員データ取得
-    const emp = await this.db.employee.findUnique({
-      where: { id: employeeId },
+    const emp = await this.db.employee.findFirst({
+      where: { tenantId, id: employeeId },
       include: {
-        assignments: { where: { status: 'active', deletedAt: null }, take: 1 },
+        assignments: { where: { tenantId, status: 'active', deletedAt: null }, take: 1 },
       },
     });
     if (!emp || emp.status !== 'active' || emp.deletedAt) {
@@ -576,9 +595,9 @@ export class PayrollService {
 
     // 料率マスタ
     const rateMaster = await this.db.rateMaster.upsert({
-      where: { id: 'default' },
+      where: { tenantId },
       update: {},
-      create: { id: 'default' },
+      create: { tenantId },
     });
 
     const businessDays = this.getBusinessDays(year, month);
@@ -591,6 +610,7 @@ export class PayrollService {
     // 過去11ヶ月の残業時間（36協定チェック用）
     const pastAttendances = await this.db.attendance.findMany({
       where: {
+        tenantId,
         employeeId,
         workDate: {
           gte: new Date(year - 1, month - 1, 1),
@@ -610,6 +630,7 @@ export class PayrollService {
 
     const attendances = await this.db.attendance.findMany({
       where: {
+        tenantId,
         employeeId: emp.id,
         workDate: {
           gte: new Date(year, month - 1, 1),
@@ -656,7 +677,8 @@ export class PayrollService {
 
     const approvedExpenses = await this.db.expenseItem.findMany({
       where: {
-        expenseRequest: { employeeId: emp.id, targetMonth, status: 'approved' },
+        tenantId,
+        expenseRequest: { tenantId, employeeId: emp.id, targetMonth, status: 'approved' },
       },
     });
     const commuteAllowance = approvedExpenses.reduce((s, it) => s + (it.amount || 0), 0);
@@ -667,6 +689,7 @@ export class PayrollService {
     const genExpEnd = new Date(tmYear2, tmMonth2, 1);
     const approvedGeneralExpenses = await this.db.generalExpense.findMany({
       where: {
+        tenantId,
         employeeId: emp.id,
         status: 'approved',
         approvedAt: { gte: genExpStart, lt: genExpEnd },
@@ -724,8 +747,9 @@ export class PayrollService {
     const gradeResult = findGrade(monthlyRem);
 
     await this.db.payroll.upsert({
-      where: { employeeId_targetMonth: { employeeId: emp.id, targetMonth } },
+      where: { tenantId_employeeId_targetMonth: { tenantId, employeeId: emp.id, targetMonth } },
       create: {
+        tenantId,
         employeeId: emp.id, targetMonth, baseSalary, fixedOvertimePay,
         fixedOvertimeHours: fixedOvertime,
         absenceDeduction, overtimePay,
@@ -765,9 +789,9 @@ export class PayrollService {
   async handleAttendanceConfirmed(event: AttendanceConfirmedEvent) {
     const [year, month] = event.yearMonth.split('-').map(Number);
     try {
-      const result = await this.calculateForEmployee(event.employeeId, year, month);
+      const result = await this.calculateForEmployee(event.tenantId, event.employeeId, year, month);
       this.logger.log(
-        `Auto-calc payroll for ${event.employeeId} ${event.yearMonth}: ${result.calculated ? 'done' : 'skipped'}`,
+        `Auto-calc payroll for ${event.tenantId}/${event.employeeId} ${event.yearMonth}: ${result.calculated ? 'done' : 'skipped'}`,
       );
     } catch (err) {
       this.logger.error(
@@ -780,9 +804,9 @@ export class PayrollService {
    * 個別の給与レコードを確定する（管理者用）
    * 確定時に社員へ通知を送信する。
    */
-  async confirmPayrollRecord(payrollId: string, actorUserId?: string) {
-    const payroll = await this.db.payroll.findUnique({
-      where: { id: payrollId },
+  async confirmPayrollRecord(tenantId: string, payrollId: string, actorUserId?: string) {
+    const payroll = await this.db.payroll.findFirst({
+      where: { id: payrollId, tenantId },
       include: { employee: { select: { id: true, user: { select: { role: true } } } } },
     });
     if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
@@ -794,13 +818,14 @@ export class PayrollService {
     }
 
     await this.db.payroll.update({
-      where: { id: payrollId },
+      where: { id: payrollId, tenantId },
       data: { status: 'confirmed' },
     });
 
     // 社員へ通知
     const [year, month] = payroll.targetMonth.split('-');
     await this.notificationsService.create({
+      tenantId,
       employeeId: payroll.employeeId,
       title: `${Number(year)}年${Number(month)}月の給与が確定しました`,
       body: `${Number(year)}年${Number(month)}月分の給与明細が確認できます。`,
@@ -819,11 +844,37 @@ export class PayrollService {
 
     // 給与明細PDFを発行 (Drive保存 + DocumentIssuance記録)
     // fire-and-forget: 確定処理の応答時間を伸ばさないため、エラーは内部でログのみ
-    this.payslipPdfService.issueForPayroll(payrollId, actorUserId).catch((e) => {
+    this.payslipPdfService.issueForPayroll(tenantId, payrollId, actorUserId).catch((e) => {
       this.logger.error(`給与明細PDF発行失敗: ${e?.message}`);
     });
 
     return { confirmed: true };
+  }
+
+  async unconfirmPayrollRecord(tenantId: string, payrollId: string) {
+    const payroll = await this.db.payroll.findFirst({
+      where: { id: payrollId, tenantId },
+    });
+    if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
+
+    await this.db.payroll.update({
+      where: { id: payrollId, tenantId },
+      data: { status: 'draft' },
+    });
+  }
+
+  async getPayslipPdf(tenantId: string, payrollId: string) {
+    const payroll = await this.db.payroll.findFirst({
+      where: { id: payrollId, tenantId },
+      include: { employee: true },
+    });
+    if (!payroll) throw new NotFoundException('給与データが見つかりません');
+
+    const company = await this.db.companyInfo.findUnique({
+      where: { tenantId },
+    });
+
+    return this.payslipPdfService.generate(payroll as any, company as any);
   }
 
   /* ==============================================================
@@ -835,6 +886,7 @@ export class PayrollService {
    * 総支給/控除/手取りを再計算する。status='confirmed' は編集不可。
    */
   async updatePayrollRecord(
+    tenantId: string,
     payrollId: string,
     data: {
       baseSalary?: number;
@@ -855,8 +907,8 @@ export class PayrollService {
     actorUserId?: string,
     viewer?: { role: string; employeeId: string },
   ) {
-    const payroll = await this.db.payroll.findUnique({
-      where: { id: payrollId },
+    const payroll = await this.db.payroll.findFirst({
+      where: { id: payrollId, tenantId },
       include: { employee: { select: { id: true, user: { select: { role: true } } } } },
     });
     if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
@@ -916,7 +968,7 @@ export class PayrollService {
     // トランザクションで更新 + 履歴追加
     const updated = await this.db.$transaction(async (tx) => {
       const up = await tx.payroll.update({
-        where: { id: payrollId },
+        where: { id: payrollId, tenantId },
         data: {
           baseSalary: newBase,
           overtimePay: newOt,
@@ -936,6 +988,7 @@ export class PayrollService {
       for (const ch of changes) {
         await tx.payrollEditHistory.create({
           data: {
+            tenantId,
             payrollId,
             editedBy,
             fieldName: ch.field,
@@ -952,6 +1005,7 @@ export class PayrollService {
 
     await this.auditService.log({
       userId: actorUserId,
+      tenantId,
       action: 'payroll.edit',
       targetTable: 'payrolls',
       targetId: payrollId,
@@ -965,7 +1019,12 @@ export class PayrollService {
   /**
    * 給与レコードの編集履歴を取得
    */
-  async getPayrollEditHistory(payrollId: string) {
+  async getPayrollEditHistory(tenantId: string, payrollId: string) {
+    const payroll = await this.db.payroll.findFirst({
+      where: { id: payrollId, tenantId },
+    });
+    if (!payroll) throw new NotFoundException('給与レコードが見つかりません');
+
     const history = await this.db.payrollEditHistory.findMany({
       where: { payrollId },
       orderBy: { createdAt: 'desc' },
@@ -975,7 +1034,7 @@ export class PayrollService {
     const editorIds = Array.from(new Set(history.map(h => h.editedBy).filter((v): v is string => !!v)));
     const editors = editorIds.length > 0
       ? await this.db.employee.findMany({
-          where: { id: { in: editorIds } },
+          where: { id: { in: editorIds }, tenantId },
           select: { id: true, lastName: true, firstName: true },
         })
       : [];
@@ -994,11 +1053,11 @@ export class PayrollService {
   /**
    * 料率マスタを取得。存在しなければデフォルト値で作成して返す。
    */
-  async getRateMaster() {
+  async getRateMaster(tenantId: string) {
     const master = await this.db.rateMaster.upsert({
-      where: { id: 'default' },
+      where: { tenantId },
       update: {},
-      create: { id: 'default' },
+      create: { tenantId },
     });
     return {
       healthInsurance: Number(master.healthInsurance),
@@ -1017,6 +1076,7 @@ export class PayrollService {
    * 料率マスタを更新（管理者用）
    */
   async updateRateMaster(
+    tenantId: string,
     data: {
       healthInsurance?: number;
       healthInsuranceStdRate?: number;
@@ -1039,9 +1099,9 @@ export class PayrollService {
     if (updatedBy) update.updatedBy = updatedBy;
 
     const updated = await this.db.rateMaster.upsert({
-      where: { id: 'default' },
+      where: { tenantId },
       update,
-      create: { id: 'default', ...update },
+      create: { tenantId, ...update },
     });
     return {
       healthInsurance: Number(updated.healthInsurance),
@@ -1059,15 +1119,15 @@ export class PayrollService {
   /*  請求書情報（自社情報）                                               */
   /* ================================================================== */
 
-  async getCompanyInfo() {
+  async getCompanyInfo(tenantId: string) {
     return this.db.companyInfo.upsert({
-      where: { id: 'default' },
+      where: { tenantId },
       update: {},
-      create: { id: 'default' },
+      create: { tenantId },
     });
   }
 
-  async updateCompanyInfo(data: {
+  async updateCompanyInfo(tenantId: string, data: {
     name?: string;
     postalCode?: string;
     address1?: string;
@@ -1081,9 +1141,9 @@ export class PayrollService {
     sealImagePath?: string;
   }) {
     return this.db.companyInfo.upsert({
-      where: { id: 'default' },
+      where: { tenantId },
       update: data,
-      create: { id: 'default', ...data },
+      create: { tenantId, ...data },
     });
   }
 }

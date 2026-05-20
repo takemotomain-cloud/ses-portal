@@ -29,7 +29,7 @@ export class NoticesController {
     @Body() body: OfferData,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.notices.issueOffer(employeeId, body, user.userId);
+    return this.notices.issueOffer(employeeId, body, user.userId, user.tenantId);
   }
 
   @Post('labor-fixed/:employeeId')
@@ -40,7 +40,7 @@ export class NoticesController {
     @Body() body: LaborFixedData,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.notices.issueLaborFixed(employeeId, body, user.userId);
+    return this.notices.issueLaborFixed(employeeId, body, user.userId, user.tenantId);
   }
 
   @Post('labor-open/:employeeId')
@@ -51,14 +51,14 @@ export class NoticesController {
     @Body() body: LaborOpenData,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.notices.issueLaborOpen(employeeId, body, user.userId);
+    return this.notices.issueLaborOpen(employeeId, body, user.userId, user.tenantId);
   }
 
   @Get('history/:employeeId')
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '社員の通知書発行履歴を取得' })
-  async listHistory(@Param('employeeId') employeeId: string) {
-    return this.notices.listByEmployee(employeeId);
+  async listHistory(@Param('employeeId') employeeId: string, @CurrentUser() user: RequestUser) {
+    return this.notices.listByEmployee(employeeId, user.tenantId);
   }
 
   @Patch(':issuanceId/workflow')

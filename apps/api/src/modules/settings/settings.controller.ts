@@ -26,6 +26,7 @@ import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('設定')
 @ApiBearerAuth()
@@ -42,8 +43,8 @@ export class SettingsController {
   @Get('departments')
   @Roles('admin')
   @ApiOperation({ summary: '部署一覧' })
-  async findAllDepartments() {
-    return this.settingsService.findAllDepartments();
+  async findAllDepartments(@CurrentUser() user: RequestUser) {
+    return this.settingsService.findAllDepartments(user.tenantId);
   }
 
   @Post('departments')
@@ -51,8 +52,9 @@ export class SettingsController {
   @ApiOperation({ summary: '部署新規作成' })
   async createDepartment(
     @Body() body: { name: string; code: string; parentId?: string },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.settingsService.createDepartment(body);
+    return this.settingsService.createDepartment(body, user.tenantId);
   }
 
   /* ========== 役職 ========== */
@@ -60,8 +62,8 @@ export class SettingsController {
   @Get('positions')
   @Roles('admin')
   @ApiOperation({ summary: '役職一覧' })
-  async findAllPositions() {
-    return this.settingsService.findAllPositions();
+  async findAllPositions(@CurrentUser() user: RequestUser) {
+    return this.settingsService.findAllPositions(user.tenantId);
   }
 
   @Post('positions')
@@ -69,8 +71,9 @@ export class SettingsController {
   @ApiOperation({ summary: '役職新規作成' })
   async createPosition(
     @Body() body: { name: string; rank: number; hasApproval?: boolean },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.settingsService.createPosition(body);
+    return this.settingsService.createPosition(body, user.tenantId);
   }
 
   /* ========== Google Drive 連携 ========== */
@@ -78,30 +81,33 @@ export class SettingsController {
   @Get('google-drive/status')
   @Roles('admin')
   @ApiOperation({ summary: 'Google Drive連携状態' })
-  async googleDriveStatus() {
-    return this.googleDrive.getStatus();
+  async googleDriveStatus(@CurrentUser() user: RequestUser) {
+    return this.googleDrive.getStatus(user.tenantId);
   }
 
   @Post('google-drive/root-folder')
   @Roles('admin')
   @ApiOperation({ summary: 'Google Drive保存ルートフォルダを設定' })
-  async googleDriveRootFolder(@Body() body: { rootFolderPath: string }) {
-    return this.googleDrive.setRootFolderPath(body.rootFolderPath);
+  async googleDriveRootFolder(
+    @Body() body: { rootFolderPath: string },
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.googleDrive.setRootFolderPath(user.tenantId, body.rootFolderPath);
   }
 
   @Get('google-drive/connect')
   @Roles('admin')
   @ApiOperation({ summary: 'Google Drive OAuth開始（認証URLを返す）' })
-  async googleDriveConnect() {
-    const url = this.googleDrive.getAuthorizationUrl();
+  async googleDriveConnect(@CurrentUser() user: RequestUser) {
+    const url = this.googleDrive.getAuthorizationUrl(user.tenantId);
     return { url };
   }
 
   @Post('google-drive/disconnect')
   @Roles('admin')
   @ApiOperation({ summary: 'Google Drive連携解除' })
-  async googleDriveDisconnect() {
-    await this.googleDrive.disconnect();
+  async googleDriveDisconnect(@CurrentUser() user: RequestUser) {
+    await this.googleDrive.disconnect(user.tenantId);
     return { success: true };
   }
 }
@@ -116,13 +122,17 @@ export class GoogleDriveCallbackController {
 
   @Get('google-drive/callback')
   @ApiOperation({ summary: 'Google Drive OAuthコールバック' })
-  async googleDriveCallback(@Query('code') code: string, @Res() res: Response) {
-    await this.googleDrive.handleCallback(code);
+  async googleDriveCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    const { subdomain } = await this.googleDrive.handleCallback(code, state);
     const appBaseUrl =
       process.env.APP_BASE_URL ||
       process.env.NEXTAUTH_URL ||
       process.env.CORS_ORIGIN ||
       'http://localhost:3000';
-    res.redirect(`${appBaseUrl}/admin/settings?tab=integrations&connected=1`);
+    res.redirect(`${appBaseUrl}/t/${subdomain}/admin/settings?tab=integrations&connected=1`);
   }
 }

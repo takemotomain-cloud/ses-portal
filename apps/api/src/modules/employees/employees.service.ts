@@ -21,6 +21,9 @@ import { AuditService } from '../audit-logs/audit.service';
 import { PAGINATION } from '@ses-portal/shared';
 import * as bcrypt from 'bcrypt';
 import { encrypt, decrypt } from '../../common/utils/crypto';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+
+const SYSTEM_TENANT_ID = process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
 
 const MYNUMBER_KEY = process.env.MYNUMBER_ENCRYPTION_KEY || '';
 
@@ -58,6 +61,7 @@ export class EmployeesService {
     limit?: number;
     search?: string;
     status?: string;
+    tenantId: string;
   }) {
     const page = params.page || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(
@@ -67,7 +71,7 @@ export class EmployeesService {
     const skip = (page - 1) * limit;
 
     // WHERE条件を動的に組み立て
-    const where: any = { deletedAt: null };
+    const where: any = { tenantId: params.tenantId, deletedAt: null };
 
     if (params.status) {
       where.status = params.status;
@@ -128,10 +132,10 @@ export class EmployeesService {
    * アサイン未経験社員一覧（新規タブ用）
    * 一度もアサインされたことがない社員を返す。
    */
-  async findUnassigned() {
+  async findUnassigned(tenantId: string) {
     // SES事業部（parent_idがNULL & code='SES'）配下の社員のみ
     const sesDept = await this.db.department.findFirst({
-      where: { code: 'SES', parentId: null },
+      where: { code: 'SES', parentId: null, tenantId },
       select: { id: true },
     });
 
@@ -139,13 +143,14 @@ export class EmployeesService {
     if (sesDept) {
       sesDeptIds.push(sesDept.id);
       const children = await this.db.department.findMany({
-        where: { parentId: sesDept.id },
+        where: { parentId: sesDept.id, tenantId },
         select: { id: true },
       });
       sesDeptIds.push(...children.map((c) => c.id));
     }
 
     const where: any = {
+      tenantId,
       deletedAt: null,
       assignments: { none: {} },
       ...(sesDeptIds.length > 0 ? { departmentId: { in: sesDeptIds } } : {}),
@@ -191,12 +196,12 @@ export class EmployeesService {
    * @param id 社員UUID
    * @throws NotFoundException 社員が見つからない場合
    */
-  async findOne(id: string) {
+  async findOne(id: string, tenantId: string) {
     const employee = await this.db.employee.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       include: {
         // E: フロント側のロール表示 + ロール変更 API 用に user.id も含める
-        user: { select: { id: true, role: true } },
+        user: { select: { id: true, role: true, tenant: { select: { id: true, name: true, subdomain: true } } } },
         department: { select: { id: true, name: true, code: true } },
         position: { select: { id: true, name: true, rank: true } },
         emergencyContacts: {
@@ -243,6 +248,7 @@ export class EmployeesService {
 
     const attendances = await this.db.attendance.findMany({
       where: {
+        tenantId,
         employeeId: id,
         workDate: { gte: sixMonthsAgo },
       },
@@ -332,10 +338,10 @@ export class EmployeesService {
     bankAccountType?: string;
     bankAccountNumber?: string;
     bankAccountHolder?: string;
-  }, actorUserId?: string) {
+  }, actor: RequestUser) {
     // 重複チェック
     const existingEmail = await this.db.employee.findFirst({
-      where: { email: data.email, deletedAt: null },
+      where: { email: data.email, tenantId: actor.tenantId, deletedAt: null },
     });
     if (existingEmail) {
       throw new BadRequestException('このメールアドレスは既に使用されています');
@@ -345,6 +351,7 @@ export class EmployeesService {
     let employeeCode = data.employeeCode;
     if (!employeeCode) {
       const latest = await this.db.employee.findFirst({
+        where: { tenantId: actor.tenantId },
         orderBy: { employeeCode: 'desc' },
         select: { employeeCode: true },
       });
@@ -352,28 +359,21 @@ export class EmployeesService {
       employeeCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`;
     }
     const existingCode = await this.db.employee.findFirst({
-      where: { employeeCode, deletedAt: null },
+      where: { employeeCode, tenantId: actor.tenantId, deletedAt: null },
     });
     if (existingCode) {
       throw new BadRequestException('この社員番号は既に使用されています');
     }
 
-    // departmentId がUUIDでない場合、部署名からIDを解決
-    let departmentId = data.departmentId;
-    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(departmentId)) {
-      const dept = await this.db.department.findFirst({
-        where: { name: departmentId },
-        select: { id: true },
-      });
-      if (dept) {
-        departmentId = dept.id;
-      } else {
-        // デフォルトでSES事業部
-        const defaultDept = await this.db.department.findFirst({ select: { id: true } });
-        departmentId = defaultDept?.id || data.departmentId;
-      }
+    // departmentId の存在確認
+    const dept = await this.db.department.findFirst({
+      where: { id: data.departmentId, tenantId: actor.tenantId },
+      select: { id: true },
+    });
+    if (!dept) {
+      throw new BadRequestException('指定された部署が見つかりません');
     }
+    const departmentId = dept.id;
 
     // デフォルトパスワードのハッシュ
     const defaultPassword = 'Pass1234!';
@@ -383,6 +383,7 @@ export class EmployeesService {
     const employee = await this.db.$transaction(async (tx) => {
       const emp = await tx.employee.create({
         data: {
+          tenantId: actor.tenantId,
           lastName: data.lastName,
           firstName: data.firstName,
           lastNameKana: data.lastNameKana || '',
@@ -429,6 +430,7 @@ export class EmployeesService {
       // ログイン用 User レコード作成
       await tx.user.create({
         data: {
+          tenantId: actor.tenantId,
           employeeId: emp.id,
           passwordHash,
           role: 'employee',
@@ -450,14 +452,15 @@ export class EmployeesService {
         transferredGrantedDate: data.transferredLeaveGrantedDate
           ? new Date(data.transferredLeaveGrantedDate)
           : undefined,
-      });
+      }, actor.tenantId);
     } catch (err) {
       this.logger.error(`有給の自動付与に失敗: employee=${employee.id}`, err as any);
     }
 
     // T2: 監査ログ
     await this.auditService.log({
-      userId: actorUserId,
+      userId: actor.userId,
+      tenantId: actor.tenantId,
       action: 'employee.create',
       targetTable: 'employees',
       targetId: employee.id,
@@ -484,8 +487,9 @@ export class EmployeesService {
   /**
    * 給与テーブル（等級マスタ）一覧
    */
-  async getSalaryGrades() {
+  async getSalaryGrades(tenantId: string) {
     return this.db.salaryGrade.findMany({
+      where: { tenantId },
       orderBy: [{ department: 'asc' }, { overtimeType: 'asc' }, { grade: 'asc' }],
     });
   }
@@ -532,10 +536,10 @@ export class EmployeesService {
     hasBonus?: boolean;
     resignDate?: string | null;
     myNumber?: string | null;
-  }, actorUserId?: string) {
+  }, actorUserId?: string, tenantId?: string) {
     // 存在確認
     const existing = await this.db.employee.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       include: { user: { select: { id: true, role: true } } },
     });
     if (!existing) {
@@ -545,7 +549,7 @@ export class EmployeesService {
     // メール重複チェック（自分以外）
     if (data.email && data.email !== existing.email) {
       const emailExists = await this.db.employee.findFirst({
-        where: { email: data.email, deletedAt: null, id: { not: id } },
+        where: { email: data.email, tenantId, deletedAt: null, id: { not: id } },
       });
       if (emailExists) {
         throw new BadRequestException('このメールアドレスは既に使用されています');
@@ -567,7 +571,7 @@ export class EmployeesService {
       existing.user?.role === 'admin'
     ) {
       const activeAdminCount = await this.db.user.count({
-        where: { role: 'admin', employee: { deletedAt: null, status: { not: 'resigned' } } },
+        where: { tenantId, role: 'admin', employee: { deletedAt: null, status: { not: 'resigned' } } },
       });
       if (activeAdminCount <= 1) {
         throw new BadRequestException(
@@ -579,7 +583,7 @@ export class EmployeesService {
     // salaryGradeId が指定された場合、等級マスタから baseSalary 等を自動セット
     if (data.salaryGradeId !== undefined) {
       if (data.salaryGradeId) {
-        const grade = await this.db.salaryGrade.findUnique({ where: { id: data.salaryGradeId } });
+        const grade = await this.db.salaryGrade.findFirst({ where: { id: data.salaryGradeId, tenantId } });
         if (!grade) throw new BadRequestException('指定された給与等級が見つかりません');
         data.baseSalary = grade.baseSalary;
         (data as any).fixedOvertimePay = grade.fixedOvertimePay;
@@ -658,6 +662,7 @@ export class EmployeesService {
     }
     await this.auditService.log({
       userId: actorUserId,
+      tenantId,
       action: 'employee.update',
       targetTable: 'employees',
       targetId: id,
@@ -671,9 +676,9 @@ export class EmployeesService {
   /**
    * 論理削除済み社員一覧を取得（P1 復活フロー用）
    */
-  async findDeleted() {
+  async findDeleted(tenantId: string) {
     const data = await this.db.employee.findMany({
-      where: { deletedAt: { not: null } },
+      where: { tenantId, deletedAt: { not: null } },
       select: {
         id: true,
         employeeCode: true,
@@ -712,9 +717,9 @@ export class EmployeesService {
    * deletedAt にタイムスタンプをセットする。実レコードは残すため
    * 紐づく過去データ（勤怠・給与・アサインなど）は保護される。
    */
-  async softDelete(id: string, actorUserId?: string) {
+  async softDelete(id: string, actorUserId?: string, tenantId?: string) {
     const existing = await this.db.employee.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       include: { user: { select: { id: true, role: true } } },
     });
     if (!existing) {
@@ -724,7 +729,7 @@ export class EmployeesService {
     // E: 最後の admin 保護
     if (existing.user?.role === 'admin') {
       const activeAdminCount = await this.db.user.count({
-        where: { role: 'admin', employee: { deletedAt: null } },
+        where: { tenantId, role: 'admin', employee: { deletedAt: null } },
       });
       if (activeAdminCount <= 1) {
         throw new BadRequestException(
@@ -742,6 +747,7 @@ export class EmployeesService {
 
     await this.auditService.log({
       userId: actorUserId,
+      tenantId,
       action: 'employee.soft_delete',
       targetTable: 'employees',
       targetId: id,
@@ -752,20 +758,14 @@ export class EmployeesService {
   }
 
   /**
-   * 論理削除済み社員を復活（P1）
-   *
-   * deletedAt を null に戻す。復活対象が存在しない or 既にアクティブなら 404。
-   * メール重複・社員番号重複が発生した場合はエラー（復活ブロック）。
-   */
-  /**
    * マイナンバー閲覧（admin 限定、監査ログ必須・T2）
    *
    * 取得した時点でアクセスログを残す。マスクなしの値を返すので、
    * UI 側は明示的に「閲覧」ボタンを押した時のみ呼び出すこと。
    */
-  async getMyNumber(id: string, actorUserId?: string) {
+  async getMyNumber(id: string, actorUserId?: string, tenantId?: string) {
     const target = await this.db.employee.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       select: {
         id: true,
         employeeCode: true,
@@ -780,6 +780,7 @@ export class EmployeesService {
 
     await this.auditService.log({
       userId: actorUserId,
+      tenantId,
       action: 'pii.mynumber_view',
       targetTable: 'employees',
       targetId: id,
@@ -802,9 +803,9 @@ export class EmployeesService {
   /**
    * 銀行口座閲覧（admin 限定、監査ログ必須・T2）
    */
-  async getBankAccount(id: string, actorUserId?: string) {
+  async getBankAccount(id: string, actorUserId?: string, tenantId?: string) {
     const target = await this.db.employee.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       select: {
         id: true,
         employeeCode: true,
@@ -823,6 +824,7 @@ export class EmployeesService {
 
     await this.auditService.log({
       userId: actorUserId,
+      tenantId,
       action: 'pii.bank_view',
       targetTable: 'employees',
       targetId: id,
@@ -840,8 +842,8 @@ export class EmployeesService {
     };
   }
 
-  async restore(id: string, actorUserId?: string) {
-    const target = await this.db.employee.findUnique({ where: { id } });
+  async restore(id: string, actorUserId?: string, tenantId?: string) {
+    const target = await this.db.employee.findFirst({ where: { id, tenantId } });
     if (!target) {
       throw new NotFoundException('社員が見つかりません');
     }
@@ -851,14 +853,14 @@ export class EmployeesService {
 
     // 復活時にメール / 社員番号がアクティブな他社員と衝突していないかチェック
     const emailConflict = await this.db.employee.findFirst({
-      where: { email: target.email, deletedAt: null, id: { not: id } },
+      where: { email: target.email, tenantId, deletedAt: null, id: { not: id } },
     });
     if (emailConflict) {
       throw new BadRequestException('同じメールアドレスのアクティブ社員が存在するため復活できません');
     }
 
     const codeConflict = await this.db.employee.findFirst({
-      where: { employeeCode: target.employeeCode, deletedAt: null, id: { not: id } },
+      where: { employeeCode: target.employeeCode, tenantId, deletedAt: null, id: { not: id } },
     });
     if (codeConflict) {
       throw new BadRequestException('同じ社員番号のアクティブ社員が存在するため復活できません');
@@ -873,6 +875,7 @@ export class EmployeesService {
 
     await this.auditService.log({
       userId: actorUserId,
+      tenantId,
       action: 'employee.restore',
       targetTable: 'employees',
       targetId: id,
@@ -892,10 +895,10 @@ export class EmployeesService {
     name: string;
     relationship: string;
     phone: string;
-  }) {
+  }, tenantId: string) {
     // 社員存在確認
     const emp = await this.db.employee.findFirst({
-      where: { id: employeeId, deletedAt: null },
+      where: { id: employeeId, tenantId, deletedAt: null },
     });
     if (!emp) {
       throw new NotFoundException('社員が見つかりません');
@@ -903,7 +906,7 @@ export class EmployeesService {
 
     // sortOrder を自動設定（既存の最大値 + 1）
     const maxSort = await this.db.emergencyContact.findFirst({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       orderBy: { sortOrder: 'desc' },
       select: { sortOrder: true },
     });
@@ -911,6 +914,7 @@ export class EmployeesService {
 
     const contact = await this.db.emergencyContact.create({
       data: {
+        tenantId,
         employeeId,
         name: data.name,
         relationship: data.relationship,
@@ -928,9 +932,15 @@ export class EmployeesService {
   // 住民税（特別徴収）管理
   // ----------------------------------------
 
-  async getResidentTaxes(employeeId: string, fiscalYear: number) {
+  async getResidentTaxes(employeeId: string, fiscalYear: number, tenantId: string) {
+    // 社員存在確認
+    const emp = await this.db.employee.findFirst({
+      where: { id: employeeId, tenantId, deletedAt: null },
+    });
+    if (!emp) throw new NotFoundException('社員が見つかりません');
+
     const records = await this.db.employeeResidentTax.findMany({
-      where: { employeeId, fiscalYear },
+      where: { employeeId, fiscalYear, tenantId },
       orderBy: { month: 'asc' },
     });
     // 12ヶ月分を返す（未登録月は amount: 0）
@@ -943,32 +953,33 @@ export class EmployeesService {
     }));
   }
 
-  async upsertResidentTaxes(employeeId: string, fiscalYear: number, amounts: Record<string, number>) {
-    const employee = await this.db.employee.findUnique({ where: { id: employeeId } });
+  async upsertResidentTaxes(employeeId: string, fiscalYear: number, amounts: Record<string, number>, tenantId: string) {
+    const employee = await this.db.employee.findFirst({ where: { id: employeeId, tenantId } });
     if (!employee) throw new NotFoundException('社員が見つかりません');
 
     const upserts = Object.entries(amounts).map(([monthStr, amount]) => {
       const month = Number(monthStr);
       return this.db.employeeResidentTax.upsert({
-        where: { employeeId_fiscalYear_month: { employeeId, fiscalYear, month } },
-        create: { employeeId, fiscalYear, month, amount },
+        where: { tenantId_employeeId_fiscalYear_month: { tenantId, employeeId, fiscalYear, month } },
+        create: { tenantId, employeeId, fiscalYear, month, amount },
         update: { amount },
       });
     });
     await this.db.$transaction(upserts);
-    return this.getResidentTaxes(employeeId, fiscalYear);
+    return this.getResidentTaxes(employeeId, fiscalYear, tenantId);
   }
 
   // ----------------------------------------
   // 扶養家族管理
   // ----------------------------------------
 
-  async createDependent(employeeId: string, data: { name: string; relationship: string; birthDate: string; annualIncome?: number }) {
-    const employee = await this.db.employee.findUnique({ where: { id: employeeId } });
+  async createDependent(employeeId: string, data: { name: string; relationship: string; birthDate: string; annualIncome?: number }, tenantId: string) {
+    const employee = await this.db.employee.findFirst({ where: { id: employeeId, tenantId } });
     if (!employee) throw new NotFoundException('社員が見つかりません');
 
     const dep = await this.db.dependent.create({
       data: {
+        tenantId,
         employeeId,
         name: data.name,
         relationship: data.relationship,
@@ -979,9 +990,14 @@ export class EmployeesService {
     return dep;
   }
 
-  async updateDependent(employeeId: string, depId: string, data: { name?: string; relationship?: string; birthDate?: string; annualIncome?: number }) {
+  async updateDependent(employeeId: string, depId: string, data: { name?: string; relationship?: string; birthDate?: string; annualIncome?: number }, tenantId: string) {
     const dep = await this.db.dependent.findFirst({
-      where: { id: depId, employeeId, deletedAt: null },
+      where: { 
+        id: depId, 
+        employeeId, 
+        deletedAt: null,
+        tenantId
+      },
     });
     if (!dep) throw new NotFoundException('扶養家族が見つかりません');
 
@@ -991,17 +1007,22 @@ export class EmployeesService {
     if (data.birthDate !== undefined) update.birthDate = new Date(data.birthDate);
     if (data.annualIncome !== undefined) update.annualIncome = data.annualIncome;
 
-    return this.db.dependent.update({ where: { id: depId }, data: update });
+    return this.db.dependent.update({ where: { id: depId, tenantId } as any, data: update });
   }
 
-  async deleteDependent(employeeId: string, depId: string) {
+  async deleteDependent(employeeId: string, depId: string, tenantId: string) {
     const dep = await this.db.dependent.findFirst({
-      where: { id: depId, employeeId, deletedAt: null },
+      where: { 
+        id: depId, 
+        employeeId, 
+        deletedAt: null,
+        tenantId
+      },
     });
     if (!dep) throw new NotFoundException('扶養家族が見つかりません');
 
     await this.db.dependent.update({
-      where: { id: depId },
+      where: { id: depId, tenantId } as any,
       data: { deletedAt: new Date() },
     });
     return { deleted: true };

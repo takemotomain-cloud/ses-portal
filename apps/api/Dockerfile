@@ -15,43 +15,38 @@ WORKDIR /app
 # pnpm をインストール
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# 依存パッケージのインストール（キャッシュ効率化のためpackage.jsonだけ先にコピー）
-COPY package.json pnpm-lock.yaml* ./
-COPY apps/api/package.json ./apps/api/
-COPY packages/shared/package.json ./packages/shared/
-COPY pnpm-workspace.yaml ./
+# 全ソースをコピー（pnpm deploy のため）
+COPY . .
 
-RUN pnpm install --frozen-lockfile --filter @ses-portal/api...
-
-# ソースコードをコピー
-COPY apps/api/ ./apps/api/
-COPY packages/shared/ ./packages/shared/
-
-# Prisma クライアント生成
-RUN cd apps/api && npx prisma generate
+RUN pnpm install --no-frozen-lockfile
 
 # ビルド
-RUN cd apps/api && pnpm build
+RUN pnpm turbo build --filter=@ses-portal/api...
+
+# 実行用ファイルを抽出 (pnpm deploy)
+RUN pnpm --filter @ses-portal/api --prod deploy pruned
+# ビルド成果物を pruned に手動でコピー（pnpm deploy は package.json の files 等に従うため）
+RUN cp -r apps/api/dist pruned/dist
+# pruned 側で再度 prisma generate を実行し、.prisma/client を生成する
+RUN cd pruned && npx prisma@6 generate
 
 # --- Stage 2: Production ---
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
 # セキュリティ: 非rootユーザーで実行
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
-# ビルド成果物と依存パッケージをコピー
-COPY --from=builder /app/apps/api/dist ./dist
-COPY --from=builder /app/apps/api/node_modules ./node_modules
-COPY --from=builder /app/apps/api/prisma ./prisma
-COPY --from=builder /app/apps/api/package.json ./
+# 起動に必要なディレクトリの準備と権限設定
+RUN mkdir -p /app/uploads && chown -R nestjs:nodejs /app/uploads
 
-# Prisma クライアントをコピー
-COPY --from=builder /app/apps/api/node_modules/.prisma ./node_modules/.prisma
+# pruned ディレクトリから成果物をコピー
+COPY --from=builder --chown=nestjs:nodejs /app/pruned/dist ./dist
+COPY --from=builder --chown=nestjs:nodejs /app/pruned/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/pruned/prisma ./prisma
+COPY --from=builder --chown=nestjs:nodejs /app/pruned/package.json ./
 
 USER nestjs
 

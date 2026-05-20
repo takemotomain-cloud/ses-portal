@@ -31,7 +31,7 @@ export class PayrollController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.payrollService.getMyPayslip(user.employeeId, year, month);
+    return this.payrollService.getMyPayslip(user.tenantId, user.employeeId, year, month);
   }
 
   /* ------------------------------------------------------------------
@@ -46,24 +46,24 @@ export class PayrollController {
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '請求書情報を取得' })
-  async getCompanyInfo() {
-    return this.payrollService.getCompanyInfo();
+  async getCompanyInfo(@CurrentUser() user: RequestUser) {
+    return this.payrollService.getCompanyInfo(user.tenantId);
   }
 
   @Patch('payroll/company-info')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '請求書情報を更新' })
-  async updateCompanyInfo(@Body() body: any) {
-    return this.payrollService.updateCompanyInfo(body);
+  async updateCompanyInfo(@CurrentUser() user: RequestUser, @Body() body: any) {
+    return this.payrollService.updateCompanyInfo(user.tenantId, body);
   }
 
   @Get('payroll/rate-master')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '料率マスタを取得' })
-  async getRateMaster() {
-    return this.payrollService.getRateMaster();
+  async getRateMaster(@CurrentUser() user: RequestUser) {
+    return this.payrollService.getRateMaster(user.tenantId);
   }
 
   @Patch('payroll/rate-master')
@@ -81,7 +81,7 @@ export class PayrollController {
       residentTaxFixed?: number;
     },
   ) {
-    return this.payrollService.updateRateMaster(body, user.employeeId);
+    return this.payrollService.updateRateMaster(user.tenantId, body, user.employeeId);
   }
 
   @Get('payroll/:year/:month')
@@ -93,7 +93,7 @@ export class PayrollController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.payrollService.getMonthlyPayroll(year, month, {
+    return this.payrollService.getMonthlyPayroll(user.tenantId, year, month, {
       role: user.role,
       employeeId: user.employeeId,
       userId: user.userId,
@@ -105,10 +105,11 @@ export class PayrollController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与計算用: 勤怠確定ステータス取得' })
   async getClosureStatus(
+    @CurrentUser() user: RequestUser,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.payrollService.getClosureStatus(year, month);
+    return this.payrollService.getClosureStatus(user.tenantId, year, month);
   }
 
   @Post('payroll/:year/:month/calc')
@@ -116,10 +117,11 @@ export class PayrollController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与計算を実行（管理者用）' })
   async calculate(
+    @CurrentUser() user: RequestUser,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.payrollService.calculateMonthly(year, month);
+    return this.payrollService.calculateMonthly(user.tenantId, year, month);
   }
 
   @Post('payroll/record/:id/confirm')
@@ -130,7 +132,7 @@ export class PayrollController {
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    return this.payrollService.confirmPayrollRecord(id, user.userId);
+    return this.payrollService.confirmPayrollRecord(user.tenantId, id, user.userId);
   }
 
   /* ------------------------------------------------------------------
@@ -160,7 +162,7 @@ export class PayrollController {
       reason?: string;
     },
   ) {
-    return this.payrollService.updatePayrollRecord(id, body, user.employeeId, user.userId, {
+    return this.payrollService.updatePayrollRecord(user.tenantId, id, body, user.employeeId, user.userId, {
       role: user.role,
       employeeId: user.employeeId,
     });
@@ -170,7 +172,7 @@ export class PayrollController {
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '給与レコードの編集履歴を取得' })
-  async getPayrollEditHistory(@Param('id') id: string) {
-    return this.payrollService.getPayrollEditHistory(id);
+  async getPayrollEditHistory(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.payrollService.getPayrollEditHistory(user.tenantId, id);
   }
 }

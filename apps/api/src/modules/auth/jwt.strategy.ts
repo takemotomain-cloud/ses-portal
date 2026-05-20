@@ -102,6 +102,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       name: `${user.employee.lastName} ${user.employee.firstName}`,
       email: user.employee.email,
       role: user.role,
+      tenantId: user.tenantId,
     };
   }
 }

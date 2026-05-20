@@ -19,16 +19,20 @@ export class YearendService {
   ) {}
 
   /** 自分の年末調整状況を取得 */
-  async getMyStatus(employeeId: string, fiscalYear: number) {
+  async getMyStatus(tenantId: string, employeeId: string, fiscalYear: number) {
     return this.db.yearendAdjustment.findUnique({
-      where: { employeeId_fiscalYear: { employeeId, fiscalYear } },
+      where: {
+        tenantId_employeeId_fiscalYear: { tenantId, employeeId, fiscalYear },
+      },
     });
   }
 
   /** 年末調整を提出（新規・再提出） */
-  async submit(employeeId: string, fiscalYear: number, formData: any) {
+  async submit(tenantId: string, employeeId: string, fiscalYear: number, formData: any) {
     const existing = await this.db.yearendAdjustment.findUnique({
-      where: { employeeId_fiscalYear: { employeeId, fiscalYear } },
+      where: {
+        tenantId_employeeId_fiscalYear: { tenantId, employeeId, fiscalYear },
+      },
     });
 
     if (existing?.status === 'submitted') {
@@ -42,9 +46,16 @@ export class YearendService {
     }
 
     const result = await this.db.yearendAdjustment.upsert({
-      where: { employeeId_fiscalYear: { employeeId, fiscalYear } },
+      where: {
+        tenantId_employeeId_fiscalYear: { tenantId, employeeId, fiscalYear },
+      },
       create: {
-        employeeId, fiscalYear, formData, status: 'submitted', submittedAt: new Date(),
+        tenantId,
+        employeeId,
+        fiscalYear,
+        formData,
+        status: 'submitted',
+        submittedAt: new Date(),
       },
       update: {
         formData,
@@ -56,15 +67,15 @@ export class YearendService {
       },
     });
 
-    this.logger.log(`Yearend adjustment submitted: employee ${employeeId}, year ${fiscalYear}`);
-    this.notifications.notifyAdmins('年末調整', 'が年末調整を提出しました。', employeeId).catch(() => {});
+    this.logger.log(`Yearend adjustment submitted: tenant ${tenantId}, employee ${employeeId}, year ${fiscalYear}`);
+    this.notifications.notifyAdmins(tenantId, '年末調整', 'が年末調整を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
   /** 承認（管理者用） */
-  async approve(id: string, approverId: string) {
+  async approve(tenantId: string, id: string, approverId: string) {
     const record = await this.db.yearendAdjustment.findFirst({
-      where: { id, status: 'submitted' },
+      where: { id, tenantId, status: 'submitted' },
     });
     if (!record) throw new NotFoundException('提出済みの年末調整が見つかりません');
 
@@ -73,14 +84,19 @@ export class YearendService {
       data: { status: 'approved', approvedBy: approverId, approvedAt: new Date() },
     });
 
-    this.notifications.create({ employeeId: record.employeeId, title: '年末調整', body: '年末調整が承認されました。' }).catch(() => {});
+    this.notifications.create({
+      tenantId,
+      employeeId: record.employeeId,
+      title: '年末調整',
+      body: '年末調整が承認されました。',
+    }).catch(() => {});
     return { id };
   }
 
   /** 差し戻し（管理者用） */
-  async reject(id: string, approverId: string, reason: string) {
+  async reject(tenantId: string, id: string, approverId: string, reason: string) {
     const record = await this.db.yearendAdjustment.findFirst({
-      where: { id, status: 'submitted' },
+      where: { id, tenantId, status: 'submitted' },
     });
     if (!record) throw new NotFoundException('提出済みの年末調整が見つかりません');
 
@@ -89,23 +105,28 @@ export class YearendService {
       data: { status: 'rejected', approvedBy: approverId, approvedAt: new Date(), rejectReason: reason },
     });
 
-    this.notifications.create({ employeeId: record.employeeId, title: '年末調整', body: `年末調整が差し戻されました。理由: ${reason}` }).catch(() => {});
+    this.notifications.create({
+      tenantId,
+      employeeId: record.employeeId,
+      title: '年末調整',
+      body: `年末調整が差し戻されました。理由: ${reason}`,
+    }).catch(() => {});
     return { id };
   }
 
   /** 承認待ち一覧（管理者用） */
-  async getPendingList(fiscalYear: number) {
+  async getPendingList(tenantId: string, fiscalYear: number) {
     return this.db.yearendAdjustment.findMany({
-      where: { fiscalYear, status: 'submitted' },
+      where: { tenantId, fiscalYear, status: 'submitted' },
       include: { employee: { select: { employeeCode: true, lastName: true, firstName: true } } },
       orderBy: { submittedAt: 'asc' },
     });
   }
 
   /** 全社員の提出状況（管理者用） */
-  async getAllStatus(fiscalYear: number) {
+  async getAllStatus(tenantId: string, fiscalYear: number) {
     return this.db.yearendAdjustment.findMany({
-      where: { fiscalYear },
+      where: { tenantId, fiscalYear },
       include: { employee: { select: { employeeCode: true, lastName: true, firstName: true } } },
       orderBy: { employee: { employeeCode: 'asc' } },
     });

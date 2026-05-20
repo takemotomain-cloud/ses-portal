@@ -49,8 +49,9 @@ export class AssignmentsController {
       startDate: string;
       endDate?: string;
     },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.assignmentsService.create(body);
+    return this.assignmentsService.create(body, user.tenantId);
   }
 
   /**
@@ -60,11 +61,12 @@ export class AssignmentsController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'アサイン一覧' })
   async findAll(
+    @CurrentUser() user: RequestUser,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('status') status?: string,
   ) {
-    return this.assignmentsService.findAll({ page, limit, status });
+    return this.assignmentsService.findAll({ page, limit, status, tenantId: user.tenantId });
   }
 
   /**
@@ -103,7 +105,7 @@ export class AssignmentsController {
     return this.assignmentsService.update(id, {
       ...body,
       rateChangedBy: user.employeeId,
-    });
+    }, user.tenantId);
   }
 
   /**
@@ -112,8 +114,11 @@ export class AssignmentsController {
   @Get(':id/rate-history')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '単価改定履歴' })
-  async getRateHistory(@Param('id') id: string) {
-    return this.assignmentsService.getRateHistory(id);
+  async getRateHistory(
+    @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.assignmentsService.getRateHistory(id, user.tenantId);
   }
 
   /**
@@ -124,9 +129,10 @@ export class AssignmentsController {
   @ApiOperation({ summary: '稼働終了' })
   async endAssignment(
     @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
     @Body() body?: { mode?: string; endDate?: string; endReason?: string },
   ) {
-    return this.assignmentsService.endAssignment(id, body);
+    return this.assignmentsService.endAssignment(id, user.tenantId, body);
   }
 
   @Patch(':id/extend')
@@ -134,20 +140,21 @@ export class AssignmentsController {
   @ApiOperation({ summary: '契約延長' })
   async extendAssignment(
     @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
     @Body() body: { endDate: string },
   ) {
-    return this.assignmentsService.extendAssignment(id, body.endDate);
+    return this.assignmentsService.extendAssignment(id, user.tenantId, body.endDate);
   }
 
   @Get('current')
   @ApiOperation({ summary: '現在の稼働先を取得' })
   async getCurrent(@CurrentUser() user: RequestUser) {
-    return this.assignmentsService.getCurrentAssignment(user.employeeId);
+    return this.assignmentsService.getCurrentAssignment(user.employeeId, user.tenantId);
   }
 
   @Get('history')
   @ApiOperation({ summary: '稼働ヒストリーを取得' })
   async getHistory(@CurrentUser() user: RequestUser) {
-    return this.assignmentsService.getHistory(user.employeeId);
+    return this.assignmentsService.getHistory(user.employeeId, user.tenantId);
   }
 }

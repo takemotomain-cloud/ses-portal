@@ -39,6 +39,7 @@ export class GeneralExpenseService {
   async createPreApproval(
     employeeId: string,
     data: { expectedDate: string; description: string; estimatedAmount: number },
+    tenantId: string,
   ) {
     if (!data.expectedDate) throw new BadRequestException('発生予定日を入力してください');
     if (!data.description?.trim()) throw new BadRequestException('内容を入力してください');
@@ -54,6 +55,7 @@ export class GeneralExpenseService {
 
     const result = await this.db.preApproval.create({
       data: {
+        tenantId,
         employeeId,
         expectedDate,
         description: data.description.trim(),
@@ -62,23 +64,24 @@ export class GeneralExpenseService {
       },
     });
 
-    this.notifications.notifyAdmins('事前申請', 'が事前申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '事前申請', 'が事前申請を提出しました。', employeeId).catch(() => {});
     return result;
   }
 
-  async getMyPreApprovals(employeeId: string) {
+  async getMyPreApprovals(employeeId: string, tenantId: string) {
     return this.db.preApproval.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       include: { generalExpenses: { select: { id: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   /** 承認済みかつ未使用（経費申請とペアになっていない）の事前申請 */
-  async getMyApprovedUnusedPreApprovals(employeeId: string) {
+  async getMyApprovedUnusedPreApprovals(employeeId: string, tenantId: string) {
     return this.db.preApproval.findMany({
       where: {
         employeeId,
+        tenantId,
         status: 'approved',
         generalExpenses: { none: {} },
       },
@@ -86,8 +89,8 @@ export class GeneralExpenseService {
     });
   }
 
-  async getAllPreApprovals(status?: string) {
-    const where: any = {};
+  async getAllPreApprovals(tenantId: string, status?: string) {
+    const where: any = { tenantId };
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
       where.status = status;
     }
@@ -101,14 +104,14 @@ export class GeneralExpenseService {
     });
   }
 
-  async approvePreApproval(id: string, approverEmployeeId: string, actorUserId?: string) {
-    const pa = await this.db.preApproval.findUnique({ where: { id } });
+  async approvePreApproval(id: string, approverEmployeeId: string, tenantId: string, actorUserId?: string) {
+    const pa = await this.db.preApproval.findUnique({ where: { id, tenantId } });
     if (!pa) throw new NotFoundException('事前申請が見つかりません');
     if (pa.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
     if (pa.employeeId === approverEmployeeId) throw new ForbiddenException('自分の申請は承認できません');
 
     await this.db.preApproval.update({
-      where: { id },
+      where: { id, tenantId },
       data: { status: 'approved', approverId: approverEmployeeId, approvedAt: new Date() },
     });
 
@@ -120,20 +123,21 @@ export class GeneralExpenseService {
     });
 
     this.notifications.create({
+      tenantId,
       employeeId: pa.employeeId,
       title: '事前申請',
       body: '事前申請が承認されました。経費申請を提出できます。',
     }).catch(() => {});
   }
 
-  async rejectPreApproval(id: string, approverEmployeeId: string, actorUserId?: string, reason?: string) {
-    const pa = await this.db.preApproval.findUnique({ where: { id } });
+  async rejectPreApproval(id: string, approverEmployeeId: string, tenantId: string, actorUserId?: string, reason?: string) {
+    const pa = await this.db.preApproval.findUnique({ where: { id, tenantId } });
     if (!pa) throw new NotFoundException('事前申請が見つかりません');
     if (pa.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
     if (pa.employeeId === approverEmployeeId) throw new ForbiddenException('自分の申請は処理できません');
 
     await this.db.preApproval.update({
-      where: { id },
+      where: { id, tenantId },
       data: { status: 'rejected', approverId: approverEmployeeId, approvedAt: new Date(), rejectReason: reason || null },
     });
 
@@ -145,6 +149,7 @@ export class GeneralExpenseService {
     });
 
     this.notifications.create({
+      tenantId,
       employeeId: pa.employeeId,
       title: '事前申請',
       body: '事前申請が却下されました。',
@@ -152,11 +157,11 @@ export class GeneralExpenseService {
   }
 
   // ==================== 経費申請 ====================
-
   async createExpense(
     employeeId: string,
     role: string,
     data: { expenseDate: string; description: string; amount: number; preApprovalId?: string },
+    tenantId: string,
     file?: Express.Multer.File,
   ) {
     // SES事業部（employeeロール）は経費申請不可
@@ -190,7 +195,7 @@ export class GeneralExpenseService {
         throw new BadRequestException('承認済みの事前申請を選択してください');
       }
       const pa = await this.db.preApproval.findUnique({
-        where: { id: data.preApprovalId },
+        where: { id: data.preApprovalId, tenantId },
         include: { generalExpenses: { select: { id: true } } },
       });
       if (!pa) throw new NotFoundException('事前申請が見つかりません');
@@ -205,6 +210,7 @@ export class GeneralExpenseService {
 
     const result = await this.db.generalExpense.create({
       data: {
+        tenantId,
         employeeId,
         preApprovalId,
         expenseDate,
@@ -217,21 +223,21 @@ export class GeneralExpenseService {
     });
 
     this.logger.log(`General expense created: ${result.id} (${data.amount}円)`);
-    this.notifications.notifyAdmins('経費申請', 'が経費申請を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '経費申請', 'が経費申請を提出しました。', employeeId).catch(() => {});
 
     return result;
   }
 
-  async getMyExpenses(employeeId: string) {
+  async getMyExpenses(employeeId: string, tenantId: string) {
     return this.db.generalExpense.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       include: { preApproval: { select: { id: true, description: true, expectedDate: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async getAllExpenses(status?: string) {
-    const where: any = {};
+  async getAllExpenses(tenantId: string, status?: string) {
+    const where: any = { tenantId };
     if (status && ['pending', 'approved', 'rejected'].includes(status)) {
       where.status = status;
     }
@@ -245,14 +251,14 @@ export class GeneralExpenseService {
     });
   }
 
-  async approveExpense(id: string, approverEmployeeId: string, actorUserId?: string) {
-    const expense = await this.db.generalExpense.findUnique({ where: { id } });
+  async approveExpense(id: string, approverEmployeeId: string, tenantId: string, actorUserId?: string) {
+    const expense = await this.db.generalExpense.findUnique({ where: { id, tenantId } });
     if (!expense) throw new NotFoundException('経費申請が見つかりません');
     if (expense.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
     if (expense.employeeId === approverEmployeeId) throw new ForbiddenException('自分の申請は承認できません');
 
     await this.db.generalExpense.update({
-      where: { id },
+      where: { id, tenantId },
       data: { status: 'approved', approverId: approverEmployeeId, approvedAt: new Date() },
     });
 
@@ -264,20 +270,21 @@ export class GeneralExpenseService {
     });
 
     this.notifications.create({
+      tenantId,
       employeeId: expense.employeeId,
       title: '経費申請',
       body: '経費申請が承認されました。',
     }).catch(() => {});
   }
 
-  async rejectExpense(id: string, approverEmployeeId: string, actorUserId?: string, reason?: string) {
-    const expense = await this.db.generalExpense.findUnique({ where: { id } });
+  async rejectExpense(id: string, approverEmployeeId: string, tenantId: string, actorUserId?: string, reason?: string) {
+    const expense = await this.db.generalExpense.findUnique({ where: { id, tenantId } });
     if (!expense) throw new NotFoundException('経費申請が見つかりません');
     if (expense.status !== 'pending') throw new BadRequestException('この申請は既に処理済みです');
     if (expense.employeeId === approverEmployeeId) throw new ForbiddenException('自分の申請は処理できません');
 
     await this.db.generalExpense.update({
-      where: { id },
+      where: { id, tenantId },
       data: { status: 'rejected', approverId: approverEmployeeId, approvedAt: new Date(), rejectReason: reason || null },
     });
 
@@ -289,6 +296,7 @@ export class GeneralExpenseService {
     });
 
     this.notifications.create({
+      tenantId,
       employeeId: expense.employeeId,
       title: '経費申請',
       body: '経費申請が却下されました。',

@@ -30,6 +30,7 @@ export function middleware(request: NextRequest) {
   // ログインページ・API・静的アセットはスキップ
   if (
     pathname.startsWith('/login') ||
+    pathname.startsWith('/t/') ||
     pathname.startsWith('/api') ||
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico'

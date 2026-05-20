@@ -202,53 +202,61 @@ async function main() {
   // 既存データを削除
   await prisma.salaryGrade.deleteMany();
 
-  // SES事業部
-  for (const g of SES_GRADES) {
-    await prisma.salaryGrade.create({
-      data: {
-        department: 'ses',
-        grade: g.grade,
-        overtimeType: 20,
-        grossSalary: g.grossSalary,
-        baseSalary: g.baseSalary,
-        fixedOvertimePay: g.fixedOvertimePay,
-        positionAllowance: 0,
-      },
-    });
-  }
-  console.log(`  SES: ${SES_GRADES.length} grades`);
+  const tenants = await prisma.tenant.findMany();
+  for (const tenant of tenants) {
+    console.log(`Seeding salary grades for tenant: ${tenant.name} (${tenant.id})...`);
 
-  // 管理部 20H
-  for (const g of ADMIN_20H_GRADES) {
-    await prisma.salaryGrade.create({
-      data: {
-        department: 'admin',
-        grade: g.grade,
-        overtimeType: 20,
-        grossSalary: g.grossSalary,
-        baseSalary: g.baseSalary,
-        fixedOvertimePay: g.fixedOvertimePay,
-        positionAllowance: 0,
-      },
-    });
-  }
-  console.log(`  Admin 20H: ${ADMIN_20H_GRADES.length} grades`);
+    // SES事業部
+    for (const g of SES_GRADES) {
+      await prisma.salaryGrade.create({
+        data: {
+          tenantId: tenant.id,
+          department: 'ses',
+          grade: g.grade,
+          overtimeType: 20,
+          grossSalary: g.grossSalary,
+          baseSalary: g.baseSalary,
+          fixedOvertimePay: g.fixedOvertimePay,
+          positionAllowance: 0,
+        },
+      });
+    }
+    console.log(`  SES: ${SES_GRADES.length} grades`);
 
-  // 管理部 40H
-  for (const g of ADMIN_40H_GRADES) {
-    await prisma.salaryGrade.create({
-      data: {
-        department: 'admin',
-        grade: g.grade,
-        overtimeType: 40,
-        grossSalary: g.grossSalary,
-        baseSalary: g.baseSalary,
-        fixedOvertimePay: g.fixedOvertimePay,
-        positionAllowance: g.positionAllowance,
-      },
-    });
+    // 管理部 20H
+    for (const g of ADMIN_20H_GRADES) {
+      await prisma.salaryGrade.create({
+        data: {
+          tenantId: tenant.id,
+          department: 'admin',
+          grade: g.grade,
+          overtimeType: 20,
+          grossSalary: g.grossSalary,
+          baseSalary: g.baseSalary,
+          fixedOvertimePay: g.fixedOvertimePay,
+          positionAllowance: 0,
+        },
+      });
+    }
+    console.log(`  Admin 20H: ${ADMIN_20H_GRADES.length} grades`);
+
+    // 管理部 40H
+    for (const g of ADMIN_40H_GRADES) {
+      await prisma.salaryGrade.create({
+        data: {
+          tenantId: tenant.id,
+          department: 'admin',
+          grade: g.grade,
+          overtimeType: 40,
+          grossSalary: g.grossSalary,
+          baseSalary: g.baseSalary,
+          fixedOvertimePay: g.fixedOvertimePay,
+          positionAllowance: g.positionAllowance,
+        },
+      });
+    }
+    console.log(`  Admin 40H: ${ADMIN_40H_GRADES.length} grades`);
   }
-  console.log(`  Admin 40H: ${ADMIN_40H_GRADES.length} grades`);
 
   console.log('Done!');
 }

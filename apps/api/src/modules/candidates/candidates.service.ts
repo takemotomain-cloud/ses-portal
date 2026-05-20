@@ -25,7 +25,7 @@ export class CandidatesService {
   /**
    * 候補者を作成
    */
-  async create(data: {
+  async create(tenantId: string, data: {
     lastName: string;
     firstName: string;
     lastNameKana?: string;
@@ -54,6 +54,7 @@ export class CandidatesService {
     });
     return this.db.candidate.create({
       data: {
+        tenantId,
         lastName: data.lastName,
         firstName: data.firstName,
         lastNameKana: data.lastNameKana || null,
@@ -83,8 +84,9 @@ export class CandidatesService {
   /**
    * 候補者一覧を取得
    */
-  async findAll() {
+  async findAll(tenantId: string) {
     return this.db.candidate.findMany({
+      where: { tenantId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -109,7 +111,7 @@ export class CandidatesService {
    * 採用経路別分析データ
    * Candidateのsource/statusを集計して返す
    */
-  async getAnalytics(year?: number) {
+  async getAnalytics(tenantId: string, year?: number) {
     // year は「年度」(5月始まり)。2026年度 = 2026/5/1 〜 2027/4/30
     const now = new Date();
     const targetYear = year || (now.getMonth() + 1 >= 5 ? now.getFullYear() : now.getFullYear() - 1);
@@ -119,6 +121,7 @@ export class CandidatesService {
     const [candidates, statuses] = await Promise.all([
       this.db.candidate.findMany({
         where: {
+          tenantId,
           applicationDate: { gte: startDate, lt: endDate },
         },
       }),
@@ -172,26 +175,35 @@ export class CandidatesService {
   }
 
   // ---- 採用経路マスタ ----
-  async getSources() {
+  async getSources(tenantId: string) {
     return this.db.recruitSource.findMany({
-      where: { isActive: true },
+      where: { tenantId, isActive: true },
       orderBy: { sortOrder: 'asc' },
     });
   }
 
-  async createSource(data: { name: string; category: string; fee?: string; memo?: string }) {
-    const maxOrder = await this.db.recruitSource.aggregate({ _max: { sortOrder: true } });
+  async createSource(tenantId: string, data: { name: string; category: string; fee?: string; memo?: string }) {
+    const maxOrder = await this.db.recruitSource.aggregate({
+      where: { tenantId },
+      _max: { sortOrder: true },
+    });
     return this.db.recruitSource.create({
-      data: { ...data, sortOrder: (maxOrder._max.sortOrder || 0) + 1 },
+      data: { ...data, tenantId, sortOrder: (maxOrder._max.sortOrder || 0) + 1 },
     });
   }
 
-  async updateSource(id: string, data: { name?: string; category?: string; fee?: string; memo?: string }) {
-    return this.db.recruitSource.update({ where: { id }, data });
+  async updateSource(tenantId: string, id: string, data: { name?: string; category?: string; fee?: string; memo?: string }) {
+    return this.db.recruitSource.updateMany({
+      where: { id, tenantId },
+      data,
+    });
   }
 
-  async deleteSource(id: string) {
-    return this.db.recruitSource.update({ where: { id }, data: { isActive: false } });
+  async deleteSource(tenantId: string, id: string) {
+    return this.db.recruitSource.updateMany({
+      where: { id, tenantId },
+      data: { isActive: false },
+    });
   }
 
   // ---- 採用ステータスマスタ ----
@@ -302,23 +314,25 @@ export class CandidatesService {
   }
 
   // ---- 採用予算 ----
-  async getBudgets(fiscalYear: number) {
+  async getBudgets(tenantId: string, fiscalYear: number) {
     return this.db.recruitBudget.findMany({
-      where: { fiscalYear },
+      where: { tenantId, fiscalYear },
       orderBy: [{ category: 'asc' }, { month: 'asc' }],
     });
   }
 
-  async upsertBudget(data: { fiscalYear: number; category: string; month: number; budget?: number; actual?: number }) {
+  async upsertBudget(tenantId: string, data: { fiscalYear: number; category: string; month: number; budget?: number; actual?: number }) {
     return this.db.recruitBudget.upsert({
       where: {
-        fiscalYear_category_month: {
+        tenantId_fiscalYear_category_month: {
+          tenantId,
           fiscalYear: data.fiscalYear,
           category: data.category,
           month: data.month,
         },
       },
       create: {
+        tenantId,
         fiscalYear: data.fiscalYear,
         category: data.category,
         month: data.month,

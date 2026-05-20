@@ -255,6 +255,9 @@ export interface AuthUser {
   role: UserRole;
   employeeStatus: EmployeeStatus;
   resignDate: string | null;
+  tenantId: string;
+  tenantName: string;
+  subdomain: string | null;
 }
 
 // ============================================================

@@ -17,10 +17,12 @@ export class MeetingsService {
   /**
    * 面談記録を作成
    *
+   * @param tenantId テナントID
    * @param employeeId 社員UUID
    * @param data 面談データ
    */
   async create(
+    tenantId: string,
     employeeId: string,
     data: {
       date: string;
@@ -31,6 +33,7 @@ export class MeetingsService {
   ) {
     return this.db.meeting.create({
       data: {
+        tenantId,
         employeeId,
         date: new Date(data.date),
         interviewer: data.interviewer,
@@ -43,11 +46,12 @@ export class MeetingsService {
   /**
    * 社員の面談記録一覧を取得
    *
+   * @param tenantId テナントID
    * @param employeeId 社員UUID
    */
-  async findByEmployee(employeeId: string) {
+  async findByEmployee(tenantId: string, employeeId: string) {
     return this.db.meeting.findMany({
-      where: { employeeId },
+      where: { tenantId, employeeId },
       orderBy: { date: 'desc' },
     });
   }

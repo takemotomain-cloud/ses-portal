@@ -75,9 +75,20 @@ export async function apiClient<T>(
     // 401: トークン無効 → ログイン画面にリダイレクト
     if (response.status === 401 && typeof window !== 'undefined') {
       removeToken();
-      // ログインページ以外にいる場合のみリダイレクト
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login';
+      // ログインページ（共通/テナント別）以外にいる場合のみリダイレクト
+      const isLoginPage = 
+        window.location.pathname === '/login' || 
+        window.location.pathname.endsWith('/login');
+        
+      if (!isLoginPage) {
+        // 現在のURLからテナントコード（/t/subdomain/...）を抽出
+        const pathname = window.location.pathname;
+        const tenantMatch = pathname.match(/^\/t\/([^\/]+)/);
+        if (tenantMatch) {
+          window.location.href = `/t/${tenantMatch[1]}/login`;
+        } else {
+          window.location.href = '/login';
+        }
       }
     }
 

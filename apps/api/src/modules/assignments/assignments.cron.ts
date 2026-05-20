@@ -51,10 +51,14 @@ export class AssignmentsCron {
     } catch (err: any) {
       this.logger.error(`autoEndExpiredAssignments cron 失敗: ${err?.message ?? err}`, err?.stack);
       try {
-        await this.notificationsService.notifyAdmins(
-          '[cron失敗] アサイン自動終了',
-          `assignments.cron の autoEndExpiredAssignments で例外が発生しました: ${err?.message ?? err}`,
-        );
+        const tenants = await this.db.tenant.findMany({ select: { id: true } });
+        for (const t of tenants) {
+          await this.notificationsService.notifyAdmins(
+            t.id,
+            '[cron失敗] アサイン自動終了',
+            `assignments.cron の autoEndExpiredAssignments で例外が発生しました: ${err?.message ?? err}`,
+          );
+        }
       } catch (notifyErr: any) {
         this.logger.error(`管理者通知も失敗: ${notifyErr?.message ?? notifyErr}`);
       }

@@ -27,6 +27,7 @@ export interface AuditLogInput {
   newValue?: any;
   ipAddress?: string | null;
   userAgent?: string | null;
+  tenantId?: string | null;
 }
 
 @Injectable()
@@ -54,14 +55,14 @@ export class AuditService {
       this.logger.warn(`audit log write failed: ${err?.message ?? err}`);
     }
   }
-
   /**
    * 監査ログの一覧取得（管理画面「操作ログ」タブで使用）
    */
-  async findAll(params: { limit?: number; offset?: number; action?: string; userId?: string } = {}) {
+  async findAll(params: { limit?: number; offset?: number; action?: string; userId?: string; tenantId?: string } = {}) {
     const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 200) : 100;
     const offset = params.offset && params.offset > 0 ? params.offset : 0;
     const where: any = {};
+    if (params.tenantId) where.tenantId = params.tenantId;
     if (params.action) where.action = params.action;
     if (params.userId) where.userId = params.userId;
 

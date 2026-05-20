@@ -70,14 +70,15 @@ export class SkillsheetPdfService {
   /**
    * 対象社員のスキルシートを 1 つの PDF（複数ページ）にまとめて返す
    *
+   * @param tenantId テナント ID
    * @param employeeIds 社員 ID 配列
    * @returns PDF の Buffer。1 人も対象がいない場合は null
    */
-  async generateSkillsheetPdf(employeeIds: string[]): Promise<Buffer | null> {
+  async generateSkillsheetPdf(tenantId: string, employeeIds: string[]): Promise<Buffer | null> {
     if (!employeeIds || employeeIds.length === 0) return null;
 
     const employees = await this.db.employee.findMany({
-      where: { id: { in: employeeIds }, deletedAt: null },
+      where: { id: { in: employeeIds }, tenantId, deletedAt: null },
       include: {
         department: { select: { name: true } },
         skillsheet: true,

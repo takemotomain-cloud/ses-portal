@@ -9,6 +9,8 @@ import { BadRequestException } from '@nestjs/common';
 import { AttendanceService } from '../attendance.service';
 import { DatabaseService } from '../../../database/database.service';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { GoogleDriveService } from '../../google-drive/google-drive.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 /* ====== モック定義 ====== */
 
@@ -20,10 +22,18 @@ function createMockDb() {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
+      createMany: jest.fn(),
       groupBy: jest.fn().mockResolvedValue([]),
     },
     employee: {
       findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    assignment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
     },
     attendanceMonthlyClosure: {
       findUnique: jest.fn(),
@@ -33,6 +43,16 @@ function createMockDb() {
     attendanceCorrection: {
       findFirst: jest.fn(),
       update: jest.fn(),
+    },
+    adminAttendanceEdit: {
+      count: jest.fn(),
+      findMany: jest.fn(),
+    },
+    clientAttendanceUpload: {
+      findMany: jest.fn(),
+    },
+    leaveRequest: {
+      findMany: jest.fn(),
     },
     monthlyShift: {
       findUnique: jest.fn(),
@@ -44,6 +64,16 @@ function createMockDb() {
 const mockNotifications = {
   notifyAdmins: jest.fn().mockResolvedValue(undefined),
   create: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockGoogleDrive = {
+  isEnabled: jest.fn().mockReturnValue(false),
+  ensureMonthlyFolders: jest.fn(),
+  saveAttendanceSheet: jest.fn(),
+};
+
+const mockEventEmitter = {
+  emit: jest.fn(),
 };
 
 /* ====== テストスイート ====== */
@@ -60,6 +90,8 @@ describe('AttendanceService — 月次勤怠確定', () => {
         AttendanceService,
         { provide: DatabaseService, useValue: db },
         { provide: NotificationsService, useValue: mockNotifications },
+        { provide: GoogleDriveService, useValue: mockGoogleDrive },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
     }).compile();
 
@@ -79,7 +111,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       });
       db.employee.findMany.mockResolvedValue([]);
 
-      const result = await service.getClosureStatus(2026, 4);
+      const result = await service.getClosureStatus(2026, 4, 'tenant-1');
       expect(result.status).toBe('closed');
       expect(result.yearMonth).toBe('2026-04');
     });
@@ -88,7 +120,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       db.attendanceMonthlyClosure.findUnique.mockResolvedValue(null);
       db.employee.findMany.mockResolvedValue([]);
 
-      const result = await service.getClosureStatus(2026, 4);
+      const result = await service.getClosureStatus(2026, 4, 'tenant-1');
       expect(result.status).toBe('open');
     });
 
@@ -101,7 +133,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       // emp-2 has attendance
       db.attendance.groupBy.mockResolvedValue([{ employeeId: 'emp-2', _count: 20 }]);
 
-      const result = await service.getClosureStatus(2026, 4);
+      const result = await service.getClosureStatus(2026, 4, 'tenant-1');
       expect(result.readiness.exemptCount).toBe(1); // admin
       expect(result.readiness.confirmedCount).toBe(1); // emp-2
       expect(result.readiness.unconfirmedEmployees).toHaveLength(0);
@@ -116,7 +148,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       // Only emp-1 has attendance
       db.attendance.groupBy.mockResolvedValue([{ employeeId: 'emp-1', _count: 20 }]);
 
-      const result = await service.getClosureStatus(2026, 4);
+      const result = await service.getClosureStatus(2026, 4, 'tenant-1');
       expect(result.readiness.unconfirmedEmployees).toHaveLength(1);
       expect(result.readiness.unconfirmedEmployees[0].employeeCode).toBe('EMP-002');
     });
@@ -135,7 +167,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       db.attendance.groupBy.mockResolvedValue([{ employeeId: 'emp-1', _count: 20 }]);
       db.attendanceMonthlyClosure.upsert.mockResolvedValue({});
 
-      const result = await service.closeMonth(2026, 4, 'admin-emp-id');
+      const result = await service.closeMonth(2026, 4, 'admin-emp-id', 'tenant-1');
       expect(result.status).toBe('closed');
       expect(db.attendanceMonthlyClosure.upsert).toHaveBeenCalled();
     });
@@ -148,7 +180,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       db.attendance.groupBy.mockResolvedValue([]); // 勤怠なし
 
       await expect(
-        service.closeMonth(2026, 4, 'admin-emp-id'),
+        service.closeMonth(2026, 4, 'admin-emp-id', 'tenant-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -160,7 +192,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       db.attendance.groupBy.mockResolvedValue([]); // admin は勤怠なしでも OK
       db.attendanceMonthlyClosure.upsert.mockResolvedValue({});
 
-      const result = await service.closeMonth(2026, 4, 'emp-admin');
+      const result = await service.closeMonth(2026, 4, 'emp-admin', 'tenant-1');
       expect(result.status).toBe('closed');
     });
 
@@ -171,7 +203,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       });
 
       await expect(
-        service.closeMonth(2026, 4, 'admin-emp-id'),
+        service.closeMonth(2026, 4, 'admin-emp-id', 'tenant-1'),
       ).rejects.toThrow('既に確定されています');
     });
   });
@@ -187,7 +219,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       });
       db.attendanceMonthlyClosure.update.mockResolvedValue({});
 
-      const result = await service.reopenMonth(2026, 4, 'admin-emp-id');
+      const result = await service.reopenMonth(2026, 4, 'admin-emp-id', 'tenant-1');
       expect(result.status).toBe('open');
     });
 
@@ -195,7 +227,7 @@ describe('AttendanceService — 月次勤怠確定', () => {
       db.attendanceMonthlyClosure.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.reopenMonth(2026, 4, 'admin-emp-id'),
+        service.reopenMonth(2026, 4, 'admin-emp-id', 'tenant-1'),
       ).rejects.toThrow(BadRequestException);
     });
   });

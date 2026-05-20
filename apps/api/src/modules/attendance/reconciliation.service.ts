@@ -164,9 +164,9 @@ export class ReconciliationService {
   /**
    * 社員IDから社員情報を取得
    */
-  async getEmployee(employeeId: string) {
+  async getEmployee(employeeId: string, tenantId: string) {
     return this.db.employee.findUnique({
-      where: { id: employeeId },
+      where: { id: employeeId, tenantId },
       select: { id: true, lastName: true, firstName: true, employeeCode: true },
     });
   }
@@ -174,13 +174,14 @@ export class ReconciliationService {
   /**
    * 対象月に稼働情報（active Assignment）があるかチェック
    */
-  async hasActiveAssignment(employeeId: string, yearMonth: string): Promise<boolean> {
+  async hasActiveAssignment(employeeId: string, yearMonth: string, tenantId: string): Promise<boolean> {
     const [y, m] = yearMonth.split('-').map(Number);
     const monthStart = new Date(Date.UTC(y, m - 1, 1));
     const monthEnd = new Date(Date.UTC(y, m, 0)); // 月末日
 
     const assignment = await this.db.assignment.findFirst({
       where: {
+        tenantId,
         employeeId,
         status: 'active',
         deletedAt: null,
@@ -198,13 +199,14 @@ export class ReconciliationService {
   /**
    * 対象月に稼働中の社員一覧を取得
    */
-  async findActiveEmployees(yearMonth: string) {
+  async findActiveEmployees(yearMonth: string, tenantId: string) {
     const [y, m] = yearMonth.split('-').map(Number);
     const monthStart = new Date(Date.UTC(y, m - 1, 1));
     const monthEnd = new Date(Date.UTC(y, m, 0));
 
     const assignments = await this.db.assignment.findMany({
       where: {
+        tenantId,
         status: 'active',
         deletedAt: null,
         startDate: { lte: monthEnd },
@@ -239,13 +241,14 @@ export class ReconciliationService {
   /**
    * 稼働情報のdefaultStartTimeを取得
    */
-  async getDefaultStartTime(employeeId: string, yearMonth: string): Promise<string | null> {
+  async getDefaultStartTime(employeeId: string, yearMonth: string, tenantId: string): Promise<string | null> {
     const [y, m] = yearMonth.split('-').map(Number);
     const monthStart = new Date(Date.UTC(y, m - 1, 1));
     const monthEnd = new Date(Date.UTC(y, m, 0));
 
     const assignment = await this.db.assignment.findFirst({
       where: {
+        tenantId,
         employeeId,
         status: 'active',
         deletedAt: null,
@@ -291,38 +294,42 @@ export class ReconciliationService {
   /**
    * 社員名からDBの社員を検索してマッチング
    */
-  async matchEmployeeByName(name: string) {
+  async matchEmployeeByName(name: string, tenantId: string) {
     if (!name) return null;
 
-    // スペース区切りで姓名分割（全角・半角スペース対応）
+    // 1. スペース等を除去して正規化（比較用）
+    const normalize = (s: string) => s.replace(/[\s　]+/g, '');
+    const normalizedSearch = normalize(name);
+
+    // 2. スペース区切りで姓名分割
     const parts = name.trim().split(/[\s　]+/);
     const lastName = parts[0];
     const firstName = parts.length > 1 ? parts[1] : null;
 
-    // 完全一致（姓+名）
+    // 3. 完全一致（姓+名）
     if (firstName) {
       const exact = await this.db.employee.findFirst({
-        where: { lastName, firstName, deletedAt: null },
+        where: { lastName, firstName, deletedAt: null, tenantId },
         select: { id: true, lastName: true, firstName: true, employeeCode: true },
       });
       if (exact) return exact;
     }
 
-    // 姓のみで検索
-    const byLastName = await this.db.employee.findMany({
-      where: { lastName, deletedAt: null },
+    // 4. 全社員を取得して正規化名で比較（小規模想定）
+    // ※社員数が多い場合は、DB側で結合して検索する等の工夫が必要
+    const allEmployees = await this.db.employee.findMany({
+      where: { deletedAt: null, tenantId },
       select: { id: true, lastName: true, firstName: true, employeeCode: true },
     });
-    if (byLastName.length === 1) return byLastName[0];
 
-    // 名のみで検索（フルネームが1単語の場合）
-    if (!firstName) {
-      const byFirst = await this.db.employee.findMany({
-        where: { firstName: lastName, deletedAt: null },
-        select: { id: true, lastName: true, firstName: true, employeeCode: true },
-      });
-      if (byFirst.length === 1) return byFirst[0];
+    for (const emp of allEmployees) {
+      const empFullName = normalize(`${emp.lastName}${emp.firstName}`);
+      if (empFullName === normalizedSearch) return emp;
     }
+
+    // 5. 姓のみで検索（フォールバック）
+    const byLastName = allEmployees.filter(emp => emp.lastName === lastName);
+    if (byLastName.length === 1) return byLastName[0];
 
     return null;
   }
@@ -335,10 +342,12 @@ export class ReconciliationService {
     yearMonth: string,
     parsedData: { records: any[]; summary: any; client: string | null },
     fileName: string,
+    tenantId: string,
     clientId?: string,
   ) {
     const upload = await this.db.clientAttendanceUpload.create({
       data: {
+        tenantId,
         employeeId,
         clientId: clientId || null,
         yearMonth,
@@ -370,7 +379,7 @@ export class ReconciliationService {
     });
 
     // 突合実行
-    const reconciliation = await this.reconcile(upload.id, employeeId);
+    const reconciliation = await this.reconcile(upload.id, employeeId, tenantId);
     return { uploadId: upload.id, reconciliation };
   }
 
@@ -378,6 +387,7 @@ export class ReconciliationService {
     file: Express.Multer.File,
     employeeId: string,
     yearMonth: string,
+    tenantId: string,
     clientId?: string,
   ) {
     if (!this.anthropic) {
@@ -399,6 +409,7 @@ export class ReconciliationService {
     // アップロード履歴を作成
     const upload = await this.db.clientAttendanceUpload.create({
       data: {
+        tenantId,
         employeeId,
         clientId: clientId || null,
         yearMonth,
@@ -424,7 +435,7 @@ export class ReconciliationService {
       }
 
       // 開始時間がないレコードを稼働情報から自動補完
-      const defaultStart = await this.getDefaultStartTime(employeeId, yearMonth);
+      const defaultStart = await this.getDefaultStartTime(employeeId, yearMonth, tenantId);
       if (defaultStart) {
         parsed.records = this.fillMissingStartTime(parsed.records, defaultStart);
       }
@@ -524,7 +535,7 @@ export class ReconciliationService {
         };
 
     const response = await this.anthropic!.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [
@@ -539,6 +550,10 @@ export class ReconciliationService {
           ],
         },
       ],
+    }, {
+      headers: {
+        'anthropic-beta': 'pdfs-2024-09-25',
+      },
     });
 
     return this.extractJson(response);
@@ -547,7 +562,7 @@ export class ReconciliationService {
   /** Claude APIにテキストを送信して構造化 */
   private async callClaudeText(text: string): Promise<ParsedAttendance> {
     const response = await this.anthropic!.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [
@@ -597,10 +612,10 @@ export class ReconciliationService {
   /**
    * 現場データと自社データを突合する
    */
-  async reconcile(uploadId: string, employeeId: string) {
+  async reconcile(uploadId: string, employeeId: string, tenantId: string) {
     // アップロード情報を取得
-    const upload = await this.db.clientAttendanceUpload.findUnique({
-      where: { id: uploadId },
+    const upload = await this.db.clientAttendanceUpload.findFirst({
+      where: { id: uploadId, tenantId },
       include: { records: true },
     });
 
@@ -611,7 +626,9 @@ export class ReconciliationService {
 
     // 突合設定を取得
     const settings = upload.clientId
-      ? await this.db.reconciliationSettings.findUnique({ where: { clientId: upload.clientId } })
+      ? await this.db.reconciliationSettings.findUnique({
+          where: { clientId: upload.clientId, tenantId },
+        })
       : null;
     const config: ReconcileSettings = {
       timeToleranceMin: settings?.timeToleranceMin ?? DEFAULT_SETTINGS.timeToleranceMin,
@@ -628,6 +645,7 @@ export class ReconciliationService {
 
     const systemRecords = await this.db.attendance.findMany({
       where: {
+        tenantId,
         employeeId,
         workDate: { gte: startDate, lte: endDate },
       },
@@ -807,10 +825,11 @@ export class ReconciliationService {
   async confirm(
     uploadId: string,
     confirmerId: string,
+    tenantId: string,
     updates?: { date: string; resolvedBy: string; resolvedStart?: string; resolvedEnd?: string; resolvedBreak?: number; resolvedHours?: number }[],
   ) {
     const upload = await this.db.clientAttendanceUpload.findUnique({
-      where: { id: uploadId },
+      where: { id: uploadId, tenantId },
     });
     if (!upload) throw new NotFoundException('アップロードデータが見つかりません');
     // 再確定を許可（編集後の再確定フローに対応）
@@ -866,12 +885,14 @@ export class ReconciliationService {
 
       await this.db.attendanceConfirmed.upsert({
         where: {
-          employeeId_workDate: {
+          tenantId_employeeId_workDate: {
+            tenantId,
             employeeId: upload.employeeId,
             workDate: result.workDate,
           },
         },
         create: {
+          tenantId,
           employeeId: upload.employeeId,
           workDate: result.workDate,
           startTime,
@@ -905,7 +926,7 @@ export class ReconciliationService {
     this.logger.log(`勤怠突合を確定: upload=${uploadId}, confirmedBy=${confirmerId}, records=${results.length}`);
 
     // Google Drive に保存（非同期・エラー無視）
-    this.saveClientAttendanceToGoogleDrive(uploadId, upload.employeeId, year, month, results).catch(e => {
+    this.saveClientAttendanceToGoogleDrive(uploadId, upload.employeeId, year, month, tenantId, results).catch(e => {
       this.logger.warn(`Google Drive 保存エラー（現場勤怠）: ${(e as Error).message}`);
     });
 
@@ -917,22 +938,22 @@ export class ReconciliationService {
    * アップロードファイルがあればそのまま保存、なければスプレッドシートを生成
    */
   private async saveClientAttendanceToGoogleDrive(
-    uploadId: string, employeeId: string, year: number, month: number,
+    uploadId: string, employeeId: string, year: number, month: number, tenantId: string,
     results: { workDate: Date; resolvedStart: string | null; resolvedEnd: string | null; resolvedBreak: number | null; resolvedHours: any }[],
   ) {
-    if (!this.googleDrive.isEnabled()) return;
+    if (!(await this.googleDrive.isEnabled(tenantId))) return;
 
     const [employee, assignment, upload] = await Promise.all([
       this.db.employee.findUnique({
-        where: { id: employeeId },
+        where: { id: employeeId, tenantId },
         select: { lastName: true, firstName: true },
       }),
       this.db.assignment.findFirst({
-        where: { employeeId, status: 'active' },
+        where: { employeeId, status: 'active', tenantId },
         include: { client: { select: { name: true } } },
       }),
       this.db.clientAttendanceUpload.findUnique({
-        where: { id: uploadId },
+        where: { id: uploadId, tenantId },
         select: { filePath: true, fileName: true },
       }),
     ]);
@@ -941,7 +962,7 @@ export class ReconciliationService {
 
     const empName = `${employee.lastName} ${employee.firstName}`;
     const clientName = assignment?.client?.name || '未アサイン';
-    const folders = await this.googleDrive.ensureMonthlyFolders(year, month);
+    const folders = await this.googleDrive.ensureMonthlyFolders(tenantId, year, month);
 
     // アップロードファイルが存在すればそのままDriveに保存
     if (upload?.filePath) {
@@ -953,7 +974,7 @@ export class ReconciliationService {
         const ext = path.extname(upload.fileName || upload.filePath);
         const driveFileName = `${clientName}_${empName}_${year}年${month}月${ext}`;
 
-        const url = await this.googleDrive.uploadFile({
+        const url = await this.googleDrive.uploadFile(tenantId, {
           folderId: folders.clientFolderId,
           fileName: driveFileName,
           filePath: fullPath,
@@ -990,7 +1011,7 @@ export class ReconciliationService {
       return [dateStr, r.resolvedStart || '', r.resolvedEnd || '', breakMin, fmtMin(workMin), fmtMin(overtimeMin)];
     });
 
-    const url = await this.googleDrive.saveAttendanceSheet({
+    const url = await this.googleDrive.saveAttendanceSheet(tenantId, {
       folderId: folders.clientFolderId,
       fileName,
       headers,
@@ -1010,22 +1031,24 @@ export class ReconciliationService {
    * 突合設定
    * ====================================== */
 
-  async getSettings(clientId: string) {
+  async getSettings(clientId: string, tenantId: string) {
     const settings = await this.db.reconciliationSettings.findUnique({
-      where: { clientId },
+      where: { clientId, tenantId },
     });
     return settings || {
       clientId,
+      tenantId,
       ...DEFAULT_SETTINGS,
       breakIncluded: false,
       roundingUnitMin: 15,
     };
   }
 
-  async updateSettings(clientId: string, data: Partial<ReconcileSettings & { breakIncluded: boolean; roundingUnitMin: number }>) {
+  async updateSettings(clientId: string, tenantId: string, data: Partial<ReconcileSettings & { breakIncluded: boolean; roundingUnitMin: number }>) {
     return this.db.reconciliationSettings.upsert({
-      where: { clientId },
+      where: { clientId, tenantId },
       create: {
+        tenantId,
         clientId,
         timeToleranceMin: data.timeToleranceMin ?? 15,
         hoursTolerance: data.hoursTolerance ?? 0.5,
@@ -1038,10 +1061,11 @@ export class ReconciliationService {
   }
 
   /** 社員×年月で突合結果を取得 */
-  async getReconcileResultsByEmployee(employeeId: string, yearMonth: string) {
+  async getReconcileResultsByEmployee(employeeId: string, yearMonth: string, tenantId: string) {
     // confirmed を優先、なければ reconciled
     const upload = await this.db.clientAttendanceUpload.findFirst({
       where: {
+        tenantId,
         employeeId,
         yearMonth,
         status: { in: ['confirmed', 'reconciled'] },
@@ -1066,9 +1090,9 @@ export class ReconciliationService {
   }
 
   /** 突合結果を取得（画面表示用） */
-  async getReconcileResults(uploadId: string) {
+  async getReconcileResults(uploadId: string, tenantId: string) {
     const upload = await this.db.clientAttendanceUpload.findUnique({
-      where: { id: uploadId },
+      where: { id: uploadId, tenantId },
       include: {
         records: { orderBy: { workDate: 'asc' } },
         results: { orderBy: { workDate: 'asc' } },

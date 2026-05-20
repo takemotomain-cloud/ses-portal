@@ -24,16 +24,16 @@ export class WorkRulesController {
 
   @Get('current')
   @ApiOperation({ summary: '現行版の就業規則を取得' })
-  async getCurrent() {
-    return this.workRulesService.getCurrent();
+  async getCurrent(@CurrentUser() user: RequestUser) {
+    return this.workRulesService.getCurrent(user.tenantId);
   }
 
   @Get('history')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '改定履歴一覧（管理者用）' })
-  async getHistory() {
-    return this.workRulesService.getHistory();
+  async getHistory(@CurrentUser() user: RequestUser) {
+    return this.workRulesService.getHistory(user.tenantId);
   }
 
   @Post('publish')
@@ -47,6 +47,6 @@ export class WorkRulesController {
     return this.workRulesService.publish({
       ...body,
       publishedBy: user.employeeId,
-    });
+    }, user.tenantId);
   }
 }

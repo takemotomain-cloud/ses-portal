@@ -25,6 +25,7 @@ import { CandidatesService } from './candidates.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('採用候補者')
 @ApiBearerAuth()
@@ -40,6 +41,7 @@ export class CandidatesController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '候補者を登録' })
   async create(
+    @CurrentUser() user: RequestUser,
     @Body() body: {
       lastName: string;
       firstName: string;
@@ -64,7 +66,7 @@ export class CandidatesController {
       notes?: string;
     },
   ) {
-    return this.candidatesService.create(body);
+    return this.candidatesService.create(user.tenantId, body);
   }
 
   /**
@@ -73,8 +75,8 @@ export class CandidatesController {
   @Get()
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '候補者一覧' })
-  async findAll() {
-    return this.candidatesService.findAll();
+  async findAll(@CurrentUser() user: RequestUser) {
+    return this.candidatesService.findAll(user.tenantId);
   }
 
   @Patch(':id/status')
@@ -91,37 +93,41 @@ export class CandidatesController {
   @Get('analytics')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '採用経路別分析' })
-  async getAnalytics(@Query('year') year?: string) {
-    return this.candidatesService.getAnalytics(year ? parseInt(year, 10) : undefined);
+  async getAnalytics(@CurrentUser() user: RequestUser, @Query('year') year?: string) {
+    return this.candidatesService.getAnalytics(user.tenantId, year ? parseInt(year, 10) : undefined);
   }
 
   // ---- 採用経路マスタ ----
   @Get('sources')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '採用経路一覧' })
-  async getSources() {
-    return this.candidatesService.getSources();
+  async getSources(@CurrentUser() user: RequestUser) {
+    return this.candidatesService.getSources(user.tenantId);
   }
 
   @Post('sources')
   @Roles('admin')
   @ApiOperation({ summary: '採用経路追加' })
-  async createSource(@Body() body: { name: string; category: string; fee?: string; memo?: string }) {
-    return this.candidatesService.createSource(body);
+  async createSource(@CurrentUser() user: RequestUser, @Body() body: { name: string; category: string; fee?: string; memo?: string }) {
+    return this.candidatesService.createSource(user.tenantId, body);
   }
 
   @Patch('sources/:id')
   @Roles('admin')
   @ApiOperation({ summary: '採用経路更新' })
-  async updateSource(@Param('id', ParseUUIDPipe) id: string, @Body() body: { name?: string; category?: string; fee?: string; memo?: string }) {
-    return this.candidatesService.updateSource(id, body);
+  async updateSource(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { name?: string; category?: string; fee?: string; memo?: string },
+  ) {
+    return this.candidatesService.updateSource(user.tenantId, id, body);
   }
 
   @Delete('sources/:id')
   @Roles('admin')
   @ApiOperation({ summary: '採用経路削除' })
-  async deleteSource(@Param('id', ParseUUIDPipe) id: string) {
-    return this.candidatesService.deleteSource(id);
+  async deleteSource(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.candidatesService.deleteSource(user.tenantId, id);
   }
 
   // ---- 採用ステータスマスタ ----
@@ -230,14 +236,14 @@ export class CandidatesController {
   @Get('budgets')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '採用予算取得' })
-  async getBudgets(@Query('year') year: string) {
-    return this.candidatesService.getBudgets(parseInt(year, 10) || new Date().getFullYear());
+  async getBudgets(@CurrentUser() user: RequestUser, @Query('year') year: string) {
+    return this.candidatesService.getBudgets(user.tenantId, parseInt(year, 10) || new Date().getFullYear());
   }
 
   @Post('budgets')
   @Roles('admin')
   @ApiOperation({ summary: '採用予算更新' })
-  async upsertBudget(@Body() body: { fiscalYear: number; category: string; month: number; budget?: number; actual?: number }) {
-    return this.candidatesService.upsertBudget(body);
+  async upsertBudget(@CurrentUser() user: RequestUser, @Body() body: { fiscalYear: number; category: string; month: number; budget?: number; actual?: number }) {
+    return this.candidatesService.upsertBudget(user.tenantId, body);
   }
 }

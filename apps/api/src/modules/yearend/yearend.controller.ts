@@ -16,29 +16,29 @@ export class YearendController {
   @Get('status/:year')
   @ApiOperation({ summary: '自分の年末調整状況' })
   async getMyStatus(@CurrentUser() user: RequestUser, @Param('year', ParseIntPipe) year: number) {
-    return this.yearendService.getMyStatus(user.employeeId, year);
+    return this.yearendService.getMyStatus(user.tenantId, user.employeeId, year);
   }
 
   @Post('submit')
   @ApiOperation({ summary: '年末調整を提出' })
   async submit(@CurrentUser() user: RequestUser, @Body() body: { fiscalYear: number; formData: any }) {
-    return this.yearendService.submit(user.employeeId, body.fiscalYear, body.formData);
+    return this.yearendService.submit(user.tenantId, user.employeeId, body.fiscalYear, body.formData);
   }
 
   @Get('admin/:year')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '全社員の年末調整状況（管理者用）' })
-  async getAllStatus(@Param('year', ParseIntPipe) year: number) {
-    return this.yearendService.getAllStatus(year);
+  async getAllStatus(@CurrentUser() user: RequestUser, @Param('year', ParseIntPipe) year: number) {
+    return this.yearendService.getAllStatus(user.tenantId, year);
   }
 
   @Get('pending/:year')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '承認待ち年末調整一覧' })
-  async getPendingList(@Param('year', ParseIntPipe) year: number) {
-    return this.yearendService.getPendingList(year);
+  async getPendingList(@CurrentUser() user: RequestUser, @Param('year', ParseIntPipe) year: number) {
+    return this.yearendService.getPendingList(user.tenantId, year);
   }
 
   @Post(':id/approve')
@@ -46,7 +46,7 @@ export class YearendController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '年末調整を承認' })
   async approve(@Param('id') id: string, @CurrentUser() user: RequestUser) {
-    return this.yearendService.approve(id, user.employeeId);
+    return this.yearendService.approve(user.tenantId, id, user.employeeId);
   }
 
   @Post(':id/reject')
@@ -54,6 +54,6 @@ export class YearendController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '年末調整を差し戻し' })
   async reject(@Param('id') id: string, @CurrentUser() user: RequestUser, @Body() body: { reason: string }) {
-    return this.yearendService.reject(id, user.employeeId, body.reason);
+    return this.yearendService.reject(user.tenantId, id, user.employeeId, body.reason);
   }
 }

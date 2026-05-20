@@ -41,15 +41,19 @@ export interface BillableGroup {
 
 @Injectable()
 export class InvoicesService {
+
   constructor(private readonly db: DatabaseService) {}
 
   /* ================================================================== */
   /*  既存メソッド                                                        */
   /* ================================================================== */
 
-  async findAll(month?: string) {
+  async findAll(tenantId: string, month?: string) {
     return this.db.invoice.findMany({
-      where: month ? { targetMonth: month } : undefined,
+      where: {
+        tenantId,
+        ...(month ? { targetMonth: month } : {}),
+      },
       include: {
         client: { select: { id: true, name: true } },
         items: { orderBy: { sortOrder: 'asc' } },
@@ -58,12 +62,55 @@ export class InvoicesService {
     });
   }
 
-  async findOne(id: string) {
-    const invoice = await this.db.invoice.findFirst({
-      where: { id },
+  async findByTargetMonth(targetMonth: string, tenantId: string) {
+    return this.db.invoice.findMany({
+      where: { targetMonth, tenantId },
       include: {
-        client: { select: { id: true, name: true, address: true, postalCode: true, contactPerson: true, contactEmail: true, invoiceNumber: true, representName: true } },
-        items: { orderBy: { sortOrder: 'asc' } },
+        client: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createDraft(clientId: string, targetMonth: string, tenantId: string) {
+    const invoiceNo = await this.generateInvoiceNo(tenantId);
+    const [year, mon] = targetMonth.split('-').map(Number);
+    
+    return this.db.invoice.create({
+      data: {
+        tenantId,
+        invoiceNo,
+        clientId,
+        targetMonth,
+        totalAmount: 0,
+        tax: 0,
+        invoiceDate: new Date(),
+        dueDate: new Date(year, mon, 0),
+        status: 'draft',
+      },
+      include: { client: { select: { id: true, name: true } } },
+    });
+  }
+
+  async sendByEmail(id: string, tenantId: string) {
+    const invoice = await this.findOne(id, tenantId);
+    if (!invoice.client.contactEmail && !invoice.recipientEmail) {
+      throw new BadRequestException('送信先のメールアドレスが設定されていません');
+    }
+    
+    // 実際にはここでメール送信処理を行うが、今はステータス更新のみ
+    await this.updateStatus(id, 'sent', tenantId);
+    return { success: true, sentTo: invoice.recipientEmail || invoice.client.contactEmail };
+  }
+
+  async findOne(id: string, tenantId: string) {
+    const invoice = await this.db.invoice.findFirst({
+      where: { id, tenantId },
+      include: {
+        client: { select: { id: true, name: true, address: true, postalCode: true, contactPerson: true, contactEmail: true, invoiceNumber: true, representName: true, tenantId: true } },
+        items: { 
+          orderBy: { sortOrder: 'asc' } 
+        },
       },
     });
     if (!invoice) throw new NotFoundException('請求書が見つかりません');
@@ -88,13 +135,14 @@ export class InvoicesService {
       deductionAmount?: number;
       subtotal: number;
     }[];
-  }) {
-    const invoiceNo = await this.generateInvoiceNo();
+  }, tenantId: string) {
+    const invoiceNo = await this.generateInvoiceNo(tenantId);
     const totalAmount = data.items.reduce((s, i) => s + i.subtotal, 0);
     const tax = Math.floor(totalAmount * 0.1);
 
     return this.db.invoice.create({
       data: {
+        tenantId,
         invoiceNo,
         clientId: data.clientId,
         targetMonth: data.targetMonth,
@@ -116,10 +164,11 @@ export class InvoicesService {
             deductionAmount: item.deductionAmount ?? 0,
             subtotal: item.subtotal,
             sortOrder: idx,
+            tenantId,
           })),
         },
       },
-      include: { client: { select: { id: true, name: true } }, items: true },
+      include: { client: { select: { id: true, name: true } }, items: { orderBy: { sortOrder: 'asc' } } },
     });
   }
 
@@ -141,8 +190,8 @@ export class InvoicesService {
       employeeId?: string;
       assignmentId?: string;
     }[];
-  }) {
-    const invoice = await this.db.invoice.findFirst({ where: { id } });
+  }, tenantId: string) {
+    const invoice = await this.db.invoice.findFirst({ where: { id, tenantId } });
     if (!invoice) throw new NotFoundException('請求書が見つかりません');
 
     // 明細の再計算
@@ -170,6 +219,7 @@ export class InvoicesService {
           sortOrder: idx,
           employeeId: item.employeeId ?? null,
           assignmentId: item.assignmentId ?? null,
+          tenantId,
         };
       });
       totalAmount = processedItems.reduce((s, i) => s + i.subtotal, 0);
@@ -178,7 +228,7 @@ export class InvoicesService {
       // 既存明細を削除して再作成
       await this.db.invoiceItem.deleteMany({ where: { invoiceId: id } });
       return this.db.invoice.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           totalAmount,
           tax,
@@ -196,7 +246,7 @@ export class InvoicesService {
 
     // 明細変更なし: ヘッダー情報のみ更新
     return this.db.invoice.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         ...(data.invoiceDate ? { invoiceDate: new Date(data.invoiceDate) } : {}),
         ...(data.dueDate ? { dueDate: new Date(data.dueDate) } : {}),
@@ -209,10 +259,10 @@ export class InvoicesService {
     });
   }
 
-  async updateStatus(id: string, status: string) {
+  async updateStatus(id: string, status: string, tenantId: string) {
     const now = new Date();
     return this.db.invoice.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         status,
         ...(status === 'sent' ? { sentAt: now } : {}),
@@ -228,7 +278,7 @@ export class InvoicesService {
   /**
    * 対象月に勤怠確定済みでまだ請求書未発行の社員をクライアント別にグルーピングして返す
    */
-  async getBillableEmployees(month: string): Promise<{ billableGroups: BillableGroup[] }> {
+  async getBillableEmployees(month: string, tenantId: string): Promise<{ billableGroups: BillableGroup[] }> {
     // 対象月の日付範囲
     const [year, mon] = month.split('-').map(Number);
     const startDate = new Date(year, mon - 1, 1);
@@ -238,6 +288,7 @@ export class InvoicesService {
     const confirmedRecords = await this.db.attendanceConfirmed.groupBy({
       by: ['employeeId'],
       where: {
+        tenantId,
         workDate: { gte: startDate, lte: endDate },
         confirmedAt: { not: null },
       },
@@ -253,6 +304,7 @@ export class InvoicesService {
     // 2. 各社員のアクティブなアサイン情報を取得
     const assignments = await this.db.assignment.findMany({
       where: {
+        tenantId,
         employeeId: { in: employeeIds },
         status: { in: ['active', 'ending_scheduled'] },
         startDate: { lte: endDate },
@@ -300,7 +352,7 @@ export class InvoicesService {
       const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
 
       // 当月有効な単価を取得
-      const rate = await this.getEffectiveRate(assignment.id, endDate);
+      const rate = await this.getEffectiveRate(assignment.id, endDate, tenantId);
       const contractPrice = rate?.contractPrice ?? assignment.contractPrice;
       const lower = rate?.settlementLower ?? assignment.settlementLower;
       const upper = rate?.settlementUpper ?? assignment.settlementUpper;
@@ -352,6 +404,9 @@ export class InvoicesService {
   /*  勤怠ベース請求書発行                                                  */
   /* ================================================================== */
 
+  /**
+   * 勤怠確定データから請求書を一括作成
+   */
   async generateFromAttendance(data: {
     clientId: string;
     targetMonth: string;
@@ -359,7 +414,7 @@ export class InvoicesService {
     invoiceDate?: string;
     dueDate?: string;
     notes?: string;
-  }) {
+  }, tenantId: string) {
     const { clientId, targetMonth, employeeIds } = data;
 
     if (!employeeIds.length) {
@@ -405,6 +460,7 @@ export class InvoicesService {
       // アサイン取得
       const assignment = await this.db.assignment.findFirst({
         where: {
+          tenantId,
           employeeId: empId,
           clientId,
           status: { in: ['active', 'ending_scheduled'] },
@@ -423,11 +479,11 @@ export class InvoicesService {
       }
 
       // 確定済み勤怠時間の集計
-      const totalMinutes = await this.aggregateConfirmedMinutes(empId, startDate, endDate);
+      const totalMinutes = await this.aggregateConfirmedMinutes(empId, startDate, endDate, tenantId);
       const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
 
       // 当月有効単価
-      const rate = await this.getEffectiveRate(assignment.id, endDate);
+      const rate = await this.getEffectiveRate(assignment.id, endDate, tenantId);
       const contractPrice = rate?.contractPrice ?? assignment.contractPrice;
       const lower = rate?.settlementLower ?? assignment.settlementLower;
       const upper = rate?.settlementUpper ?? assignment.settlementUpper;
@@ -452,7 +508,7 @@ export class InvoicesService {
     }
 
     // 請求書番号生成
-    const invoiceNo = await this.generateInvoiceNo();
+    const invoiceNo = await this.generateInvoiceNo(tenantId);
     const totalAmount = items.reduce((s, i) => s + i.subtotal, 0);
     const tax = Math.floor(totalAmount * 0.1);
 
@@ -462,8 +518,8 @@ export class InvoicesService {
       : new Date();
 
     // クライアント取得（支払サイクル設定 + billingEmail）
-    const client = await this.db.client.findUnique({
-      where: { id: clientId },
+    const client = await this.db.client.findFirst({
+      where: { id: clientId, tenantId },
       select: {
         billingEmail: true,
         closingDay: true,
@@ -522,6 +578,7 @@ export class InvoicesService {
     // トランザクション内で Invoice + InvoiceItem を一括作成
     const invoice = await this.db.invoice.create({
       data: {
+        tenantId,
         invoiceNo,
         clientId,
         targetMonth,
@@ -562,8 +619,8 @@ export class InvoicesService {
   /* ================================================================== */
 
   /** 請求番号を自動生成（INV-00001形式） */
-  private async generateInvoiceNo(): Promise<string> {
-    const count = await this.db.invoice.count();
+  private async generateInvoiceNo(tenantId: string): Promise<string> {
+    const count = await this.db.invoice.count({ where: { tenantId } });
     return `INV-${String(count + 1).padStart(5, '0')}`;
   }
 
@@ -571,6 +628,7 @@ export class InvoicesService {
   private async getEffectiveRate(
     assignmentId: string,
     targetDate: Date,
+    tenantId: string,
   ): Promise<{
     contractPrice: number;
     settlementLower: number;
@@ -582,6 +640,7 @@ export class InvoicesService {
       where: {
         assignmentId,
         effectiveFrom: { lte: targetDate },
+        assignment: { tenantId },
       },
       orderBy: { effectiveFrom: 'desc' },
       select: {
@@ -600,9 +659,11 @@ export class InvoicesService {
     employeeId: string,
     startDate: Date,
     endDate: Date,
+    tenantId: string,
   ): Promise<number> {
     const result = await this.db.attendanceConfirmed.aggregate({
       where: {
+        tenantId,
         employeeId,
         workDate: { gte: startDate, lte: endDate },
         confirmedAt: { not: null },

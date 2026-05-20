@@ -9,13 +9,16 @@ import { BadRequestException } from '@nestjs/common';
 import { PayrollService } from '../payroll.service';
 import { DatabaseService } from '../../../database/database.service';
 import { AuditService } from '../../audit-logs/audit.service';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { PayslipPdfService } from '../payslip-pdf.service';
 
 /* ====== モック定義 ====== */
 
-function createMockDb() {
+function createMockDb(): any {
   return {
     attendanceMonthlyClosure: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     rateMaster: {
       upsert: jest.fn().mockResolvedValue({
@@ -28,17 +31,26 @@ function createMockDb() {
     },
     employee: {
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
     },
     payroll: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn(),
       updateMany: jest.fn(),
     },
     attendance: {
       findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     expenseItem: {
       findMany: jest.fn().mockResolvedValue([]),
+    },
+    dependent: {
+      count: jest.fn().mockResolvedValue(0),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
   };
 }
@@ -51,7 +63,7 @@ const mockAuditService = {
 
 describe('PayrollService — 給与計算ゲート', () => {
   let service: PayrollService;
-  let db: ReturnType<typeof createMockDb>;
+  let db: any;
 
   beforeEach(async () => {
     db = createMockDb();
@@ -61,6 +73,14 @@ describe('PayrollService — 給与計算ゲート', () => {
         PayrollService,
         { provide: DatabaseService, useValue: db },
         { provide: AuditService, useValue: mockAuditService },
+        {
+          provide: NotificationsService,
+          useValue: { create: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: PayslipPdfService,
+          useValue: { generate: jest.fn().mockResolvedValue(Buffer.from('')) },
+        },
       ],
     }).compile();
 
@@ -71,10 +91,10 @@ describe('PayrollService — 給与計算ゲート', () => {
     db.attendanceMonthlyClosure.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.calculateMonthly(2026, 4),
+      service.calculateMonthly('test-tenant-id', 2026, 4),
     ).rejects.toThrow(BadRequestException);
     await expect(
-      service.calculateMonthly(2026, 4),
+      service.calculateMonthly('test-tenant-id', 2026, 4),
     ).rejects.toThrow('勤怠が確定されていません');
   });
 
@@ -85,7 +105,7 @@ describe('PayrollService — 給与計算ゲート', () => {
     });
 
     await expect(
-      service.calculateMonthly(2026, 4),
+      service.calculateMonthly('test-tenant-id', 2026, 4),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -95,28 +115,33 @@ describe('PayrollService — 給与計算ゲート', () => {
       status: 'closed',
     });
 
-    const result = await service.calculateMonthly(2026, 4);
+    const result = await service.calculateMonthly('test-tenant-id', 2026, 4);
     expect(result.processedCount).toBe(0); // 社員がいないので0
     expect(result.targetMonth).toBe('2026-04');
   });
 
   it('getClosureStatus: 確定済み月は isClosed=true を返す', async () => {
-    db.attendanceMonthlyClosure.findUnique.mockResolvedValue({
+    db.attendanceMonthlyClosure.findFirst.mockResolvedValue({
       yearMonth: '2026-04',
       status: 'closed',
       closedAt: new Date('2026-04-10'),
       hasPostCloseChanges: false,
     });
 
-    const result = await service.getClosureStatus(2026, 4);
+    const result = await service.getClosureStatus('test-tenant-id', 2026, 4);
     expect(result.isClosed).toBe(true);
     expect(result.hasPostCloseChanges).toBe(false);
   });
 
   it('getClosureStatus: 未確定月は isClosed=false を返す', async () => {
-    db.attendanceMonthlyClosure.findUnique.mockResolvedValue(null);
+    db.attendanceMonthlyClosure.findFirst.mockResolvedValue(null);
+    // 従業員を1人追加して allConfirmed を false にする
+    db.employee.findMany.mockResolvedValue([
+      { id: 'emp-1', assignments: [{ id: 'as-1' }] },
+    ]);
+    db.attendance.count.mockResolvedValue(1); // 1件未確定
 
-    const result = await service.getClosureStatus(2026, 4);
+    const result = await service.getClosureStatus('test-tenant-id', 2026, 4);
     expect(result.isClosed).toBe(false);
   });
 });

@@ -28,6 +28,7 @@ import { BusinessCardsService } from './business-cards.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('名刺管理')
 @ApiBearerAuth()
@@ -77,8 +78,9 @@ export class BusinessCardsController {
       owner?: string;
       note?: string;
     },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.service.saveCard(body);
+    return this.service.saveCard(body, user.tenantId);
   }
 
   /**
@@ -87,8 +89,8 @@ export class BusinessCardsController {
   @Get()
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺一覧' })
-  async findAll(@Query('search') search?: string) {
-    return this.service.findAll({ search });
+  async findAll(@Query('search') search: string | undefined, @CurrentUser() user: RequestUser) {
+    return this.service.findAll({ search, tenantId: user.tenantId });
   }
 
   /**
@@ -110,8 +112,9 @@ export class BusinessCardsController {
       address?: string;
       note?: string;
     },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.service.updateCard(id, body);
+    return this.service.updateCard(id, body, user.tenantId);
   }
 
   /**
@@ -129,6 +132,7 @@ export class BusinessCardsController {
       contacts?: string;
       recordingUrl?: string;
     },
+    @CurrentUser() user: RequestUser,
   ) {
     if (!body.date || !body.content) {
       throw new BadRequestException('日付と内容は必須です');
@@ -139,7 +143,7 @@ export class BusinessCardsController {
       content: body.content,
       contacts: body.contacts,
       recordingUrl: body.recordingUrl,
-    });
+    }, user.tenantId);
   }
 
   /**
@@ -160,11 +164,12 @@ export class BusinessCardsController {
   async addLogImage(
     @Param('logId') logId: string,
     @UploadedFile() file: any,
+    @CurrentUser() user: RequestUser,
   ) {
     if (!file) {
       throw new BadRequestException('画像ファイルが必要です');
     }
-    const imagePath = await this.service.addCardImageToLog(logId, file.buffer);
+    const imagePath = await this.service.addCardImageToLog(logId, file.buffer, user.tenantId);
     return { imagePath };
   }
 
@@ -183,8 +188,9 @@ export class BusinessCardsController {
       contacts?: string;
       recordingUrl?: string;
     },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.service.updateDealLog(logId, body);
+    return this.service.updateDealLog(logId, body, user.tenantId);
   }
 
   /**
@@ -193,8 +199,8 @@ export class BusinessCardsController {
   @Delete('logs/:logId')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '商談ログ削除' })
-  async deleteLog(@Param('logId') logId: string) {
-    return this.service.deleteDealLog(logId);
+  async deleteLog(@Param('logId') logId: string, @CurrentUser() user: RequestUser) {
+    return this.service.deleteDealLog(logId, user.tenantId);
   }
 
   /**
@@ -215,11 +221,12 @@ export class BusinessCardsController {
   async uploadCardImage(
     @Param('id') id: string,
     @UploadedFile() file: any,
+    @CurrentUser() user: RequestUser,
   ) {
     if (!file) {
       throw new BadRequestException('画像ファイルが必要です');
     }
-    const imagePath = await this.service.processAndSaveCardImage(id, file.buffer);
+    const imagePath = await this.service.processAndSaveCardImage(id, file.buffer, user.tenantId);
     return { imagePath };
   }
 
@@ -229,8 +236,8 @@ export class BusinessCardsController {
   @Delete(':id/card-image')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '名刺画像削除' })
-  async deleteCardImage(@Param('id') id: string) {
-    await this.service.deleteCardImage(id);
+  async deleteCardImage(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    await this.service.deleteCardImage(id, user.tenantId);
     return { ok: true };
   }
 
@@ -243,11 +250,12 @@ export class BusinessCardsController {
   async deleteLogImage(
     @Param('logId') logId: string,
     @Body() body: { imagePath: string },
+    @CurrentUser() user: RequestUser,
   ) {
     if (!body?.imagePath) {
       throw new BadRequestException('imagePath は必須です');
     }
-    await this.service.deleteLogCardImage(logId, body.imagePath);
+    await this.service.deleteLogCardImage(logId, body.imagePath, user.tenantId);
     return { ok: true };
   }
 }

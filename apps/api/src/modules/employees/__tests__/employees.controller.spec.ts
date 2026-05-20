@@ -23,6 +23,7 @@ const adminUser: RequestUser = {
   name: '管理者',
   email: 'admin@example.com',
   role: 'admin',
+  tenantId: 'tenant-1',
 };
 
 const employeeUser: RequestUser = {
@@ -32,6 +33,7 @@ const employeeUser: RequestUser = {
   name: '一般社員',
   email: 'employee@example.com',
   role: 'employee',
+  tenantId: 'tenant-1',
 };
 
 const salesUser: RequestUser = {
@@ -41,6 +43,7 @@ const salesUser: RequestUser = {
   name: '営業担当',
   email: 'sales@example.com',
   role: 'manager',
+  tenantId: 'tenant-1',
 };
 
 /* ====== サービスモック ====== */
@@ -83,7 +86,7 @@ describe('EmployeesController', () => {
       const result = await controller.getMe(employeeUser);
 
       expect(result).toEqual(employeeData);
-      expect(mockService.findOne).toHaveBeenCalledWith('emp-001');
+      expect(mockService.findOne).toHaveBeenCalledWith('emp-001', 'tenant-1');
     });
 
     it('adminユーザーでも自分の情報を取得できる', async () => {
@@ -91,7 +94,7 @@ describe('EmployeesController', () => {
 
       const result = await controller.getMe(adminUser);
 
-      expect(mockService.findOne).toHaveBeenCalledWith('emp-admin');
+      expect(mockService.findOne).toHaveBeenCalledWith('emp-admin', 'tenant-1');
     });
   });
 
@@ -109,7 +112,7 @@ describe('EmployeesController', () => {
       };
       mockService.findAll.mockResolvedValue(listResult);
 
-      const result = await controller.findAll(1, 20, undefined, undefined);
+      const result = await controller.findAll(adminUser, 1, 20, undefined, undefined);
 
       expect(result).toEqual(listResult);
       expect(mockService.findAll).toHaveBeenCalledWith({
@@ -117,19 +120,21 @@ describe('EmployeesController', () => {
         limit: 20,
         search: undefined,
         status: undefined,
+        tenantId: 'tenant-1',
       });
     });
 
     it('検索・ステータスフィルタを渡す', async () => {
       mockService.findAll.mockResolvedValue({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
 
-      await controller.findAll(1, 20, '田中', 'active');
+      await controller.findAll(adminUser, 1, 20, '田中', 'active');
 
       expect(mockService.findAll).toHaveBeenCalledWith({
         page: 1,
         limit: 20,
         search: '田中',
         status: 'active',
+        tenantId: 'tenant-1',
       });
     });
   });
@@ -149,10 +154,10 @@ describe('EmployeesController', () => {
       };
       mockService.create.mockResolvedValue({ id: 'new-id', employeeCode: 'EMP-100' });
 
-      const result = await controller.create(adminUser, body);
+      const result = await controller.create(adminUser, body as any);
 
       expect(result).toEqual({ id: 'new-id', employeeCode: 'EMP-100' });
-      expect(mockService.create).toHaveBeenCalledWith(body, adminUser.userId);
+      expect(mockService.create).toHaveBeenCalledWith(body, adminUser);
     });
   });
 
@@ -166,7 +171,7 @@ describe('EmployeesController', () => {
       const result = await controller.update('emp-001', adminUser, { lastName: '鈴木' });
 
       expect(result).toEqual({ id: 'emp-001' });
-      expect(mockService.update).toHaveBeenCalledWith('emp-001', { lastName: '鈴木' }, adminUser.userId);
+      expect(mockService.update).toHaveBeenCalledWith('emp-001', { lastName: '鈴木' }, adminUser.userId, adminUser.tenantId);
     });
   });
 
@@ -181,14 +186,14 @@ describe('EmployeesController', () => {
         name: '田中 花子',
         relationship: '配偶者',
         phone: '090-0000-0000',
-      });
+      }, adminUser);
 
       expect(result).toEqual({ id: 'ec-1' });
       expect(mockService.createEmergencyContact).toHaveBeenCalledWith('emp-001', {
         name: '田中 花子',
         relationship: '配偶者',
         phone: '090-0000-0000',
-      });
+      }, 'tenant-1');
     });
   });
 
@@ -202,6 +207,7 @@ describe('EmployeesController', () => {
       const result = await controller.findOne('emp-001', adminUser);
 
       expect(result.lastName).toBe('田中');
+      expect(mockService.findOne).toHaveBeenCalledWith('emp-001', 'tenant-1');
     });
 
     it('employeeは自分自身の詳細を取得できる', async () => {
@@ -210,6 +216,7 @@ describe('EmployeesController', () => {
       const result = await controller.findOne('emp-001', employeeUser);
 
       expect(result.id).toBe('emp-001');
+      expect(mockService.findOne).toHaveBeenCalledWith('emp-001', 'tenant-1');
     });
 
     it('employeeが他人の詳細にアクセスするとForbiddenException', async () => {
@@ -226,6 +233,7 @@ describe('EmployeesController', () => {
       const result = await controller.findOne('emp-001', salesUser);
 
       expect(result.id).toBe('emp-001');
+      expect(mockService.findOne).toHaveBeenCalledWith('emp-001', 'tenant-1');
     });
   });
 

@@ -26,6 +26,7 @@ import { GBizInfoService } from './gbizinfo.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('クライアント管理')
 @ApiBearerAuth()
@@ -69,8 +70,9 @@ export class ClientsController {
       paymentDays?: number | null;
       bankHolidayAdj?: string | null;
     },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.clientsService.create(body);
+    return this.clientsService.create(body, user.tenantId);
   }
 
   /**
@@ -80,11 +82,12 @@ export class ClientsController {
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント一覧' })
   async findAll(
+    @CurrentUser() user: RequestUser,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
   ) {
-    return this.clientsService.findAll({ page, limit, search });
+    return this.clientsService.findAll({ page, limit, search, tenantId: user.tenantId });
   }
 
   /**
@@ -120,8 +123,9 @@ export class ClientsController {
       paymentDays?: number | null;
       bankHolidayAdj?: string | null;
     },
+    @CurrentUser() user: RequestUser,
   ) {
-    return this.clientsService.update(id, body);
+    return this.clientsService.update(id, body, user.tenantId);
   }
 
   /**
@@ -151,7 +155,10 @@ export class ClientsController {
   @Get(':id')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: 'クライアント詳細' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.clientsService.findOne(id);
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.clientsService.findOne(id, user.tenantId);
   }
 }

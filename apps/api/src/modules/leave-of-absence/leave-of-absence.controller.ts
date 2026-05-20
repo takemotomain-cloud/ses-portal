@@ -91,21 +91,21 @@ export class LeaveOfAbsenceController {
       reason,
       filePath: file?.path,
       fileName: originalName,
-    });
+    }, user.tenantId);
   }
 
   @Get('my')
   @ApiOperation({ summary: '自分の休職届一覧' })
   async getMyList(@CurrentUser() user: RequestUser) {
-    return this.service.getMyList(user.employeeId);
+    return this.service.getMyList(user.employeeId, user.tenantId);
   }
 
   @Get('pending')
   @UseGuards(RolesGuard)
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '承認待ち休職届一覧' })
-  async getPending() {
-    return this.service.getPending();
+  async getPending(@CurrentUser() user: RequestUser) {
+    return this.service.getPending(user.tenantId);
   }
 
   @Post(':id/approve')
@@ -116,7 +116,7 @@ export class LeaveOfAbsenceController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.service.approve(id, user.employeeId);
+    await this.service.approve(id, user.employeeId, user.tenantId);
     return { message: '承認しました' };
   }
 
@@ -129,7 +129,7 @@ export class LeaveOfAbsenceController {
     @CurrentUser() user: RequestUser,
     @Body('reason') reason?: string,
   ) {
-    await this.service.reject(id, user.employeeId, reason);
+    await this.service.reject(id, user.employeeId, user.tenantId, reason);
     return { message: '却下しました' };
   }
 
@@ -143,7 +143,7 @@ export class LeaveOfAbsenceController {
     if (!actualReturnDate) {
       throw new BadRequestException('復職日を指定してください');
     }
-    return this.service.submitReturn(id, user.employeeId, actualReturnDate);
+    return this.service.submitReturn(id, user.employeeId, actualReturnDate, user.tenantId);
   }
 
   @Post(':id/return-approve')
@@ -154,7 +154,7 @@ export class LeaveOfAbsenceController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
   ) {
-    await this.service.approveReturn(id, user.employeeId);
+    await this.service.approveReturn(id, user.employeeId, user.tenantId);
     return { message: '復職を承認しました' };
   }
 }

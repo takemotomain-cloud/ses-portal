@@ -19,13 +19,13 @@ export class SettingsService {
   /**
    * 部署一覧を取得（ツリー構造）
    */
-  async findAllDepartments() {
+  async findAllDepartments(tenantId: string) {
     return this.db.department.findMany({
-      where: { isActive: true, parentId: null },
+      where: { tenantId, isActive: true, parentId: null },
       include: {
         _count: { select: { employees: true } },
         children: {
-          where: { isActive: true },
+          where: { tenantId, isActive: true },
           include: {
             _count: { select: { employees: true } },
           },
@@ -43,9 +43,10 @@ export class SettingsService {
     name: string;
     code: string;
     parentId?: string;
-  }) {
+  }, tenantId: string) {
     return this.db.department.create({
       data: {
+        tenantId,
         name: data.name,
         code: data.code,
         parentId: data.parentId || null,
@@ -58,8 +59,9 @@ export class SettingsService {
   /**
    * 役職一覧を取得
    */
-  async findAllPositions() {
+  async findAllPositions(tenantId: string) {
     return this.db.position.findMany({
+      where: { tenantId },
       include: {
         _count: { select: { employees: true } },
       },
@@ -74,9 +76,10 @@ export class SettingsService {
     name: string;
     rank: number;
     hasApproval?: boolean;
-  }) {
+  }, tenantId: string) {
     return this.db.position.create({
       data: {
+        tenantId,
         name: data.name,
         rank: data.rank,
         hasApproval: data.hasApproval ?? false,

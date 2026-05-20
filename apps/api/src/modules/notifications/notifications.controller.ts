@@ -96,7 +96,7 @@ export class NotificationsController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'お知らせ一括送信（管理者）' })
-  async send(@Body() body: {
+  async send(@CurrentUser() user: RequestUser, @Body() body: {
     title: string;
     body: string;
     targetType: 'all' | 'department' | 'area' | 'individual';
@@ -104,15 +104,15 @@ export class NotificationsController {
     targetArea?: string;
     imageUrl?: string;
   }) {
-    return this.notificationsService.sendBulk(body);
+    return this.notificationsService.sendBulk(user.tenantId, body);
   }
 
   @Get('sent')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '送信済みお知らせ一覧（管理者）' })
-  async getSentNotifications() {
-    return this.notificationsService.getSentNotifications();
+  async getSentNotifications(@CurrentUser() user: RequestUser) {
+    return this.notificationsService.getSentNotifications(user.tenantId);
   }
 
   @Get('sent/:announcementId')
@@ -127,8 +127,8 @@ export class NotificationsController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '送信先の選択肢を取得（管理者）' })
-  async getTargets() {
-    return this.notificationsService.getTargetOptions();
+  async getTargets(@CurrentUser() user: RequestUser) {
+    return this.notificationsService.getTargetOptions(user.tenantId);
   }
 
   /* --- 社員用 --- */
@@ -140,7 +140,7 @@ export class NotificationsController {
     @Query('limit') limit?: number,
     @Query('audience') audience?: 'admin' | 'employee',
   ) {
-    return this.notificationsService.getMyNotifications(user.employeeId, limit, audience);
+    return this.notificationsService.getMyNotifications(user.tenantId, user.employeeId, limit, audience);
   }
 
   @Get('unread-count')
@@ -149,14 +149,14 @@ export class NotificationsController {
     @CurrentUser() user: RequestUser,
     @Query('audience') audience?: 'admin' | 'employee',
   ) {
-    const count = await this.notificationsService.getUnreadCount(user.employeeId, audience);
+    const count = await this.notificationsService.getUnreadCount(user.tenantId, user.employeeId, audience);
     return { count };
   }
 
   @Post(':id/read')
   @ApiOperation({ summary: '通知を既読にする' })
   async markAsRead(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: RequestUser) {
-    await this.notificationsService.markAsRead(id, user.employeeId);
+    await this.notificationsService.markAsRead(user.tenantId, id, user.employeeId);
     return { message: '既読にしました' };
   }
 
@@ -166,7 +166,7 @@ export class NotificationsController {
     @CurrentUser() user: RequestUser,
     @Query('audience') audience?: 'admin' | 'employee',
   ) {
-    await this.notificationsService.markAllAsRead(user.employeeId, audience);
+    await this.notificationsService.markAllAsRead(user.tenantId, user.employeeId, audience);
     return { message: 'すべて既読にしました' };
   }
 }

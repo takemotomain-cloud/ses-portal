@@ -50,6 +50,7 @@ export class OnboardingDocumentsService {
    * file: multer が diskStorage で保存した一時ファイル
    */
   async uploadOne(
+    tenantId: string,
     employeeId: string,
     documentType: string,
     file: Express.Multer.File,
@@ -61,7 +62,7 @@ export class OnboardingDocumentsService {
     if (!file) throw new BadRequestException('ファイルがありません');
 
     const emp = await this.db.employee.findUnique({
-      where: { id: employeeId },
+      where: { id: employeeId, tenantId },
       select: { id: true, employeeCode: true, lastName: true, firstName: true, hireDate: true },
     });
     if (!emp) throw new NotFoundException('社員が見つかりません');
@@ -95,9 +96,9 @@ export class OnboardingDocumentsService {
 
     let driveFileId: string | null = null;
     let driveViewLink: string | null = null;
-    if (this.drive.isEnabled()) {
+    if (await this.drive.isEnabled(tenantId)) {
       try {
-        const folderId = await this.drive.ensureFolderPath([
+        const folderId = await this.drive.ensureFolderPath(tenantId, [
           fiscalFolder,
           monthFolder,
           folderKey,
@@ -105,7 +106,7 @@ export class OnboardingDocumentsService {
         ]);
         const buffer = fs.readFileSync(file.path);
         const mime = file.mimetype || 'application/octet-stream';
-        const res = await this.drive.uploadBuffer({
+        const res = await this.drive.uploadBuffer(tenantId, {
           folderId,
           fileName,
           buffer,
@@ -122,6 +123,7 @@ export class OnboardingDocumentsService {
 
     const record = await this.db.onboardingDocument.create({
       data: {
+        tenantId,
         employeeId: emp.id,
         documentType,
         fileName,
@@ -146,9 +148,9 @@ export class OnboardingDocumentsService {
     };
   }
 
-  async listByEmployee(employeeId: string) {
+  async listByEmployee(tenantId: string, employeeId: string) {
     return this.db.onboardingDocument.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       orderBy: { uploadedAt: 'desc' },
     });
   }

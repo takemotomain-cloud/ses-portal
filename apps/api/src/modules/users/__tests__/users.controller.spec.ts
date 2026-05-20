@@ -18,6 +18,7 @@ import { RequestUser } from '../../../common/decorators/current-user.decorator';
 
 const mockUsersService = {
   changeRole: jest.fn(),
+  findAll: jest.fn(),
 };
 
 const adminUser: RequestUser = {
@@ -27,6 +28,7 @@ const adminUser: RequestUser = {
   name: '山本 浩二',
   email: 'k.yamamoto@example.com',
   role: 'admin',
+  tenantId: 'tenant-1',
 };
 
 /* ====== テストスイート ====== */
@@ -49,7 +51,7 @@ describe('UsersController', () => {
    * PATCH /users/:id/role
    * ============================ */
   describe('changeRole', () => {
-    it('service.changeRole に (id, role, actorUserId) を渡して delegation する', async () => {
+    it('service.changeRole に (id, role, actorUserId, tenantId) を渡して delegation する', async () => {
       mockUsersService.changeRole.mockResolvedValueOnce({
         id: 'target-user-id',
         role: 'manager',
@@ -66,6 +68,7 @@ describe('UsersController', () => {
         'target-user-id',
         'manager',
         'actor-admin-id',
+        'tenant-1',
       );
       expect(result).toEqual({
         id: 'target-user-id',
@@ -129,6 +132,7 @@ describe('UsersController', () => {
         'actor-admin-id',
         'manager',
         'actor-admin-id',
+        'tenant-1',
       );
     });
   });

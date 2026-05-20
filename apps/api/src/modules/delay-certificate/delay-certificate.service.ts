@@ -32,9 +32,11 @@ export class DelayCertificateService {
       filePath?: string;
       fileName?: string;
     },
+    tenantId: string,
   ) {
     const cert = await this.db.delayCertificate.create({
       data: {
+        tenantId,
         employeeId,
         targetDate: new Date(data.targetDate),
         route: data.route || null,
@@ -46,23 +48,23 @@ export class DelayCertificateService {
     });
 
     this.logger.log(`遅延証明書提出: employee=${employeeId}, date=${data.targetDate}`);
-    this.notifications.notifyAdmins('遅延証明書', 'が遅延証明書を提出しました。', employeeId).catch(() => {});
+    this.notifications.notifyAdmins(tenantId, '遅延証明書', 'が遅延証明書を提出しました。', employeeId).catch(() => {});
     return cert;
   }
 
   /** 自分の提出一覧 */
-  async getMyList(employeeId: string) {
+  async getMyList(employeeId: string, tenantId: string) {
     return this.db.delayCertificate.findMany({
-      where: { employeeId },
+      where: { employeeId, tenantId },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
   }
 
   /** 管理者: 未確認一覧 */
-  async getPending() {
+  async getPending(tenantId: string) {
     return this.db.delayCertificate.findMany({
-      where: { status: 'submitted' },
+      where: { status: 'submitted', tenantId },
       include: {
         employee: {
           select: { lastName: true, firstName: true, employeeCode: true },
@@ -73,8 +75,9 @@ export class DelayCertificateService {
   }
 
   /** 管理者: 全件一覧 */
-  async getAll() {
+  async getAll(tenantId: string) {
     return this.db.delayCertificate.findMany({
+      where: { tenantId },
       include: {
         employee: {
           select: { lastName: true, firstName: true, employeeCode: true },
@@ -86,13 +89,13 @@ export class DelayCertificateService {
   }
 
   /** 管理者: 確認済みにする */
-  async confirm(id: string, confirmerId: string) {
-    const cert = await this.db.delayCertificate.findUnique({ where: { id } });
+  async confirm(id: string, confirmerId: string, tenantId: string) {
+    const cert = await this.db.delayCertificate.findUnique({ where: { id, tenantId } });
     if (!cert) throw new NotFoundException('遅延証明書が見つかりません');
     if (cert.status === 'confirmed') throw new BadRequestException('既に確認済みです');
 
     const updated = await this.db.delayCertificate.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         status: 'confirmed',
         confirmedBy: confirmerId,
@@ -101,7 +104,7 @@ export class DelayCertificateService {
     });
 
     this.logger.log(`遅延証明書確認: id=${id}, confirmedBy=${confirmerId}`);
-    this.notifications.create({ employeeId: cert.employeeId, title: '遅延証明書', body: '遅延証明書が確認されました。' }).catch(() => {});
+    this.notifications.create({ tenantId, employeeId: cert.employeeId, title: '遅延証明書', body: '遅延証明書が確認されました。' }).catch(() => {});
     return updated;
   }
 }

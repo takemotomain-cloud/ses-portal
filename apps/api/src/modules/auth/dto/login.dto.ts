@@ -8,8 +8,8 @@
  * パスワードの複雑性チェックはログイン時には不要（登録/変更時にチェック）。
  */
 
-import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsString, MaxLength, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class LoginDto {
   @ApiProperty({ example: 'k.yamamoto@example.com', description: 'メールアドレス' })
@@ -22,4 +22,9 @@ export class LoginDto {
   @IsNotEmpty({ message: 'パスワードを入力してください' })
   @MaxLength(128, { message: 'パスワードが長すぎます' })
   password!: string;
+
+  @ApiPropertyOptional({ example: 'testcompany', description: 'テナントサブドメイン' })
+  @IsString()
+  @IsOptional()
+  subdomain?: string;
 }

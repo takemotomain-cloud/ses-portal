@@ -11,17 +11,21 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
+COPY turbo.json ./
+COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 COPY packages/shared/package.json ./packages/shared/
-COPY pnpm-workspace.yaml ./
 
-RUN pnpm install --frozen-lockfile --filter @ses-portal/web...
+RUN pnpm install --no-frozen-lockfile
 
-COPY apps/web/ ./apps/web/
-COPY packages/shared/ ./packages/shared/
+COPY . .
 
-RUN cd apps/web && pnpm build
+# public ディレクトリが存在しない場合でも COPY が失敗しないよう作成しておく
+RUN mkdir -p apps/web/public
+
+ENV API_URL=http://api:3001
+RUN pnpm turbo build --filter=@ses-portal/web...
 
 FROM node:20-alpine AS runner
 
@@ -29,6 +33,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV API_URL=http://api:3001
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs

@@ -45,25 +45,25 @@ export class AttendanceController {
   @Get('today')
   @ApiOperation({ summary: '今日の打刻状況' })
   async getToday(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.getToday(user.employeeId);
+    return this.attendanceService.getToday(user.employeeId, user.tenantId);
   }
 
   @Post('clock-in')
   @ApiOperation({ summary: '出勤打刻' })
   async clockIn(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.clockIn(user.employeeId);
+    return this.attendanceService.clockIn(user.employeeId, user.tenantId);
   }
 
   @Post('clock-out')
   @ApiOperation({ summary: '退勤打刻' })
   async clockOut(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.clockOut(user.employeeId);
+    return this.attendanceService.clockOut(user.employeeId, user.tenantId);
   }
 
   @Post('absent')
   @ApiOperation({ summary: '欠勤登録（当日）' })
   async markAbsent(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.markAbsent(user.employeeId);
+    return this.attendanceService.markAbsent(user.employeeId, user.tenantId);
   }
 
   @Post('absent-date')
@@ -72,7 +72,7 @@ export class AttendanceController {
     @CurrentUser() user: RequestUser,
     @Body() body: { date: string; reason?: string },
   ) {
-    return this.attendanceService.markAbsentForDate(user.employeeId, body.date, body.reason);
+    return this.attendanceService.markAbsentForDate(user.employeeId, body.date, user.tenantId);
   }
 
   /* --- 修正申請（固定パスを :year/:month より先に配置） --- */
@@ -80,15 +80,15 @@ export class AttendanceController {
   @Get('corrections/my')
   @ApiOperation({ summary: '自分の修正申請一覧' })
   async getMyCorrections(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.getMyCorrections(user.employeeId);
+    return this.attendanceService.getMyCorrections(user.employeeId, user.tenantId);
   }
 
   @Get('corrections/pending')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '未処理の修正申請一覧（管理者）' })
-  async getPendingCorrections() {
-    return this.attendanceService.getPendingCorrections();
+  async getPendingCorrections(@CurrentUser() user: RequestUser) {
+    return this.attendanceService.getPendingCorrections(user.tenantId);
   }
 
   @Post('corrections/:id/approve')
@@ -99,7 +99,7 @@ export class AttendanceController {
     @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.attendanceService.approveCorrection(id, user.employeeId);
+    return this.attendanceService.approveCorrection(id, user.employeeId, user.tenantId);
   }
 
   @Post('corrections/:id/reject')
@@ -111,13 +111,13 @@ export class AttendanceController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { reason?: string },
   ) {
-    return this.attendanceService.rejectCorrection(id, user.employeeId, body.reason);
+    return this.attendanceService.rejectCorrection(id, user.employeeId, user.tenantId, body.reason);
   }
 
   @Get('missed')
   @ApiOperation({ summary: '打刻漏れ検知' })
   async getMissedClocks(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.detectMissedClocks(user.employeeId);
+    return this.attendanceService.detectMissedClocks(user.employeeId, user.tenantId);
   }
 
   /* --- シフト計画 --- */
@@ -128,7 +128,7 @@ export class AttendanceController {
     @CurrentUser() user: RequestUser,
     @Param('yearMonth') yearMonth: string,
   ) {
-    return this.attendanceService.getMyShift(user.employeeId, yearMonth);
+    return this.attendanceService.getMyShift(user.employeeId, yearMonth, user.tenantId);
   }
 
   @Post('shift/confirm')
@@ -142,7 +142,7 @@ export class AttendanceController {
       customDays?: { day: number; isWorkDay: boolean; startTime: string }[];
     },
   ) {
-    return this.attendanceService.confirmShift(user.employeeId, body);
+    return this.attendanceService.confirmShift(user.employeeId, user.tenantId, body);
   }
 
   /* --- アラート --- */
@@ -150,15 +150,15 @@ export class AttendanceController {
   @Get('alerts/my')
   @ApiOperation({ summary: '自分のアラート一覧' })
   async getMyAlerts(@CurrentUser() user: RequestUser) {
-    return this.attendanceService.getMyAlerts(user.employeeId);
+    return this.attendanceService.getMyAlerts(user.employeeId, user.tenantId);
   }
 
   @Get('alerts/admin')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: '管理者用アラート集約' })
-  async getAdminAlerts() {
-    return this.attendanceService.getAdminAlerts();
+  async getAdminAlerts(@CurrentUser() user: RequestUser) {
+    return this.attendanceService.getAdminAlerts(user.tenantId);
   }
 
   /* --- 管理者用: 月次勤怠確定（closure） --- */
@@ -168,10 +168,11 @@ export class AttendanceController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '月次勤怠確定ステータス + readiness 取得' })
   async getClosureStatus(
+    @CurrentUser() user: RequestUser,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getClosureStatus(year, month);
+    return this.attendanceService.getClosureStatus(year, month, user.tenantId);
   }
 
   @Post('admin/closure/:year/:month/close')
@@ -183,7 +184,7 @@ export class AttendanceController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.closeMonth(year, month, user.employeeId);
+    return this.attendanceService.closeMonth(year, month, user.employeeId, user.tenantId);
   }
 
   @Post('admin/closure/:year/:month/reopen')
@@ -195,7 +196,7 @@ export class AttendanceController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.reopenMonth(year, month, user.employeeId);
+    return this.attendanceService.reopenMonth(year, month, user.employeeId, user.tenantId);
   }
 
   /* --- 管理者用: 社内勤怠一覧（アサインなし社員） --- */
@@ -205,10 +206,11 @@ export class AttendanceController {
   @Roles('admin', 'manager')
   @ApiOperation({ summary: 'アサインなし社員の勤怠一覧（社内勤怠）' })
   async getInternalAttendance(
+    @CurrentUser() user: RequestUser,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getInternalAttendance(year, month);
+    return this.attendanceService.getInternalAttendance(year, month, user.tenantId);
   }
 
   /* --- 管理者用: 月次ステータス一覧 --- */
@@ -218,10 +220,11 @@ export class AttendanceController {
   @Roles('admin')
   @ApiOperation({ summary: '管理者用: 全社員の勤怠ステータス一覧' })
   async getMonthlyStatus(
+    @CurrentUser() user: RequestUser,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getMonthlyStatus(year, month);
+    return this.attendanceService.getMonthlyStatus(year, month, user.tenantId);
   }
 
   /* --- 管理者用: 指定社員の月次勤怠 --- */
@@ -231,11 +234,12 @@ export class AttendanceController {
   @Roles('admin')
   @ApiOperation({ summary: '管理者用: 指定社員の月次勤怠データ取得' })
   async getMonthlyByEmployee(
+    @CurrentUser() user: RequestUser,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getMonthlyByEmployee(employeeId, year, month);
+    return this.attendanceService.getMonthlyByEmployee(employeeId, year, month, user.tenantId);
   }
 
   @Patch('admin/:employeeId/:workDate')
@@ -248,7 +252,7 @@ export class AttendanceController {
     @Param('workDate') workDate: string,
     @Body() body: { clockIn?: string; clockOut?: string; breakMinutes?: number; correction?: boolean; reason?: string },
   ) {
-    return this.attendanceService.updateAttendanceByAdmin(employeeId, workDate, body, user.userId);
+    return this.attendanceService.updateAttendanceByAdmin(employeeId, workDate, body, user.tenantId, user.userId);
   }
 
   @Post('admin/:employeeId/confirm/:yearMonth')
@@ -256,10 +260,11 @@ export class AttendanceController {
   @Roles('admin')
   @ApiOperation({ summary: '管理者用: 本人勤怠を一括確定' })
   async confirmAttendanceByAdmin(
+    @CurrentUser() user: RequestUser,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('yearMonth') yearMonth: string,
   ) {
-    return this.attendanceService.confirmAttendanceByAdmin(employeeId, yearMonth);
+    return this.attendanceService.confirmAttendanceByAdmin(employeeId, yearMonth, user.tenantId);
   }
 
   @Get('admin-edits/all')
@@ -267,10 +272,12 @@ export class AttendanceController {
   @Roles('admin')
   @ApiOperation({ summary: '全社員の勤怠修正ログ' })
   async getAllAdminEdits(
+    @CurrentUser() user: RequestUser,
     @Query('limit') limit?: number,
     @Query('offset') offset?: number,
   ) {
     return this.attendanceService.getAllAdminEdits(
+      user.tenantId,
       Math.min(Number(limit) || 50, 200),
       Number(offset) || 0,
     );
@@ -283,7 +290,7 @@ export class AttendanceController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getMyAdminEdits(user.employeeId, year, month);
+    return this.attendanceService.getMyAdminEdits(user.employeeId, year, month, user.tenantId);
   }
 
   @Get('admin-edits/:employeeId/:year/:month')
@@ -291,11 +298,12 @@ export class AttendanceController {
   @Roles('admin')
   @ApiOperation({ summary: '管理者用: 指定社員の勤怠修正履歴' })
   async getAdminEdits(
+    @CurrentUser() user: RequestUser,
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getAdminEdits(employeeId, year, month);
+    return this.attendanceService.getAdminEdits(employeeId, year, month, user.tenantId);
   }
 
   @Post('admin-edit/:editId/object')
@@ -305,7 +313,7 @@ export class AttendanceController {
     @Param('editId', ParseUUIDPipe) editId: string,
     @Body() body: { reason: string },
   ) {
-    return this.attendanceService.objectToAdminEdit(editId, user.employeeId, body.reason);
+    return this.attendanceService.objectToAdminEdit(editId, user.employeeId, user.tenantId, body.reason);
   }
 
   /* --- パラメータ付きルート（後方に配置） --- */
@@ -317,7 +325,7 @@ export class AttendanceController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
   ) {
-    return this.attendanceService.getMonthly(user.employeeId, year, month);
+    return this.attendanceService.getMonthly(user.employeeId, year, month, user.tenantId);
   }
 
   @Patch(':id/break')
@@ -327,7 +335,7 @@ export class AttendanceController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body('breakMinutes', ParseIntPipe) breakMinutes: number,
   ) {
-    return this.attendanceService.updateBreak(id, user.employeeId, breakMinutes);
+    return this.attendanceService.updateBreak(id, user.employeeId, breakMinutes, user.tenantId);
   }
 
   @Post(':id/correction')
@@ -342,6 +350,6 @@ export class AttendanceController {
       reason: string;
     },
   ) {
-    return this.attendanceService.createCorrection(id, user.employeeId, body);
+    return this.attendanceService.createCorrection(id, user.employeeId, body, user.tenantId);
   }
 }

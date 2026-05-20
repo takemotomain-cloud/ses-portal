@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 
+const SYSTEM_TENANT_ID = process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
+
 @Injectable()
 export class ProjectsService {
   private readonly logger = new Logger(ProjectsService.name);
@@ -19,9 +21,9 @@ export class ProjectsService {
   constructor(private readonly db: DatabaseService) {}
 
   /** クライアントの案件一覧（assignments含む） */
-  async findByClient(clientId: string) {
+  async findByClient(clientId: string, tenantId: string) {
     return this.db.project.findMany({
-      where: { clientId, deletedAt: null },
+      where: { clientId, tenantId, deletedAt: null },
       include: {
         assignments: {
           where: { deletedAt: null },
@@ -43,9 +45,9 @@ export class ProjectsService {
   }
 
   /** 案件詳細 */
-  async findOne(id: string) {
+  async findOne(id: string, tenantId: string) {
     const project = await this.db.project.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       include: {
         client: { select: { id: true, name: true } },
         assignments: {
@@ -94,9 +96,10 @@ export class ProjectsService {
     paymentDay?: number | null;
     paymentDays?: number | null;
     bankHolidayAdj?: string | null;
-  }) {
+  }, tenantId: string) {
     const project = await this.db.project.create({
       data: {
+        tenantId,
         clientId: data.clientId,
         name: data.name,
         contractPrice: data.contractPrice || null,
@@ -151,8 +154,8 @@ export class ProjectsService {
     paymentDay?: number | null;
     paymentDays?: number | null;
     bankHolidayAdj?: string | null;
-  }) {
-    const existing = await this.findOne(id);
+  }, tenantId: string) {
+    const existing = await this.findOne(id, tenantId);
 
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
@@ -178,13 +181,20 @@ export class ProjectsService {
     if (data.paymentDays !== undefined) updateData.paymentDays = data.paymentDays;
     if (data.bankHolidayAdj !== undefined) updateData.bankHolidayAdj = data.bankHolidayAdj;
 
-    const updated = await this.db.project.update({
-      where: { id },
+    const updated = await this.db.project.updateMany({
+      where: { id, tenantId },
       data: updateData,
     });
 
+    if (updated.count === 0) {
+      throw new NotFoundException('案件が見つからないか、更新に失敗しました');
+    }
+
+    // 更新後のデータを取得して返す（M1ロジックのため）
+    const refreshed = await this.findOne(id, tenantId);
+
     // M1: 案件の endDate が過去 or 本日以前に設定された場合、紐づくアクティブなアサインを自動で ended 化
-    const newEndDate = updateData.endDate ?? existing.endDate;
+    const newEndDate = updateData.endDate ?? refreshed.endDate;
     if (newEndDate) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -195,6 +205,7 @@ export class ProjectsService {
         const closed = await this.db.assignment.updateMany({
           where: {
             projectId: id,
+            tenantId,
             status: 'active',
             deletedAt: null,
           },
@@ -210,7 +221,7 @@ export class ProjectsService {
       }
     }
 
-    return updated;
+    return refreshed;
   }
 
   /**
@@ -218,10 +229,10 @@ export class ProjectsService {
    *
    * M4: 関連アサインは残す（過去の稼働実績・給与履歴保護のため）
    */
-  async remove(id: string) {
-    await this.findOne(id);
-    await this.db.project.update({
-      where: { id },
+  async remove(id: string, tenantId: string) {
+    await this.findOne(id, tenantId);
+    await this.db.project.updateMany({
+      where: { id, tenantId },
       data: { deletedAt: new Date() },
     });
     this.logger.log(`案件削除: ${id}（関連アサインは保持）`);

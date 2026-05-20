@@ -33,7 +33,7 @@ interface AuthContextType {
   /** ログイン中フラグ（初期ロード中はtrue） */
   isLoading: boolean;
   /** ログイン処理 */
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string, subdomain?: string) => Promise<AuthUser>;
   /** ログアウト処理 */
   logout: () => Promise<void>;
 }
@@ -69,7 +69,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ? String(employee.resignDate).slice(0, 10)
             : null,
           department: employee.department?.name || '',
-          hasBonus: employee.hasBonus ?? false,
+          tenantId: employee.user?.tenant?.id || '',
+          tenantName: employee.user?.tenant?.name || 'SES Portal',
+          subdomain: employee.user?.tenant?.subdomain || null,
         } as any);
       })
       .catch((error: { statusCode?: number }) => {
@@ -87,14 +89,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * ログイン
    *
-   * 1. APIにメール+パスワードを送信
+   * 1. APIにメール+パスワード(+サブドメイン)を送信
    * 2. JWTを受け取ってlocalStorageに保存
    * 3. ユーザー情報をContextに設定
    */
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, subdomain?: string) => {
     const response = await apiClient<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, subdomain }),
     });
 
     setToken(response.accessToken);
@@ -108,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * トークン削除 + ユーザー情報クリア + ログイン画面にリダイレクト
    */
   const logout = useCallback(async () => {
+    const subdomain = user?.subdomain;
     try {
       await apiClient('/auth/logout', {
         method: 'POST',
@@ -117,8 +120,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     removeToken();
     setUser(null);
-    window.location.href = '/login';
-  }, []);
+    if (subdomain) {
+      window.location.href = `/t/${subdomain}/login`;
+    } else {
+      window.location.href = '/login';
+    }
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ user, isLoading, login, logout }}>

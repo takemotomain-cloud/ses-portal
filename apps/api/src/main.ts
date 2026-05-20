@@ -45,7 +45,7 @@ async function bootstrap() {
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-system-admin-key'],
   });
 
   // 全エンドポイントの入力バリデーション

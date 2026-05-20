@@ -15,6 +15,8 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { PAGINATION } from '@ses-portal/shared';
 
+const SYSTEM_TENANT_ID = process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
+
 @Injectable()
 export class ClientsService {
   private readonly logger = new Logger(ClientsService.name);
@@ -48,9 +50,10 @@ export class ClientsService {
     paymentDay?: number | null;
     paymentDays?: number | null;
     bankHolidayAdj?: string | null;
-  }) {
+  }, tenantId: string) {
     return this.db.client.create({
       data: {
+        tenantId,
         name: data.name,
         corporateNumber: data.corporateNumber || null,
         invoiceNumber: data.invoiceNumber || null,
@@ -86,7 +89,9 @@ export class ClientsService {
     page?: number;
     limit?: number;
     search?: string;
+    tenantId: string;
   }) {
+    const { tenantId } = params;
     const page = params.page || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(
       params.limit || PAGINATION.DEFAULT_LIMIT,
@@ -94,7 +99,7 @@ export class ClientsService {
     );
     const skip = (page - 1) * limit;
 
-    const where: any = { deletedAt: null };
+    const where: any = { tenantId, deletedAt: null };
 
     if (params.search) {
       where.OR = [
@@ -189,16 +194,17 @@ export class ClientsService {
       paymentDays?: number | null;
       bankHolidayAdj?: string | null;
     },
+    tenantId: string
   ) {
     const client = await this.db.client.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
     });
     if (!client) {
       throw new NotFoundException('クライアントが見つかりません');
     }
 
-    return this.db.client.update({
-      where: { id },
+    const updated = await this.db.client.updateMany({
+      where: { id, tenantId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.corporateNumber !== undefined && { corporateNumber: data.corporateNumber || null }),
@@ -226,14 +232,20 @@ export class ClientsService {
         ...(data.bankHolidayAdj !== undefined && { bankHolidayAdj: data.bankHolidayAdj }),
       },
     });
+
+    if (updated.count === 0) {
+      throw new NotFoundException('クライアントが見つからないか、更新に失敗しました');
+    }
+
+    return this.findOne(id, tenantId);
   }
 
   /**
    * クライアント詳細を取得
    */
-  async findOne(id: string) {
+  async findOne(id: string, tenantId: string) {
     const client = await this.db.client.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, tenantId, deletedAt: null },
       include: {
         assignments: {
           where: { deletedAt: null },
