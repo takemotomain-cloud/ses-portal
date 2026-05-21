@@ -25,6 +25,7 @@ import {
 export interface AgentActor {
   employeeId: string;
   role: string;
+  tenantId: string;
 }
 
 export interface RunOnceResult {
@@ -144,6 +145,7 @@ export class AgentsService {
     const ctx: AgentToolContext = {
       actorEmployeeId: actor?.employeeId ?? '',
       actorRole: actor?.role ?? 'guest',
+      tenantId: actor?.tenantId ?? process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001',
       writeCallCount: { value: 0 },
     };
 
@@ -252,6 +254,7 @@ export class AgentsService {
     const ctx: AgentToolContext = {
       actorEmployeeId: actor?.employeeId ?? '',
       actorRole: actor?.role ?? 'guest',
+      tenantId: actor?.tenantId ?? process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001',
       writeCallCount: { value: 0 },
     };
 

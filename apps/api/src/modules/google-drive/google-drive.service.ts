@@ -49,8 +49,6 @@ export class GoogleDriveService implements OnModuleInit {
       return;
     }
   }
-    }
-  }
 
   private createOAuth2Client() {
     if (!this.clientId || !this.clientSecret) {

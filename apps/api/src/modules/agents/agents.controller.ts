@@ -79,6 +79,7 @@ export class AgentsController {
     return this.agentsService.runOnce(dto.prompt, agentId, dto.history, {
       employeeId: user.employeeId,
       role: user.role,
+      tenantId: user.tenantId,
     });
   }
 
@@ -115,7 +116,7 @@ export class AgentsController {
         if (closed) return;
         send(event);
       },
-      { employeeId: user.employeeId, role: user.role },
+      { employeeId: user.employeeId, role: user.role, tenantId: user.tenantId },
     );
 
     if (!closed) res.end();

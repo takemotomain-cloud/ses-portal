@@ -43,6 +43,7 @@ export interface ToolCallLog {
 export interface AgentToolContext {
   actorEmployeeId: string;
   actorRole: string;
+  tenantId: string;
   /** 1 リクエスト内で書き込みツールを呼び出した回数（参照渡し用にオブジェクトで持つ） */
   writeCallCount: { value: number };
 }
@@ -434,18 +435,18 @@ export class AgentToolsService {
     try {
       switch (name) {
         case 'count_pending_approvals':
-          return JSON.stringify(await this.countPendingApprovals());
+          return JSON.stringify(await this.countPendingApprovals(ctx));
         case 'list_pending_approvals':
           return JSON.stringify(
-            await this.listPendingApprovals(input as { category: string; limit?: number }),
+            await this.listPendingApprovals(input as { category: string; limit?: number }, ctx),
           );
         case 'count_unread_notifications':
-          return JSON.stringify(await this.countUnreadAdminNotifications());
+          return JSON.stringify(await this.countUnreadAdminNotifications(ctx));
 
         // 勤怠確定
         case 'get_attendance_closure_status':
           return JSON.stringify(
-            await this.getAttendanceClosureStatus(input as { year: number; month: number }),
+            await this.getAttendanceClosureStatus(input as { year: number; month: number }, ctx),
           );
         case 'close_month_attendance':
           return JSON.stringify(
@@ -459,7 +460,7 @@ export class AgentToolsService {
         // 請求書
         case 'list_billable_for_month':
           return JSON.stringify(
-            await this.listBillableForMonth(input as { target_month: string }),
+            await this.listBillableForMonth(input as { target_month: string }, ctx),
           );
         case 'generate_invoice_for_client':
           return JSON.stringify(
@@ -470,12 +471,14 @@ export class AgentToolsService {
                 employee_ids: string[];
                 confirmed?: boolean;
               },
+              ctx,
             ),
           );
         case 'generate_all_invoices_for_month':
           return JSON.stringify(
             await this.generateAllInvoicesForMonth(
               input as { target_month: string; confirmed?: boolean },
+              ctx,
             ),
           );
 
@@ -516,11 +519,11 @@ export class AgentToolsService {
 
   // ==== 個別ツール実装 ====
 
-  private async countPendingApprovals() {
+  private async countPendingApprovals(ctx: AgentToolContext) {
     const [expense, leave, attendanceCorrection] = await Promise.all([
-      this.expense.getPendingRequests().then((r) => r.length),
-      this.leave.getPendingRequests().then((r) => r.length),
-      this.attendance.getPendingCorrections().then((r) => r.length),
+      this.expense.getPendingRequests(ctx.tenantId).then((r) => r.length),
+      this.leave.getPendingRequests(ctx.tenantId).then((r) => r.length),
+      this.attendance.getPendingCorrections(ctx.tenantId).then((r) => r.length),
     ]);
     return {
       expense,
@@ -530,7 +533,7 @@ export class AgentToolsService {
     };
   }
 
-  private async listPendingApprovals(args: { category: string; limit?: number }) {
+  private async listPendingApprovals(args: { category: string; limit?: number }, ctx: AgentToolContext) {
     const limit = Math.min(Math.max(args.limit ?? 5, 1), 20);
     const formatName = (e?: { lastName?: string | null; firstName?: string | null; employeeCode?: string | null }) => {
       if (!e) return '不明';
@@ -540,7 +543,7 @@ export class AgentToolsService {
     const fmtDate = (d?: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
     if (args.category === 'expense') {
-      const rows = await this.expense.getPendingRequests();
+      const rows = await this.expense.getPendingRequests(ctx.tenantId);
       return rows.slice(0, limit).map((r) => {
         const row = r as unknown as {
           id: string;
@@ -559,7 +562,7 @@ export class AgentToolsService {
       });
     }
     if (args.category === 'leave') {
-      const rows = await this.leave.getPendingRequests();
+      const rows = await this.leave.getPendingRequests(ctx.tenantId);
       return rows.slice(0, limit).map((r) => {
         const row = r as unknown as Record<string, unknown> & {
           id: string;
@@ -580,7 +583,7 @@ export class AgentToolsService {
       });
     }
     if (args.category === 'attendance_correction') {
-      const rows = await this.attendance.getPendingCorrections();
+      const rows = await this.attendance.getPendingCorrections(ctx.tenantId);
       return rows.slice(0, limit).map((r) => {
         const row = r as unknown as {
           id: string;
@@ -601,17 +604,17 @@ export class AgentToolsService {
     return { error: `unknown category: ${args.category}` };
   }
 
-  private async countUnreadAdminNotifications() {
+  private async countUnreadAdminNotifications(ctx: AgentToolContext) {
     const count = await this.db.notification.count({
-      where: { isRead: false, category: 'system' },
+      where: { isRead: false, category: 'system', tenantId: ctx.tenantId },
     });
     return { unread_admin_notifications: count };
   }
 
   // ===== 勤怠確定 =====
 
-  private async getAttendanceClosureStatus(args: { year: number; month: number }) {
-    const status = await this.attendance.getClosureStatus(args.year, args.month);
+  private async getAttendanceClosureStatus(args: { year: number; month: number }, ctx: AgentToolContext) {
+    const status = await this.attendance.getClosureStatus(args.year, args.month, ctx.tenantId);
     return {
       year: args.year,
       month: args.month,
@@ -623,7 +626,7 @@ export class AgentToolsService {
     args: { year: number; month: number; confirmed?: boolean },
     ctx: AgentToolContext,
   ) {
-    const status = await this.attendance.getClosureStatus(args.year, args.month);
+    const status = await this.attendance.getClosureStatus(args.year, args.month, ctx.tenantId);
     if (!args.confirmed) {
       return {
         dry_run: true,
@@ -637,7 +640,7 @@ export class AgentToolsService {
     this.logger.log(
       `agent_write close_month_attendance year=${args.year} month=${args.month} actor=${ctx.actorEmployeeId}`,
     );
-    const result = await this.attendance.closeMonth(args.year, args.month, ctx.actorEmployeeId);
+    const result = await this.attendance.closeMonth(args.year, args.month, ctx.actorEmployeeId, ctx.tenantId);
     return {
       dry_run: false,
       closed: true,
@@ -651,7 +654,7 @@ export class AgentToolsService {
     args: { year: number; month: number; confirmed?: boolean },
     ctx: AgentToolContext,
   ) {
-    const status = await this.attendance.getClosureStatus(args.year, args.month);
+    const status = await this.attendance.getClosureStatus(args.year, args.month, ctx.tenantId);
     if (!args.confirmed) {
       return {
         dry_run: true,
@@ -665,7 +668,7 @@ export class AgentToolsService {
     this.logger.log(
       `agent_write reopen_month_attendance year=${args.year} month=${args.month} actor=${ctx.actorEmployeeId}`,
     );
-    const result = await this.attendance.reopenMonth(args.year, args.month, ctx.actorEmployeeId);
+    const result = await this.attendance.reopenMonth(args.year, args.month, ctx.actorEmployeeId, ctx.tenantId);
     return {
       dry_run: false,
       reopened: true,
@@ -677,8 +680,8 @@ export class AgentToolsService {
 
   // ===== 請求書発行 =====
 
-  private async listBillableForMonth(args: { target_month: string }) {
-    const result = await this.invoices.getBillableEmployees(args.target_month);
+  private async listBillableForMonth(args: { target_month: string }, ctx: AgentToolContext) {
+    const result = await this.invoices.getBillableEmployees(args.target_month, ctx.tenantId);
     // BillableGroup は client 別グルーピング想定
     return {
       target_month: args.target_month,
@@ -686,12 +689,15 @@ export class AgentToolsService {
     };
   }
 
-  private async generateInvoiceForClient(args: {
-    client_id: string;
-    target_month: string;
-    employee_ids: string[];
-    confirmed?: boolean;
-  }) {
+  private async generateInvoiceForClient(
+    args: {
+      client_id: string;
+      target_month: string;
+      employee_ids: string[];
+      confirmed?: boolean;
+    },
+    ctx: AgentToolContext,
+  ) {
     if (!args.employee_ids?.length) {
       return { error: 'employee_ids が空です' };
     }
@@ -713,7 +719,7 @@ export class AgentToolsService {
         clientId: args.client_id,
         targetMonth: args.target_month,
         employeeIds: args.employee_ids,
-      });
+      }, ctx.tenantId);
       return {
         dry_run: false,
         generated: true,
@@ -809,11 +815,14 @@ export class AgentToolsService {
     }
   }
 
-  private async generateAllInvoicesForMonth(args: {
-    target_month: string;
-    confirmed?: boolean;
-  }) {
-    const billable = await this.invoices.getBillableEmployees(args.target_month);
+  private async generateAllInvoicesForMonth(
+    args: {
+      target_month: string;
+      confirmed?: boolean;
+    },
+    ctx: AgentToolContext,
+  ) {
+    const billable = await this.invoices.getBillableEmployees(args.target_month, ctx.tenantId);
     const groups = (billable as { billableGroups?: Array<{ clientId: string; clientName?: string; employees: Array<{ employeeId: string }>; estimatedTotal?: number }> }).billableGroups ?? [];
 
     if (groups.length === 0) {
@@ -858,7 +867,7 @@ export class AgentToolsService {
           clientId: g.clientId,
           targetMonth: args.target_month,
           employeeIds: g.employees.map((e) => e.employeeId),
-        });
+        }, ctx.tenantId);
         results.push({
           client_id: g.clientId,
           ok: true,
