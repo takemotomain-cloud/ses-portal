@@ -1,12 +1,1 @@
-{
-  "buildCommand": "pnpm turbo build",
-  "installCommand": "pnpm install",
-  "framework": "nextjs",
-  "outputDirectory": "apps/web/.next",
-  "rewrites": [
-    {
-      "source": "/api/:match*",
-      "destination": "https://your-backend-url.com/:match*"
-    }
-  ]
-}
+{}
