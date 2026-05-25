@@ -41,12 +41,6 @@ if (!existsSync(baseUploadDir)) mkdirSync(baseUploadDir, { recursive: true });
 export class OnboardingDocumentsController {
   constructor(private readonly service: OnboardingDocumentsService) {}
 
-  @Get('summary/recent')
-  @ApiOperation({ summary: '入社予定社員ページ用のチェック状況をまとめて取得' })
-  async recentSummary(@CurrentUser() user: RequestUser) {
-    return this.service.getRecentOnboardingSummary(user.tenantId);
-  }
-
   @Post(':employeeId')
   @ApiOperation({ summary: '本人確認書類を1ファイルアップロード（社員別フォルダ）' })
   @UseInterceptors(

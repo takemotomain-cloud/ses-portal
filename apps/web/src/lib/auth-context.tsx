@@ -39,47 +39,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const AUTH_USER_CACHE_KEY = 'ses_portal_auth_user_v1';
-const AUTH_USER_CACHE_TTL_MS = 5 * 60 * 1000;
-
-type CachedAuthUser = {
-  user: AuthUser;
-  cachedAt: number;
-};
-
-function readCachedAuthUser(): AuthUser | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(AUTH_USER_CACHE_KEY);
-    if (!raw) return null;
-
-    const cached = JSON.parse(raw) as CachedAuthUser;
-    if (!cached?.user || Date.now() - cached.cachedAt > AUTH_USER_CACHE_TTL_MS) {
-      window.sessionStorage.removeItem(AUTH_USER_CACHE_KEY);
-      return null;
-    }
-
-    return cached.user;
-  } catch {
-    window.sessionStorage.removeItem(AUTH_USER_CACHE_KEY);
-    return null;
-  }
-}
-
-function writeCachedAuthUser(user: AuthUser): void {
-  if (typeof window === 'undefined') return;
-
-  window.sessionStorage.setItem(
-    AUTH_USER_CACHE_KEY,
-    JSON.stringify({ user, cachedAt: Date.now() } satisfies CachedAuthUser),
-  );
-}
-
-function clearCachedAuthUser(): void {
-  if (typeof window === 'undefined') return;
-  window.sessionStorage.removeItem(AUTH_USER_CACHE_KEY);
-}
 
 /**
  * 認証プロバイダー
@@ -94,31 +53,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // 初回マウント: HttpOnly cookie があればユーザー情報を復元
   useEffect(() => {
-    const cachedUser = readCachedAuthUser();
-    if (cachedUser) {
-      setUser(cachedUser);
-      setIsLoading(false);
-    }
-
     // cookie の有無はJSから読めないため、まず軽量APIで確認する
     apiClient<AuthUser>('/auth/me')
       .then((authUser) => {
         setUser(authUser);
-        writeCachedAuthUser(authUser);
       })
       .catch((error: { statusCode?: number }) => {
         // 401 のときだけトークン無効として扱う。
         // 一時的な 500 で強制ログアウトすると復旧しづらいため。
         if (error?.statusCode === 401) {
           removeToken();
-          clearCachedAuthUser();
-          setUser(null);
         }
       })
       .finally(() => {
-        if (!cachedUser) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       });
   }, []);
 
@@ -137,7 +85,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setToken(response.accessToken);
     setUser(response.user);
-    writeCachedAuthUser(response.user);
     return response.user;
   }, []);
 
@@ -156,7 +103,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 認証切れでもクライアント側の状態破棄は続行する
     }
     removeToken();
-    clearCachedAuthUser();
     setUser(null);
     if (subdomain) {
       window.location.href = `/t/${subdomain}/login`;

@@ -1,0 +1,196 @@
+/**
+ * グローバルスタイル
+ *
+ * Tailwindのベースレイヤー + デザインルール準拠の共通スタイル。
+ * letter-spacing: 0.03emを全テキストに適用（引き継ぎドキュメント準拠）。
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* デザインルール: letter-spacing 0.03em 固定 */
+  * {
+    letter-spacing: 0.03em;
+  }
+
+  body {
+    @apply bg-page text-primary antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans',
+      'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+    line-height: 1.7;
+  }
+
+  /* セレクトボックスの背景を白に統一 */
+  select {
+    background-color: #ffffff;
+  }
+
+  /* デザインルール: テーブル全セル折り返し禁止 */
+  table td,
+  table th {
+    white-space: nowrap;
+  }
+}
+
+@layer components {
+  /* 共通カードスタイル */
+  .card {
+    @apply bg-card border border-border rounded-lg;
+  }
+
+  /* ステータスバッジ */
+  .badge {
+    @apply text-xs px-2 py-0.5 rounded inline-block whitespace-nowrap;
+  }
+
+  .badge-ok {
+    @apply bg-status-green-bg text-status-green-text;
+  }
+
+  .badge-warn {
+    @apply bg-status-amber-bg text-status-amber-text;
+  }
+
+  .badge-danger {
+    @apply bg-status-red-bg text-status-red-text;
+  }
+
+  .badge-info {
+    @apply bg-status-blue-bg text-status-blue-text;
+  }
+
+  .badge-wait {
+    background: #F1EFE8;
+    color: #6B6B6B;
+  }
+
+  /* プライマリボタン */
+  .btn-primary {
+    @apply bg-primary text-white border-none px-5 py-2 rounded-md text-base cursor-pointer
+           transition-opacity hover:opacity-85 whitespace-nowrap;
+  }
+
+  /* アウトラインボタン */
+  .btn-outline {
+    @apply bg-transparent border border-border px-4 py-2 rounded-md text-base cursor-pointer
+           text-primary transition-colors hover:bg-page whitespace-nowrap;
+  }
+
+  /* AI エージェント応答の Markdown レンダリング用 */
+  .markdown-body {
+    @apply text-primary leading-7;
+  }
+  .markdown-body > * + * {
+    margin-top: 0.6em;
+  }
+  .markdown-body h1 {
+    @apply text-lg font-semibold mt-3;
+  }
+  .markdown-body h2 {
+    @apply text-base font-semibold mt-3;
+  }
+  .markdown-body h3 {
+    @apply text-sm font-semibold mt-2;
+  }
+  .markdown-body p {
+    @apply leading-7;
+  }
+  .markdown-body strong {
+    @apply font-semibold text-primary;
+  }
+  .markdown-body em {
+    font-style: italic;
+  }
+  .markdown-body ul {
+    @apply list-disc pl-5 space-y-1;
+  }
+  .markdown-body ol {
+    @apply list-decimal pl-5 space-y-1;
+  }
+  .markdown-body li {
+    @apply leading-7;
+  }
+  .markdown-body code {
+    @apply rounded bg-page px-1.5 py-0.5 text-[12px] font-mono text-primary;
+  }
+  .markdown-body pre {
+    @apply rounded-lg bg-page p-3 text-[12px] font-mono overflow-x-auto;
+  }
+  .markdown-body pre code {
+    @apply bg-transparent p-0;
+  }
+  .markdown-body blockquote {
+    @apply border-l-2 border-border pl-3 text-secondary;
+  }
+  .markdown-body table {
+    @apply border-collapse my-2 text-sm;
+  }
+  .markdown-body th,
+  .markdown-body td {
+    @apply border border-border px-3 py-1.5 text-left;
+  }
+  .markdown-body th {
+    @apply bg-page font-semibold;
+  }
+  .markdown-body a {
+    @apply text-status-blue-text underline;
+  }
+  .markdown-body hr {
+    @apply my-3 border-border;
+  }
+}
+
+/* ---------- 印刷用スタイル ---------- */
+@media print {
+  /* サイドバー・ハンバーガー・ヘッダーボタン・印刷不要要素を非表示 */
+  aside,
+  aside *,
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  /* メインエリアを全幅に・余白除去 */
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* ページ背景のみ白に（コンテンツ内の色は維持） */
+  body {
+    background: white !important;
+  }
+
+  .bg-page {
+    background: white !important;
+  }
+
+  /* 背景色を印刷に反映 */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* テーブルセルの折り返し許可（印刷時） */
+  table td,
+  table th {
+    white-space: normal;
+  }
+
+  /* 改ページ制御 */
+  @page {
+    margin: 20mm 18mm;
+    size: A4;
+  }
+
+  /* ── 請求書PDF: カードのみ印刷 ── */
+  [data-invoice-print-area] {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-width: 100% !important;
+  }
+}

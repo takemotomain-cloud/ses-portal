@@ -844,20 +844,6 @@ export class AttendanceService {
     return { missedClocks, shiftUnconfirmed, expenseMissing, attendanceGaps };
   }
 
-  async getMyPageSummary(employeeId: string, tenantId: string) {
-    const [notices, today, alerts] = await Promise.all([
-      this.db.notification.findMany({
-        where: { tenantId, employeeId, category: { not: 'system' } },
-        orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
-        take: 20,
-      }),
-      this.getToday(employeeId, tenantId),
-      this.getMyAlerts(employeeId, tenantId),
-    ]);
-
-    return { notices, today, alerts };
-  }
-
   /**
    * 管理者用: 全社員のアラート集約
    */

@@ -34,46 +34,6 @@ interface NavSection {
   items: NavItem[];
 }
 
-interface SidebarCounts {
-  approvalCount: number;
-  unreadCount: number;
-}
-
-const SIDEBAR_COUNTS_CACHE_KEY = 'ses_portal_admin_sidebar_counts_v1';
-const SIDEBAR_COUNTS_CACHE_TTL_MS = 60 * 1000;
-
-function readCachedSidebarCounts(): SidebarCounts | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = window.sessionStorage.getItem(SIDEBAR_COUNTS_CACHE_KEY);
-    if (!raw) return null;
-
-    const cached = JSON.parse(raw) as SidebarCounts & { cachedAt: number };
-    if (Date.now() - cached.cachedAt > SIDEBAR_COUNTS_CACHE_TTL_MS) {
-      window.sessionStorage.removeItem(SIDEBAR_COUNTS_CACHE_KEY);
-      return null;
-    }
-
-    return {
-      approvalCount: cached.approvalCount || 0,
-      unreadCount: cached.unreadCount || 0,
-    };
-  } catch {
-    window.sessionStorage.removeItem(SIDEBAR_COUNTS_CACHE_KEY);
-    return null;
-  }
-}
-
-function writeCachedSidebarCounts(counts: SidebarCounts): void {
-  if (typeof window === 'undefined') return;
-
-  window.sessionStorage.setItem(
-    SIDEBAR_COUNTS_CACHE_KEY,
-    JSON.stringify({ ...counts, cachedAt: Date.now() }),
-  );
-}
-
 const navSections: NavSection[] = [
   {
     label: 'アラート',
@@ -148,36 +108,22 @@ export function AdminSidebar() {
 
   // 承認待ち件数 / 未読通知件数 を API から取得
   useEffect(() => {
-    const cachedCounts = readCachedSidebarCounts();
-    if (cachedCounts) {
-      setApprovalCount(cachedCounts.approvalCount);
-      setUnreadCount(cachedCounts.unreadCount);
-    }
-
     async function fetchCounts() {
       try {
-        const summary = await apiClient<SidebarCounts>('/approvals/sidebar-summary');
-        const counts = {
-          approvalCount: summary.approvalCount || 0,
-          unreadCount: summary.unreadCount || 0,
-        };
-        setApprovalCount(counts.approvalCount);
-        setUnreadCount(counts.unreadCount);
-        writeCachedSidebarCounts(counts);
+        const summary = await apiClient<{ approvalCount: number; unreadCount: number }>(
+          '/approvals/sidebar-summary',
+        );
+        setApprovalCount(summary.approvalCount || 0);
+        setUnreadCount(summary.unreadCount || 0);
       } catch {
-        if (!cachedCounts) {
-          setApprovalCount(0);
-          setUnreadCount(0);
-        }
+        setApprovalCount(0);
+        setUnreadCount(0);
       }
     }
-    const timeout = window.setTimeout(fetchCounts, cachedCounts ? 1000 : 150);
-    // 画面操作中のAPI競合を減らすため、件数の自動更新はやや控えめにする
-    const interval = window.setInterval(fetchCounts, 60000);
-    return () => {
-      window.clearTimeout(timeout);
-      window.clearInterval(interval);
-    };
+    fetchCounts();
+    // 30秒ごとに再取得
+    const interval = setInterval(fetchCounts, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   return (

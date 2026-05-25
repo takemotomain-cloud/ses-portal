@@ -104,17 +104,6 @@ interface DoneItem {
   processedDate: string;
 }
 
-interface ApprovalSummary {
-  leaves: LeaveItem[];
-  expenses: ExpenseItem[];
-  changes: ChangeItem[];
-  corrections: AttendanceCorrectionItem[];
-  delayCerts: DelayCertItem[];
-  loas: LoaItem[];
-  yearends: YearendItem[];
-  doneHistory: DoneItem[];
-}
-
 /* ---------- ヘルパー ---------- */
 const leaveTypeLabel: Record<string, string> = {
   full_day: '全休',
@@ -177,15 +166,25 @@ export default function AdminApprovalsPage() {
   /* データ取得 */
   const fetchData = useCallback(async () => {
     try {
-      const summary = await apiClient<ApprovalSummary>('/approvals/pending-summary');
-      setLeaveItems(summary.leaves);
-      setExpenseItems(summary.expenses);
-      setChangeItems(summary.changes);
-      setCorrectionItems(summary.corrections);
-      setDelayCertItems(summary.delayCerts);
-      setLoaItems(summary.loas);
-      setYearendItems(summary.yearends);
-      setDone(summary.doneHistory);
+      const currentYear = new Date().getFullYear();
+      const [leaves, expenses, changes, corrections, delayCerts, loas, yearends, doneHistory] = await Promise.all([
+        apiClient<LeaveItem[]>('/leave/pending'),
+        apiClient<ExpenseItem[]>('/expense/pending'),
+        apiClient<ChangeItem[]>('/profile/change-requests/pending'),
+        apiClient<AttendanceCorrectionItem[]>('/attendance/corrections/pending'),
+        apiClient<DelayCertItem[]>('/delay-certificates/pending'),
+        apiClient<LoaItem[]>('/leave-of-absence/pending'),
+        apiClient<YearendItem[]>(`/yearend/pending/${currentYear}`),
+        apiClient<DoneItem[]>('/approvals/history?limit=100').catch(() => []),
+      ]);
+      setLeaveItems(leaves);
+      setExpenseItems(expenses);
+      setChangeItems(changes);
+      setCorrectionItems(corrections);
+      setDelayCertItems(delayCerts);
+      setLoaItems(loas);
+      setYearendItems(yearends);
+      setDone(doneHistory);
     } catch (e: any) {
       console.error('Failed to fetch approvals:', e);
     } finally {
