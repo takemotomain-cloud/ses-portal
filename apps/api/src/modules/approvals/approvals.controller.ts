@@ -23,10 +23,18 @@ export class ApprovalsController {
   @Get('history')
   @Roles('admin', 'manager', 'member')
   @ApiOperation({ summary: '処理済み承認履歴を取得' })
-  async getHistory(@Query('limit') limit?: string) {
+  async getHistory(@CurrentUser() user: RequestUser, @Query('limit') limit?: string) {
     const parsed = Number(limit);
     return this.approvalsService.getProcessedHistory(
+      user.tenantId,
       Number.isFinite(parsed) && parsed > 0 ? parsed : 100,
     );
+  }
+
+  @Get('pending-summary')
+  @Roles('admin', 'manager', 'member')
+  @ApiOperation({ summary: '承認待ちページ用の一覧をまとめて取得' })
+  async getPendingSummary(@CurrentUser() user: RequestUser) {
+    return this.approvalsService.getPendingSummary(user.tenantId);
   }
 }
