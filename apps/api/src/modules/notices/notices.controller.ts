@@ -61,6 +61,13 @@ export class NoticesController {
     return this.notices.listByEmployee(employeeId, user.tenantId);
   }
 
+  @Post('histories')
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: '複数社員の通知書発行履歴をまとめて取得' })
+  async listHistories(@Body() body: { employeeIds?: string[] }, @CurrentUser() user: RequestUser) {
+    return this.notices.listByEmployees(body.employeeIds || [], user.tenantId);
+  }
+
   @Patch(':issuanceId/workflow')
   @Roles('admin', 'manager')
   @ApiOperation({ summary: '通知書の送付・承諾ステータスを更新' })

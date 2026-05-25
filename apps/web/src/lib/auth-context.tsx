@@ -53,26 +53,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // 初回マウント: HttpOnly cookie があればユーザー情報を復元
   useEffect(() => {
-    // cookie の有無はJSから読めないため、まずAPIで確認する
-    apiClient<any>('/employees/me')
-      .then((employee) => {
-        setUser({
-          id: '',
-          employeeId: employee.id,
-          employeeCode: employee.employeeCode,
-          name: `${employee.lastName} ${employee.firstName}`,
-          email: employee.email,
-          // E: employees.findOne が user.role を返すようになった
-          role: (employee.user?.role ?? 'employee') as any,
-          employeeStatus: employee.status,
-          resignDate: employee.resignDate
-            ? String(employee.resignDate).slice(0, 10)
-            : null,
-          department: employee.department?.name || '',
-          tenantId: employee.user?.tenant?.id || '',
-          tenantName: employee.user?.tenant?.name || 'SES Portal',
-          subdomain: employee.user?.tenant?.subdomain || null,
-        } as any);
+    // cookie の有無はJSから読めないため、まず軽量APIで確認する
+    apiClient<AuthUser>('/auth/me')
+      .then((authUser) => {
+        setUser(authUser);
       })
       .catch((error: { statusCode?: number }) => {
         // 401 のときだけトークン無効として扱う。

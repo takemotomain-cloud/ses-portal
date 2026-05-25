@@ -21,6 +21,10 @@ export interface RequestUser {
   email: string;
   role: string;
   tenantId: string;
+  tenantName?: string;
+  subdomain?: string | null;
+  employeeStatus?: string;
+  resignDate?: string | null;
 }
 
 export const CurrentUser = createParamDecorator(

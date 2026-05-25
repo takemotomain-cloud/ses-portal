@@ -23,6 +23,8 @@ interface AssignmentRow {
   employeeId: string;
   settlementLower: number;
   settlementUpper: number;
+  startDate: string;
+  endDate: string | null;
   status: string;
   employee: { id: string; lastName: string; firstName: string; employeeCode: string };
   client: { id: string; name: string };
@@ -92,6 +94,14 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 
 const fieldLabel: Record<string, string> = { clockIn: '出勤', clockOut: '退勤', breakMinutes: '休憩' };
 
+function overlapsMonth(assignment: AssignmentRow, year: number, month: number) {
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+  const start = new Date(assignment.startDate);
+  const end = assignment.endDate ? new Date(assignment.endDate) : null;
+  return start <= monthEnd && (!end || end >= monthStart);
+}
+
 export default function AdminAttendancePage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -141,7 +151,9 @@ export default function AdminAttendancePage() {
           payrollMap.set(p.employeeId, p);
         }
 
-        const activeAssignments = assignments.filter(a => a.status === 'active');
+        const activeAssignments = assignments.filter(
+          (a) => a.status === 'active' && overlapsMonth(a, year, month),
+        );
 
         const rows: AttendanceRow[] = activeAssignments.map(a => {
           const payroll = payrollMap.get(a.employeeId);
@@ -231,7 +243,9 @@ export default function AdminAttendancePage() {
       const payrollMap = new Map<string, PayrollRow>();
       for (const p of payrollList) payrollMap.set(p.employeeId, p);
 
-      const rows: AttendanceRow[] = assignments.filter(a => a.status === 'active').map(a => {
+      const rows: AttendanceRow[] = assignments.filter(
+        (a) => a.status === 'active' && overlapsMonth(a, year, month),
+      ).map(a => {
         const payroll = payrollMap.get(a.employeeId);
         const lower = a.settlementLower || 140;
         const upper = a.settlementUpper || 180;

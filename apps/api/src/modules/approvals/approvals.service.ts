@@ -57,6 +57,29 @@ const changeTypeLabel: Record<string, string> = {
 export class ApprovalsService {
   constructor(private readonly db: DatabaseService) {}
 
+  async getSidebarSummary(employeeId: string, tenantId: string) {
+    const [
+      leaveCount,
+      expenseCount,
+      changeRequestCount,
+      delayCertificateCount,
+      unreadCount,
+    ] = await Promise.all([
+      this.db.leaveRequest.count({ where: { tenantId, status: 'pending' } }),
+      this.db.expenseRequest.count({ where: { tenantId, status: 'pending' } }),
+      this.db.changeRequest.count({ where: { tenantId, status: 'pending' } }),
+      this.db.delayCertificate.count({ where: { tenantId, status: 'submitted' } }),
+      this.db.notification.count({
+        where: { tenantId, employeeId, isRead: false, category: 'system' },
+      }),
+    ]);
+
+    return {
+      approvalCount: leaveCount + expenseCount + changeRequestCount + delayCertificateCount,
+      unreadCount,
+    };
+  }
+
   async getProcessedHistory(limit = 100): Promise<DoneItem[]> {
     const [
       leaves,

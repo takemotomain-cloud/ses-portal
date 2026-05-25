@@ -121,14 +121,23 @@ export class EmployeesController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'assignmentTarget', required: false, type: Boolean })
   async findAll(
     @CurrentUser() user: RequestUser,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('assignmentTarget') assignmentTarget?: string,
   ) {
-    return this.employeesService.findAll({ page, limit, search, status, tenantId: user.tenantId });
+    return this.employeesService.findAll({
+      page,
+      limit,
+      search,
+      status,
+      tenantId: user.tenantId,
+      assignmentTarget: assignmentTarget === 'true',
+    });
   }
 
   /**
