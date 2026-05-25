@@ -108,7 +108,7 @@ export default function NewAssignmentPage() {
   useEffect(() => {
     // 社員一覧とクライアント一覧を並行取得
     Promise.all([
-      apiClient<{ data: any[] }>('/employees?limit=200').catch(() => ({ data: [] })),
+      apiClient<{ data: any[] }>('/employees?limit=200&assignmentTarget=true').catch(() => ({ data: [] })),
       apiClient<{ data: any[] }>('/clients?limit=200').catch(() => ({ data: [] })),
     ]).then(async ([empRes, clientRes]) => {
       const empList = empRes.data.map((e: any) => ({

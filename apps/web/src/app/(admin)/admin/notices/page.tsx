@@ -58,6 +58,41 @@ function fmtDate(iso?: string | null) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+async function fetchNoticeRows() {
+  const res = await apiClient<{ data: EmployeeRow[] }>('/employees?limit=100&status=active');
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  const targets = (res.data || [])
+    .filter((emp) => new Date(emp.hireDate) >= cutoff)
+    .sort((a, b) => new Date(a.hireDate).getTime() - new Date(b.hireDate).getTime());
+
+  const historiesByEmployee: Record<string, NoticeHistoryItem[]> = await apiClient<Record<string, NoticeHistoryItem[]>>(
+    '/notices/histories',
+    {
+      method: 'POST',
+      body: JSON.stringify({ employeeIds: targets.map((emp) => emp.id) }),
+    },
+  ).catch(() => ({}));
+
+  return targets.map((emp) => {
+    const history = historiesByEmployee[emp.id] || [];
+    const offer =
+      history.find((item) => item.documentType === 'offer') || null;
+    const labor =
+      history.find((item) => item.documentType === 'notice_fixed') ||
+      history.find((item) => item.documentType === 'notice_open') ||
+      null;
+
+    return {
+      id: emp.id,
+      name: `${emp.lastName} ${emp.firstName}`,
+      offer,
+      labor,
+    };
+  });
+}
+
 export default function AdminNoticesPage() {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -76,34 +111,7 @@ export default function AdminNoticesPage() {
 
     (async () => {
       try {
-        const res = await apiClient<{ data: EmployeeRow[] }>('/employees?limit=100&status=active');
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 30);
-
-        const targets = (res.data || [])
-          .filter((emp) => new Date(emp.hireDate) >= cutoff)
-          .sort((a, b) => new Date(a.hireDate).getTime() - new Date(b.hireDate).getTime());
-
-        const data = await Promise.all(
-          targets.map(async (emp) => {
-            const history = await apiClient<NoticeHistoryItem[]>(
-              `/notices/history/${emp.id}`,
-            ).catch(() => []);
-            const offer =
-              history.find((item) => item.documentType === 'offer') || null;
-            const labor =
-              history.find((item) => item.documentType === 'notice_fixed') ||
-              history.find((item) => item.documentType === 'notice_open') ||
-              null;
-
-            return {
-              id: emp.id,
-              name: `${emp.lastName} ${emp.firstName}`,
-              offer,
-              labor,
-            };
-          }),
-        );
+        const data = await fetchNoticeRows();
 
         if (!cancelled) {
           setRows(data);
@@ -134,36 +142,7 @@ export default function AdminNoticesPage() {
   }, [selectedNotice]);
 
   const reloadRows = async () => {
-    const res = await apiClient<{ data: EmployeeRow[] }>('/employees?limit=100&status=active');
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-
-    const targets = (res.data || [])
-      .filter((emp) => new Date(emp.hireDate) >= cutoff)
-      .sort((a, b) => new Date(a.hireDate).getTime() - new Date(b.hireDate).getTime());
-
-    const data = await Promise.all(
-      targets.map(async (emp) => {
-        const history = await apiClient<NoticeHistoryItem[]>(
-          `/notices/history/${emp.id}`,
-        ).catch(() => []);
-        const offer =
-          history.find((item) => item.documentType === 'offer') || null;
-        const labor =
-          history.find((item) => item.documentType === 'notice_fixed') ||
-          history.find((item) => item.documentType === 'notice_open') ||
-          null;
-
-        return {
-          id: emp.id,
-          name: `${emp.lastName} ${emp.firstName}`,
-          offer,
-          labor,
-        };
-      }),
-    );
-
-    setRows(data);
+    setRows(await fetchNoticeRows());
   };
 
   const saveWorkflow = async () => {

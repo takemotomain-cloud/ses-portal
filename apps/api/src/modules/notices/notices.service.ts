@@ -151,6 +151,23 @@ export class NoticesService {
     });
   }
 
+  async listByEmployees(employeeIds: string[], tenantId: string) {
+    const uniqueEmployeeIds = [...new Set(employeeIds.filter(Boolean))];
+    if (uniqueEmployeeIds.length === 0) return {};
+
+    const issuances = await this.db.documentIssuance.findMany({
+      where: { tenantId, employeeId: { in: uniqueEmployeeIds } },
+      orderBy: { issuedAt: 'desc' },
+    });
+
+    return issuances.reduce<Record<string, typeof issuances>>((acc, issuance) => {
+      const list = acc[issuance.employeeId] || [];
+      list.push(issuance);
+      acc[issuance.employeeId] = list;
+      return acc;
+    }, {});
+  }
+
   async updateWorkflow(issuanceId: string, input: NoticeWorkflowUpdateInput) {
     const issuance = await this.db.documentIssuance.findUnique({
       where: { id: issuanceId },

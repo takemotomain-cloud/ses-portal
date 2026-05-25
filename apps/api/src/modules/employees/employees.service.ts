@@ -62,6 +62,7 @@ export class EmployeesService {
     search?: string;
     status?: string;
     tenantId: string;
+    assignmentTarget?: boolean;
   }) {
     const page = params.page || PAGINATION.DEFAULT_PAGE;
     const limit = Math.min(
@@ -84,6 +85,18 @@ export class EmployeesService {
         { firstName: { contains: params.search } },
         { employeeCode: { contains: params.search } },
       ];
+    }
+
+    if (params.assignmentTarget) {
+      const targetDepartmentIds = await this.getAssignmentTargetDepartmentIds(params.tenantId);
+      if (targetDepartmentIds.length > 0) {
+        where.departmentId = { in: targetDepartmentIds };
+      } else {
+        where.NOT = [
+          { department: { is: { code: { startsWith: 'ADMIN' } } } },
+          { department: { is: { name: { in: ['管理部', '人事・総務', '経理'] } } } },
+        ];
+      }
     }
 
     const [data, total] = await Promise.all([
@@ -133,27 +146,20 @@ export class EmployeesService {
    * 一度もアサインされたことがない社員を返す。
    */
   async findUnassigned(tenantId: string) {
-    // SES事業部（parent_idがNULL & code='SES'）配下の社員のみ
-    const sesDept = await this.db.department.findFirst({
-      where: { code: 'SES', parentId: null, tenantId },
-      select: { id: true },
-    });
-
-    const sesDeptIds: string[] = [];
-    if (sesDept) {
-      sesDeptIds.push(sesDept.id);
-      const children = await this.db.department.findMany({
-        where: { parentId: sesDept.id, tenantId },
-        select: { id: true },
-      });
-      sesDeptIds.push(...children.map((c) => c.id));
-    }
+    const targetDepartmentIds = await this.getAssignmentTargetDepartmentIds(tenantId);
 
     const where: any = {
       tenantId,
       deletedAt: null,
       assignments: { none: {} },
-      ...(sesDeptIds.length > 0 ? { departmentId: { in: sesDeptIds } } : {}),
+      ...(targetDepartmentIds.length > 0
+        ? { departmentId: { in: targetDepartmentIds } }
+        : {
+            NOT: [
+              { department: { is: { code: { startsWith: 'ADMIN' } } } },
+              { department: { is: { name: { in: ['管理部', '人事・総務', '経理'] } } } },
+            ],
+          }),
     };
 
     const [data, total] = await Promise.all([
@@ -185,6 +191,26 @@ export class EmployeesService {
       })),
       total,
     };
+  }
+
+  private async getAssignmentTargetDepartmentIds(tenantId: string) {
+    // SES事業部（parent_idがNULL & code='SES'）配下の社員のみを稼働管理対象にする。
+    // SESマスタがない環境では呼び出し側で管理部除外にフォールバックする。
+    const sesDept = await this.db.department.findFirst({
+      where: { code: 'SES', parentId: null, tenantId },
+      select: { id: true },
+    });
+
+    const sesDeptIds: string[] = [];
+    if (sesDept) {
+      sesDeptIds.push(sesDept.id);
+      const children = await this.db.department.findMany({
+        where: { parentId: sesDept.id, tenantId },
+        select: { id: true },
+      });
+      sesDeptIds.push(...children.map((c) => c.id));
+    }
+    return sesDeptIds;
   }
 
   /**

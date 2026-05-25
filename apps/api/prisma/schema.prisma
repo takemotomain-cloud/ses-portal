@@ -882,6 +882,8 @@ model Notification {
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, employeeId])
+  @@index([tenantId, employeeId, category, isRead], map: "idx_notifications_tenant_employee_category_unread")
+  @@index([tenantId, category, createdAt], map: "idx_notifications_tenant_category_created_at")
   @@map("notifications")
 }
 
@@ -1200,6 +1202,7 @@ model DelayCertificate {
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, employeeId])
+  @@index([tenantId, status], map: "idx_delay_certificates_tenant_status")
   @@map("delay_certificates")
 }
 

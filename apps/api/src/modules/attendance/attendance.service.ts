@@ -1255,7 +1255,7 @@ export class AttendanceService {
 
     // confirmed済みの社員も含めるため全attendanceを取得
     const allAttendances = await this.db.attendance.findMany({
-      where: { workDate: { gte: startDate, lte: endDate } },
+      where: { tenantId, workDate: { gte: startDate, lte: endDate } },
       select: { employeeId: true },
       distinct: ['employeeId'],
     });
@@ -1264,7 +1264,7 @@ export class AttendanceService {
     const attendanceInputSet = new Set(allAttendances.map((a) => a.employeeId));
 
     const expenseRequests = await this.db.expenseRequest.findMany({
-      where: { targetMonth: ym },
+      where: { tenantId, targetMonth: ym },
       select: { employeeId: true },
       distinct: ['employeeId'],
     });
@@ -1272,6 +1272,24 @@ export class AttendanceService {
     expenseRequests.forEach((e) => allEmployeeIds.add(e.employeeId));
 
     uploads.forEach(u => allEmployeeIds.add(u.employeeId));
+
+    // 入社月より前の社員は当月勤怠の対象外。
+    // 過去月の確定時に、後から入社登録した社員が未確定扱いになるのを防ぐ。
+    const eligibleEmployees = await this.db.employee.findMany({
+      where: {
+        tenantId,
+        id: { in: [...allEmployeeIds] },
+        hireDate: { lte: endDate },
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    const eligibleEmployeeIds = new Set(eligibleEmployees.map((e) => e.id));
+    for (const employeeId of [...allEmployeeIds]) {
+      if (!eligibleEmployeeIds.has(employeeId)) {
+        allEmployeeIds.delete(employeeId);
+      }
+    }
 
     // アクティブな案件の現場勤怠要否を取得
     const activeAssignments = await this.db.assignment.findMany({
@@ -1352,9 +1370,16 @@ export class AttendanceService {
       },
     });
 
-    // 在籍社員（admin 以外）を取得
+    const monthEnd = new Date(Date.UTC(year, month, 0));
+
+    // 在籍社員（admin 以外）を取得。入社月より前の社員は対象外。
     const employees = await this.db.employee.findMany({
-      where: { status: 'active', deletedAt: null, tenantId },
+      where: {
+        status: 'active',
+        deletedAt: null,
+        tenantId,
+        hireDate: { lte: monthEnd },
+      },
       include: {
         user: { select: { role: true } },
         department: { select: { name: true } },
@@ -1594,7 +1619,12 @@ export class AttendanceService {
 
     // 在籍社員を全取得
     const employees = await this.db.employee.findMany({
-      where: { status: 'active', deletedAt: null, tenantId },
+      where: {
+        status: 'active',
+        deletedAt: null,
+        tenantId,
+        hireDate: { lte: endDate },
+      },
       include: {
         user: { select: { role: true } },
         department: { select: { name: true } },

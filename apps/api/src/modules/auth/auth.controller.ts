@@ -68,6 +68,26 @@ function extractMeta(req: Request): { ipAddress?: string; userAgent?: string } {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'ログイン中ユーザー情報を取得' })
+  async me(@CurrentUser() user: RequestUser) {
+    return {
+      id: user.userId,
+      employeeId: user.employeeId,
+      employeeCode: user.employeeCode,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      employeeStatus: user.employeeStatus ?? 'active',
+      resignDate: user.resignDate ?? null,
+      tenantId: user.tenantId,
+      tenantName: user.tenantName ?? 'SES Portal',
+      subdomain: user.subdomain ?? null,
+    };
+  }
+
   /**
    * ログイン
    *

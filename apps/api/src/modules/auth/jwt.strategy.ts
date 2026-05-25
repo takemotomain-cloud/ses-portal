@@ -73,7 +73,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             firstName: true,
             email: true,
             status: true,
+            resignDate: true,
             deletedAt: true,
+          },
+        },
+        tenant: {
+          select: {
+            name: true,
+            subdomain: true,
           },
         },
       },
@@ -103,6 +110,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.employee.email,
       role: user.role,
       tenantId: user.tenantId,
+      tenantName: user.tenant.name,
+      subdomain: user.tenant.subdomain,
+      employeeStatus: user.employee.status,
+      resignDate: user.employee.resignDate
+        ? user.employee.resignDate.toISOString().slice(0, 10)
+        : null,
     };
   }
 }
