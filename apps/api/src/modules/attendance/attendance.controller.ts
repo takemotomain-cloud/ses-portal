@@ -153,6 +153,12 @@ export class AttendanceController {
     return this.attendanceService.getMyAlerts(user.employeeId, user.tenantId);
   }
 
+  @Get('mypage-summary')
+  @ApiOperation({ summary: '社員マイページ初期表示用データをまとめて取得' })
+  async getMyPageSummary(@CurrentUser() user: RequestUser) {
+    return this.attendanceService.getMyPageSummary(user.employeeId, user.tenantId);
+  }
+
   @Get('alerts/admin')
   @UseGuards(RolesGuard)
   @Roles('admin')

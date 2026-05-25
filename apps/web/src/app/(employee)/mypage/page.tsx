@@ -38,6 +38,12 @@ interface MyAlerts {
   attendanceGaps: { date: string }[];
 }
 
+interface MyPageSummary {
+  notices: Notice[];
+  today: { clockIn: string | null; clockOut: string | null };
+  alerts: MyAlerts;
+}
+
 interface ShiftDay {
   day: number;
   isWorkDay: boolean;
@@ -118,37 +124,19 @@ export default function MyPage() {
     return () => clearInterval(id);
   }, []);
 
-  // お知らせ取得
+  // 初期表示に必要なデータをまとめて取得
   useEffect(() => {
-    apiClient<Notice[]>('/notifications?audience=employee')
-      .then(setNotices)
-      .catch(() => setNotices([]));
-  }, []);
-
-  // 今日の打刻状況を取得（マウント時に初期化）
-  // 出勤済み かつ 退勤未済 → 'clocked_in'、それ以外 → 'idle'
-  useEffect(() => {
-    apiClient<{ clockIn: string | null; clockOut: string | null }>('/attendance/today')
-      .then((res) => {
-        if (res.clockIn && !res.clockOut) {
-          setClockStatus('clocked_in');
-        } else {
-          setClockStatus('idle');
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // アラート取得
-  useEffect(() => {
-    apiClient<MyAlerts>('/attendance/alerts/my')
-      .then((data) => {
-        setAlerts(data);
-        if (data.shiftUnconfirmed) {
+    apiClient<MyPageSummary>('/attendance/mypage-summary')
+      .then((summary) => {
+        setNotices(summary.notices);
+        setClockStatus(summary.today.clockIn && !summary.today.clockOut ? 'clocked_in' : 'idle');
+        setAlerts(summary.alerts);
+        if (summary.alerts.shiftUnconfirmed) {
           setShowShiftConfirm(true);
         }
-      })
-      .catch(() => {});
+      }).catch(() => {
+        setNotices([]);
+      });
   }, []);
 
   // シフト「いいえ」→ カスタム日設定の初期化

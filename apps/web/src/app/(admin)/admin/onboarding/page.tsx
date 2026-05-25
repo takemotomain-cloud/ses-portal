@@ -180,50 +180,7 @@ export default function AdminOnboardingPage() {
   const router = useRouter();
 
   const loadPeople = useCallback(async () => {
-    const res = await apiClient<{ data: EmployeeListRow[] }>(
-      '/employees?limit=100&status=active',
-    );
-
-    const now = new Date();
-    const cutoff = new Date(now);
-    cutoff.setDate(cutoff.getDate() - 30);
-
-    const targets = (res.data || [])
-      .filter((emp) => new Date(emp.hireDate) >= cutoff)
-      .sort((a, b) => new Date(a.hireDate).getTime() - new Date(b.hireDate).getTime());
-
-    return Promise.all(
-      targets.map(async (emp) => {
-        const [detail, docs, notices, manualStatusesList] = await Promise.all([
-          apiClient<EmployeeDetailSnapshot>(`/employees/${emp.id}`),
-          apiClient<OnboardingDocumentInfo[]>(`/onboarding-documents/${emp.id}`).catch(() => []),
-          apiClient<NoticeHistoryItem[]>(`/notices/history/${emp.id}`).catch(() => []),
-          apiClient<ManualCheckStatus[]>(`/onboarding-check-statuses/${emp.id}`).catch(() => []),
-        ]);
-
-        const { statuses, formStatus } = buildStatuses(
-          detail,
-          docs,
-          notices,
-          manualStatusesList,
-        );
-
-        return {
-          id: emp.id,
-          employeeCode: emp.employeeCode,
-          name: `${emp.lastName} ${emp.firstName}`,
-          hireDateLabel: new Date(emp.hireDate).toLocaleDateString('ja-JP', {
-            year: 'numeric',
-            month: 'long',
-          }),
-          statuses,
-          formStatus,
-          manualStatuses: Object.fromEntries(
-            manualStatusesList.map((status) => [status.itemKey, status]),
-          ),
-        };
-      }),
-    );
+    return apiClient<OnboardingPerson[]>('/onboarding-documents/summary/recent');
   }, []);
 
   function openManualCheck(person: OnboardingPerson, itemKey: string) {

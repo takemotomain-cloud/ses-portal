@@ -1,9 +1,0 @@
-{
-  "cleanUrls": true,
-  "rewrites": [
-    {
-      "source": "/api/:match*",
-      "destination": "https://ses-portalapi-production.up.railway.app/api/:match*"
-    }
-  ]
-}

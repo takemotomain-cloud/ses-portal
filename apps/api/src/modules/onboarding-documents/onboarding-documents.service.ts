@@ -26,6 +26,8 @@ export const ONBOARDING_DOCUMENT_TYPES = [
 ] as const;
 export type OnboardingDocumentType = (typeof ONBOARDING_DOCUMENT_TYPES)[number];
 
+type CheckState = 'done' | 'pending' | 'na';
+
 const CATEGORY_FOLDER: Record<OnboardingDocumentType, string> = {
   license_front: '本人確認書類',
   license_back: '本人確認書類',
@@ -152,6 +154,144 @@ export class OnboardingDocumentsService {
     return this.db.onboardingDocument.findMany({
       where: { employeeId, tenantId },
       orderBy: { uploadedAt: 'desc' },
+    });
+  }
+
+  async getRecentOnboardingSummary(tenantId: string) {
+    const now = new Date();
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - 30);
+
+    const employees = await this.db.employee.findMany({
+      where: {
+        tenantId,
+        status: 'active',
+        hireDate: { gte: cutoff },
+      },
+      orderBy: { hireDate: 'asc' },
+      take: 100,
+      select: {
+        id: true,
+        employeeCode: true,
+        lastName: true,
+        firstName: true,
+        hireDate: true,
+        bankName: true,
+        bankBranch: true,
+        bankAccountType: true,
+        bankAccountNumber: true,
+        bankAccountHolder: true,
+        qualifications: true,
+        emergencyContacts: {
+          select: { id: true, name: true, phone: true },
+        },
+        dependents: {
+          where: { deletedAt: null, isActive: true },
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    const employeeIds = employees.map((employee) => employee.id);
+    if (employeeIds.length === 0) return [];
+
+    const [documents, issuances, manualStatuses] = await Promise.all([
+      this.db.onboardingDocument.findMany({
+        where: { tenantId, employeeId: { in: employeeIds } },
+        select: { employeeId: true, documentType: true },
+      }),
+      this.db.documentIssuance.findMany({
+        where: { tenantId, employeeId: { in: employeeIds } },
+        select: { employeeId: true, documentType: true },
+      }),
+      this.db.onboardingCheckStatus.findMany({
+        where: { employeeId: { in: employeeIds } },
+      }),
+    ]);
+
+    const documentsByEmployee = new Map<string, Set<string>>();
+    for (const doc of documents) {
+      if (!documentsByEmployee.has(doc.employeeId)) {
+        documentsByEmployee.set(doc.employeeId, new Set());
+      }
+      documentsByEmployee.get(doc.employeeId)!.add(doc.documentType);
+    }
+
+    const issuancesByEmployee = new Map<string, Set<string>>();
+    for (const issuance of issuances) {
+      if (!issuancesByEmployee.has(issuance.employeeId)) {
+        issuancesByEmployee.set(issuance.employeeId, new Set());
+      }
+      issuancesByEmployee.get(issuance.employeeId)!.add(issuance.documentType);
+    }
+
+    const manualStatusesByEmployee = new Map<string, typeof manualStatuses>();
+    for (const status of manualStatuses) {
+      if (!manualStatusesByEmployee.has(status.employeeId)) {
+        manualStatusesByEmployee.set(status.employeeId, []);
+      }
+      manualStatusesByEmployee.get(status.employeeId)!.push(status);
+    }
+
+    return employees.map((employee) => {
+      const docTypes = documentsByEmployee.get(employee.id) || new Set<string>();
+      const noticeTypes = issuancesByEmployee.get(employee.id) || new Set<string>();
+      const employeeManualStatuses = manualStatusesByEmployee.get(employee.id) || [];
+      const manualStatusMap = new Map(employeeManualStatuses.map((status) => [status.itemKey, status]));
+
+      const autoStatuses: Record<string, CheckState> = {
+        offer: noticeTypes.has('offer') ? 'done' : 'pending',
+        labor: noticeTypes.has('notice_fixed') || noticeTypes.has('notice_open') ? 'done' : 'pending',
+        identity: docTypes.has('license_front') && docTypes.has('license_back') ? 'done' : 'pending',
+        mynumber: docTypes.has('mynumber_front') && docTypes.has('mynumber_back') ? 'done' : 'pending',
+        pension: docTypes.has('pension_book') ? 'done' : 'pending',
+        resident: docTypes.has('resident_record') ? 'done' : 'pending',
+        employmentInsurance: docTypes.has('employment_insurance_certificate') ? 'done' : 'pending',
+        bank:
+          employee.bankName &&
+          employee.bankBranch &&
+          employee.bankAccountType &&
+          employee.bankAccountNumber &&
+          employee.bankAccountHolder
+            ? 'done'
+            : 'pending',
+        emergency: employee.emergencyContacts.some((item) => item.name && item.phone) ? 'done' : 'pending',
+        dependents: employee.dependents.length > 0 ? 'done' : 'na',
+        qualifications: this.hasAnyQualification(employee.qualifications) ? 'done' : 'na',
+      };
+
+      const statuses = Object.fromEntries(
+        Object.entries(autoStatuses).map(([key, value]) => [
+          key,
+          manualStatusMap.has(key) ? 'done' : value,
+        ]),
+      ) as Record<string, CheckState>;
+
+      return {
+        id: employee.id,
+        employeeCode: employee.employeeCode,
+        name: `${employee.lastName} ${employee.firstName}`,
+        hireDateLabel: employee.hireDate.toLocaleDateString('ja-JP', {
+          year: 'numeric',
+          month: 'long',
+        }),
+        statuses,
+        formStatus: Object.values(statuses).every((status) => status !== 'pending') ? 'done' : 'pending',
+        manualStatuses: Object.fromEntries(
+          employeeManualStatuses.map((status) => [status.itemKey, status]),
+        ),
+      };
+    });
+  }
+
+  private hasAnyQualification(value: unknown) {
+    if (!Array.isArray(value)) return false;
+    return value.some((item) => {
+      if (typeof item === 'string') return item.trim().length > 0;
+      if (item && typeof item === 'object' && 'name' in item) {
+        return typeof item.name === 'string' && item.name.trim().length > 0;
+      }
+      return false;
     });
   }
 }

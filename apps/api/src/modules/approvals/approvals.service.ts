@@ -80,7 +80,75 @@ export class ApprovalsService {
     };
   }
 
-  async getProcessedHistory(limit = 100): Promise<DoneItem[]> {
+  async getPendingSummary(tenantId: string) {
+    const currentYear = new Date().getFullYear();
+    const [
+      leaves,
+      expenses,
+      changes,
+      corrections,
+      delayCerts,
+      loas,
+      yearends,
+      doneHistory,
+    ] = await Promise.all([
+      this.db.leaveRequest.findMany({
+        where: { tenantId, status: 'pending' },
+        include: { employee: { select: { lastName: true, firstName: true, employeeCode: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.db.expenseRequest.findMany({
+        where: { tenantId, status: 'pending' },
+        include: {
+          employee: { select: { lastName: true, firstName: true, employeeCode: true } },
+          items: { orderBy: { sortOrder: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.db.changeRequest.findMany({
+        where: { tenantId, status: 'pending' },
+        include: { employee: { select: { lastName: true, firstName: true, employeeCode: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.db.attendanceCorrection.findMany({
+        where: { tenantId, status: 'pending' },
+        include: {
+          employee: { select: { lastName: true, firstName: true, employeeCode: true } },
+          attendance: { select: { workDate: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.db.delayCertificate.findMany({
+        where: { tenantId, status: 'submitted' },
+        include: { employee: { select: { lastName: true, firstName: true, employeeCode: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.db.leaveOfAbsence.findMany({
+        where: { tenantId, status: { in: ['pending', 'return_pending'] } },
+        include: { employee: { select: { lastName: true, firstName: true, employeeCode: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.db.yearendAdjustment.findMany({
+        where: { tenantId, fiscalYear: currentYear, status: 'submitted' },
+        include: { employee: { select: { employeeCode: true, lastName: true, firstName: true } } },
+        orderBy: { submittedAt: 'asc' },
+      }),
+      this.getProcessedHistory(tenantId, 100),
+    ]);
+
+    return {
+      leaves,
+      expenses,
+      changes,
+      corrections,
+      delayCerts,
+      loas,
+      yearends,
+      doneHistory,
+    };
+  }
+
+  async getProcessedHistory(tenantId: string, limit = 100): Promise<DoneItem[]> {
     const [
       leaves,
       expenses,
@@ -91,7 +159,7 @@ export class ApprovalsService {
       yearends,
     ] = await Promise.all([
       this.db.leaveRequest.findMany({
-        where: { status: { in: ['approved', 'rejected'] } },
+        where: { tenantId, status: { in: ['approved', 'rejected'] } },
         take: limit,
         orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
@@ -107,7 +175,7 @@ export class ApprovalsService {
         },
       }),
       this.db.expenseRequest.findMany({
-        where: { status: { in: ['approved', 'rejected'] } },
+        where: { tenantId, status: { in: ['approved', 'rejected'] } },
         take: limit,
         orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
@@ -121,7 +189,7 @@ export class ApprovalsService {
         },
       }),
       this.db.changeRequest.findMany({
-        where: { status: { in: ['approved', 'rejected'] } },
+        where: { tenantId, status: { in: ['approved', 'rejected'] } },
         take: limit,
         orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
@@ -136,7 +204,7 @@ export class ApprovalsService {
         },
       }),
       this.db.attendanceCorrection.findMany({
-        where: { status: { in: ['approved', 'rejected'] } },
+        where: { tenantId, status: { in: ['approved', 'rejected'] } },
         take: limit,
         orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
@@ -155,7 +223,7 @@ export class ApprovalsService {
         },
       }),
       this.db.delayCertificate.findMany({
-        where: { status: 'confirmed' },
+        where: { tenantId, status: 'confirmed' },
         take: limit,
         orderBy: [{ confirmedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
@@ -168,7 +236,7 @@ export class ApprovalsService {
         },
       }),
       this.db.leaveOfAbsence.findMany({
-        where: { status: { in: ['on_leave', 'rejected', 'returned'] } },
+        where: { tenantId, status: { in: ['on_leave', 'rejected', 'returned'] } },
         take: limit,
         orderBy: [{ returnApprovedAt: 'desc' }, { approvedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
@@ -185,7 +253,7 @@ export class ApprovalsService {
         },
       }),
       this.db.yearendAdjustment.findMany({
-        where: { status: { in: ['approved', 'rejected'] } },
+        where: { tenantId, status: { in: ['approved', 'rejected'] } },
         take: limit,
         orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
         select: {
