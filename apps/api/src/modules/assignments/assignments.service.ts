@@ -104,7 +104,7 @@ export class AssignmentsService {
         where,
         include: {
           employee: {
-            select: { id: true, lastName: true, firstName: true, employeeCode: true },
+            select: { id: true, lastName: true, firstName: true, employeeCode: true, hireDate: true },
           },
           client: {
             select: { id: true, name: true },

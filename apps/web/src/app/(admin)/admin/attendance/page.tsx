@@ -26,7 +26,7 @@ interface AssignmentRow {
   startDate: string;
   endDate: string | null;
   status: string;
-  employee: { id: string; lastName: string; firstName: string; employeeCode: string };
+  employee: { id: string; lastName: string; firstName: string; employeeCode: string; hireDate: string };
   client: { id: string; name: string };
 }
 
@@ -97,9 +97,10 @@ const fieldLabel: Record<string, string> = { clockIn: '出勤', clockOut: '退�
 function overlapsMonth(assignment: AssignmentRow, year: number, month: number) {
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+  const hireDate = new Date(assignment.employee.hireDate);
   const start = new Date(assignment.startDate);
   const end = assignment.endDate ? new Date(assignment.endDate) : null;
-  return start <= monthEnd && (!end || end >= monthStart);
+  return hireDate <= monthEnd && start <= monthEnd && (!end || end >= monthStart);
 }
 
 export default function AdminAttendancePage() {
