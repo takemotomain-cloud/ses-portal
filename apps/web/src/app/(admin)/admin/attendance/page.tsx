@@ -94,13 +94,31 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 
 const fieldLabel: Record<string, string> = { clockIn: '出勤', clockOut: '退勤', breakMinutes: '休憩' };
 
+function toJstDateKey(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function monthDateKey(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
 function overlapsMonth(assignment: AssignmentRow, year: number, month: number) {
-  const monthStart = new Date(year, month - 1, 1);
-  const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-  const hireDate = new Date(assignment.employee.hireDate);
-  const start = new Date(assignment.startDate);
-  const end = assignment.endDate ? new Date(assignment.endDate) : null;
-  return hireDate <= monthEnd && start <= monthEnd && (!end || end >= monthStart);
+  const monthStart = monthDateKey(year, month);
+  const nextMonthStart = month === 12 ? monthDateKey(year + 1, 1) : monthDateKey(year, month + 1);
+  const hireDate = toJstDateKey(assignment.employee.hireDate);
+  const start = toJstDateKey(assignment.startDate);
+  const end = toJstDateKey(assignment.endDate);
+
+  return Boolean(
+    hireDate &&
+    start &&
+    hireDate < nextMonthStart &&
+    start < nextMonthStart &&
+    (!end || end >= monthStart),
+  );
 }
 
 export default function AdminAttendancePage() {
@@ -136,7 +154,8 @@ export default function AdminAttendancePage() {
     async function fetchData() {
       try {
         const [assignRes, payrollRes, statusRes, closureRes] = await Promise.all([
-          apiClient<{ data: AssignmentRow[] }>('/assignments?limit=200').catch(() => ({ data: [] as AssignmentRow[] })),
+          apiClient<{ data: AssignmentRow[] }>(`/assignments?limit=200&status=active&year=${year}&month=${month}`)
+            .catch(() => ({ data: [] as AssignmentRow[] })),
           apiClient<PayrollRow[]>(`/payroll/${year}/${month}`).catch(() => [] as PayrollRow[]),
           apiClient<Record<string, MonthlyStatusItem>>(`/attendance/admin/status/${year}/${month}`).catch(() => ({})),
           apiClient<ClosureStatus>(`/attendance/admin/closure/${year}/${month}`).catch(() => null as any),

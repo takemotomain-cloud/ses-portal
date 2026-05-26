@@ -65,8 +65,10 @@ export class AssignmentsController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('status') status?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
   ) {
-    return this.assignmentsService.findAll({ page, limit, status, tenantId: user.tenantId });
+    return this.assignmentsService.findAll({ page, limit, status, year, month, tenantId: user.tenantId });
   }
 
   /**
