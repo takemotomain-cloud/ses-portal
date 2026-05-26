@@ -62,7 +62,7 @@ export default function LoginPage() {
                   type="text"
                   required
                   autoFocus
-                  placeholder="例: lervia"
+                  placeholder="例: test"
                   value={subdomain}
                   onChange={(e) => {
                     setSubdomain(e.target.value);
@@ -74,7 +74,7 @@ export default function LoginPage() {
                            text-md font-bold text-primary placeholder:text-secondary/30"
                 />
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-secondary/30 group-focus-within:text-primary transition-colors">
-                  .ses-portal.jp
+                  .sauros.co.jp
                 </div>
               </div>
               {error && (
