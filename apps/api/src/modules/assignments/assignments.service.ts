@@ -18,6 +18,10 @@ import { PAGINATION } from '@ses-portal/shared';
 // デフォルトテナントID（シングルテナント運用時の暫定値、JWT導入後に忠実な値へ置厰）
 const SYSTEM_TENANT_ID = process.env.SYSTEM_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
 
+function dateOnlyJst(year: number, month: number, day: number) {
+  return new Date(Date.UTC(year, month - 1, day) - 9 * 60 * 60 * 1000);
+}
+
 @Injectable()
 export class AssignmentsService {
   private readonly logger = new Logger(AssignmentsService.name);
@@ -84,6 +88,8 @@ export class AssignmentsService {
     page?: number;
     limit?: number;
     status?: string;
+    year?: string;
+    month?: string;
     tenantId: string;
   }) {
     const { tenantId } = params;
@@ -97,6 +103,32 @@ export class AssignmentsService {
     const where: any = { tenantId, deletedAt: null };
     if (params.status) {
       where.status = params.status;
+    }
+    const targetYear = Number(params.year);
+    const targetMonth = Number(params.month);
+    if (
+      Number.isInteger(targetYear) &&
+      Number.isInteger(targetMonth) &&
+      targetMonth >= 1 &&
+      targetMonth <= 12
+    ) {
+      const monthStart = dateOnlyJst(targetYear, targetMonth, 1);
+      const nextMonthStart =
+        targetMonth === 12
+          ? dateOnlyJst(targetYear + 1, 1, 1)
+          : dateOnlyJst(targetYear, targetMonth + 1, 1);
+
+      where.startDate = { lt: nextMonthStart };
+      where.OR = [
+        { endDate: null },
+        { endDate: { gte: monthStart } },
+      ];
+      where.employee = {
+        is: {
+          hireDate: { lt: nextMonthStart },
+          deletedAt: null,
+        },
+      };
     }
 
     const [data, total] = await Promise.all([
