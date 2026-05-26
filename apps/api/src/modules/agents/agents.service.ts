@@ -67,7 +67,7 @@ export class AgentsService {
   private anthropic: Anthropic | null = null;
 
   // 既存 business-cards / reconciliation と揃える
-  private readonly model = 'claude-sonnet-4-20250514';
+  private readonly model = 'claude-3-5-sonnet-20241022';
 
   constructor(
     private readonly config: ConfigService,
