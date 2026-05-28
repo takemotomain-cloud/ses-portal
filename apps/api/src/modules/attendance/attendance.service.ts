@@ -34,6 +34,13 @@ function toHHMM(date: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** JST基準の当日日付(UTC 00:00)を生成するヘルパー */
+function getJstTodayMidnight(): Date {
+  const now = new Date();
+  const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return new Date(Date.UTC(jstTime.getUTCFullYear(), jstTime.getUTCMonth(), jstTime.getUTCDate()));
+}
+
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
@@ -52,8 +59,7 @@ export class AttendanceService {
    * レコードが存在しない場合は両方 null を返す。
    */
   async getToday(employeeId: string, tenantId: string): Promise<{ clockIn: string | null; clockOut: string | null }> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
 
     const record = await this.db.attendance.findUnique({
       where: {
@@ -79,8 +85,7 @@ export class AttendanceService {
    * 同日にレコードが既に存在する場合はエラー。
    */
   async clockIn(employeeId: string, tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
 
     const record = await this.db.attendance.findUnique({
       where: {
@@ -126,8 +131,7 @@ export class AttendanceService {
    * 既に出勤済み（clockInあり）の場合はエラー。
    */
   async markAbsent(employeeId: string, tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
 
     const existing = await this.db.attendance.findUnique({
       where: {
@@ -210,8 +214,7 @@ export class AttendanceService {
    * 退勤時に稼働時間と残業時間を自動計算する。
    */
   async clockOut(employeeId: string, tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
 
     const record = await this.db.attendance.findUnique({
       where: {
@@ -354,8 +357,7 @@ export class AttendanceService {
    * 日次バッチまたはログイン時に呼び出す。
    */
   async detectMissedClocks(employeeId: string, tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
 
     return this.db.attendance.findMany({
       where: {
@@ -694,8 +696,7 @@ export class AttendanceService {
    * 自分のアラート一覧
    */
   async getMyAlerts(employeeId: string, tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
     const now = new Date();
     const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -848,8 +849,7 @@ export class AttendanceService {
    * 管理者用: 全社員のアラート集約
    */
   async getAdminAlerts(tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getJstTodayMidnight();
     const now = new Date();
     const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);

@@ -261,8 +261,7 @@ export default function AttendancePage() {
   const fullCalendar = useMemo<CalendarDay[]>(() => {
     const recordMap = new Map<string, AttendanceRecord>();
     for (const r of records) {
-      const d = new Date(r.date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const key = r.date.slice(0, 10);
       recordMap.set(key, r);
     }
 
